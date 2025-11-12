@@ -1,0 +1,62 @@
+.env
+.env.*
+.python-version
+local_settings.py
+
+# Python caches and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+
+# Distribution / packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+sdist/
+wheels/
+
+# Django local database and media
+db.sqlite3
+*.sqlite3
+media/
+
+# Virtual environments
+venv/
+.venv/
+env/
+.envrc
+
+# Testing and coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# IDE and tooling
+.vscode/
+.idea/
+.vs/
+
+# Logs and temp files
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+*.orig
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Frontend / Node
+node_modules/
+
