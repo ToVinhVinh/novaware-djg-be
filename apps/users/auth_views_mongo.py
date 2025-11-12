@@ -13,7 +13,7 @@ from apps.utils import api_error, api_success
 
 from .authentication import MongoEngineTokenObtainPairSerializer
 from .mongo_models import PasswordResetAudit, User
-from .serializers import (
+from .mongo_serializers import (
     PasswordResetConfirmSerializer,
     PasswordResetRequestSerializer,
     RegisterSerializer,
@@ -25,13 +25,14 @@ class MongoEngineTokenObtainPairView(APIView):
     """View để lấy JWT token với MongoEngine User."""
     
     permission_classes = [permissions.AllowAny]
+    authentication_classes: list = []
     
     def post(self, request, *args, **kwargs):
         serializer = MongoEngineTokenObtainPairSerializer()
         try:
             data = serializer.validate(request.data)
             return api_success(
-                "Đăng nhập thành công.",
+                "Login successfully.",
                 {
                     "tokens": data,
                 },

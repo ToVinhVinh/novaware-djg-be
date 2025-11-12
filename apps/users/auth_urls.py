@@ -14,6 +14,7 @@ from .auth_views_mongo import (
 urlpatterns = [
     path("register/", RegisterView.as_view(), name="auth-register"),
     path("login/", MongoEngineTokenObtainPairView.as_view(), name="auth-login"),
+    path("login", MongoEngineTokenObtainPairView.as_view(), name="auth-login-no-slash"),  # Support both with and without slash
     path("refresh/", TokenRefreshView.as_view(), name="auth-refresh"),
     path("password/reset/", PasswordResetRequestView.as_view(), name="auth-password-reset"),
     path("password/reset/confirm/", PasswordResetConfirmView.as_view(), name="auth-password-reset-confirm"),

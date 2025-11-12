@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Tuple
 
 from rest_framework import authentication, exceptions
+from rest_framework.request import Request
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 
@@ -15,6 +16,36 @@ from .mongo_models import User
 
 class MongoEngineJWTAuthentication(JWTAuthentication):
     """JWT Authentication backend cho MongoEngine User model."""
+    
+    def authenticate(self, request: Request) -> Optional[Tuple[User, dict]]:
+        """
+        Override authenticate để hỗ trợ lấy token từ nhiều nguồn hơn.
+        
+        Ưu tiên header chuẩn theo SimpleJWT. Nếu không có, thử đọc từ query params
+        hoặc cookies để tương thích với các client cũ.
+        """
+        # Thử xác thực với cơ chế mặc định (Authorization header)
+        auth_result = super().authenticate(request)
+        if auth_result is not None:
+            return auth_result
+        
+        # Fallback: query parameter ?token=... hoặc ?access_token=...
+        raw_token = (
+            request.query_params.get("token")
+            or request.query_params.get("access_token")
+            or request.COOKIES.get("access_token")
+            or request.COOKIES.get("jwt")
+        )
+        
+        if not raw_token:
+            return None
+        
+        try:
+            validated_token = self.get_validated_token(raw_token)
+        except (InvalidToken, TokenError) as exc:
+            raise exceptions.AuthenticationFailed(str(exc))
+        
+        return self.get_user(validated_token), validated_token
     
     def get_user(self, validated_token):
         """
@@ -76,13 +107,14 @@ class MongoEngineTokenObtainPairSerializer:
     
     def get_token(self, user):
         """Tạo JWT token cho user."""
+        from rest_framework_simplejwt.settings import api_settings
         from rest_framework_simplejwt.tokens import RefreshToken
         
-        token = RefreshToken()
-        token["user_id"] = str(user.id)
+        token = RefreshToken.for_user(user)
+        user_id_claim = api_settings.USER_ID_CLAIM
+        token[user_id_claim] = str(user.id)
         token["email"] = user.email
         token["is_admin"] = user.is_admin
-        
         return token
 
 
@@ -95,7 +127,7 @@ class MongoEngineTokenObtainPairView:
         serializer = self.serializer_class()
         data = serializer.validate(request.data)
         return api_success(
-            "Đăng nhập thành công.",
+            "Login successfully.",
             {
                 "tokens": data,
             },

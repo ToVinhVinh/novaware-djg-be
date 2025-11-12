@@ -15,52 +15,58 @@ class User(me.Document):
     meta = {
         "collection": "users",
         "indexes": ["email", "amazon_user_id"],
+        "strict": False,
     }
     
     # Thông tin cơ bản
-    name = fields.StringField(required=True)
-    email = fields.EmailField(required=True, unique=True)
-    password = fields.StringField(required=False)
-    username = fields.StringField(required=False, unique=True, sparse=True)
-    first_name = fields.StringField(max_length=150)
-    last_name = fields.StringField(max_length=150)
-    is_admin = fields.BooleanField(default=False, required=True)
-    is_active = fields.BooleanField(default=True, required=True)
+    name = fields.StringField(required=True, db_field="name")
+    email = fields.EmailField(required=True, unique=True, db_field="email")
+    password = fields.StringField(required=False, db_field="password")
+    username = fields.StringField(required=False, unique=True, sparse=True, db_field="username")
+    first_name = fields.StringField(max_length=150, db_field="firstName")
+    last_name = fields.StringField(max_length=150, db_field="lastName")
+    is_admin = fields.BooleanField(default=False, required=True, db_field="isAdmin")
+    is_active = fields.BooleanField(default=True, required=True, db_field="isActive")
     
     # Thông tin cá nhân
-    height = fields.FloatField(null=True)
-    weight = fields.FloatField(null=True)
+    height = fields.FloatField(null=True, db_field="height")
+    weight = fields.FloatField(null=True, db_field="weight")
     gender = fields.StringField(
         choices=["male", "female", "other"],
         null=True,
+        db_field="gender",
     )
     age = fields.IntField(
         min_value=13,
         max_value=100,
         null=True,
+        db_field="age",
     )
     
     # Reset password
-    reset_password_token = fields.StringField(null=True)
-    reset_password_expire = fields.DateTimeField(null=True)
-    unhashed_reset_password_token = fields.StringField(null=True)
+    reset_password_token = fields.StringField(null=True, db_field="resetPasswordToken")
+    reset_password_expire = fields.DateTimeField(null=True, db_field="resetPasswordExpire")
+    unhashed_reset_password_token = fields.StringField(null=True, db_field="unhashedResetPasswordToken")
     
     # Favorites (sẽ là list ObjectId reference đến Product)
-    favorites = fields.ListField(fields.ObjectIdField(), default=list)
+    favorites = fields.ListField(fields.ObjectIdField(), default=list, db_field="favorites")
     
     # Preferences
-    preferences = fields.DictField(default=dict)
+    preferences = fields.DictField(default=dict, db_field="preferences")
     
     # Hệ thống gợi ý
-    user_embedding = fields.ListField(fields.FloatField(), default=list)
-    content_profile = fields.DictField(default=dict)
+    user_embedding = fields.ListField(fields.FloatField(), default=list, db_field="userEmbedding")
+    content_profile = fields.DictField(default=dict, db_field="contentProfile")
+    interaction_history = fields.ListField(fields.DynamicField(), default=list, db_field="interactionHistory")
+    outfit_history = fields.ListField(fields.DynamicField(), default=list, db_field="outfitHistory")
     
     # Amazon identifier
-    amazon_user_id = fields.StringField(null=True)
+    amazon_user_id = fields.StringField(null=True, db_field="amazonUserId")
+    version = fields.IntField(null=True, db_field="__v")
     
     # Timestamps
-    created_at = fields.DateTimeField(default=datetime.utcnow)
-    updated_at = fields.DateTimeField(default=datetime.utcnow)
+    created_at = fields.DateTimeField(default=datetime.utcnow, db_field="createdAt")
+    updated_at = fields.DateTimeField(default=datetime.utcnow, db_field="updatedAt")
     
     def save(self, *args, **kwargs):
         """Override save để tự động cập nhật updated_at."""

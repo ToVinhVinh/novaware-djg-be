@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import random
+
 from django.db.models import Avg, Count
 from django.utils.text import slugify
 from rest_framework import permissions, status, viewsets
@@ -65,8 +67,32 @@ class ProductViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["get"], permission_classes=[permissions.AllowAny])
     def top(self, request):
-        queryset = self.get_queryset().filter(num_reviews__gt=0).order_by("-rating")[:10]
-        serializer = self.get_serializer(queryset, many=True)
+        per_page_raw = request.query_params.get("perPage") or request.query_params.get("per_page")
+        try:
+            per_page = int(per_page_raw) if per_page_raw is not None else 10
+        except (TypeError, ValueError):
+            per_page = 10
+        per_page = max(1, min(per_page, 50))
+
+        base_queryset = self.get_queryset()
+        candidate_limit = max(per_page * 3, per_page)
+
+        top_queryset = base_queryset.filter(rating__gt=0).order_by("-rating", "-num_reviews", "-created_at")
+        candidates = list(top_queryset[:candidate_limit])
+
+        if len(candidates) < per_page:
+            excluded_ids = [product.pk for product in candidates]
+            fallback_queryset = base_queryset.exclude(pk__in=excluded_ids).order_by("-num_reviews", "-rating", "-created_at")
+            needed = max(per_page - len(candidates), candidate_limit - len(candidates))
+            candidates.extend(list(fallback_queryset[:needed]))
+
+        if not candidates:
+            candidates = list(base_queryset.order_by("-created_at")[:per_page])
+
+        random.shuffle(candidates)
+        selected = candidates[:per_page]
+
+        serializer = self.get_serializer(selected, many=True)
         return api_success(
             "Top products retrieved successfully",
             {

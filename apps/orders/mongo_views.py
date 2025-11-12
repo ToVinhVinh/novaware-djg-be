@@ -236,3 +236,24 @@ class OrderViewSet(viewsets.ViewSet):
             },
         )
 
+    @action(detail=False, methods=["get"], url_path="my/orders")
+    def my_orders(self, request):
+        """Danh sách đơn hàng của người dùng hiện tại."""
+        queryset = Order.objects.filter(user_id=request.user.id).order_by("-created_at")
+
+        page, page_size = get_pagination_params(request)
+        orders, total_count, total_pages, current_page, page_size = paginate_queryset(
+            queryset, page, page_size
+        )
+        serializer = OrderSerializer(orders, many=True)
+        return api_success(
+            "Orders retrieved successfully",
+            {
+                "orders": serializer.data,
+                "page": current_page,
+                "pages": total_pages,
+                "perPage": page_size,
+                "count": total_count,
+            },
+        )
+
