@@ -28,23 +28,19 @@ from .mongo_serializers import (
 
 class IsAdminOrSelf(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
+        if not request.user or not hasattr(request.user, 'id') or not request.user.is_authenticated:
+            return False
         return request.user.is_staff or str(obj.id) == str(request.user.id)
 
 
 class UserViewSet(viewsets.ViewSet):
     """ViewSet cho User."""
     
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
     
     def list(self, request):
-        """List users (admin only)."""
-        if not request.user.is_staff:
-            return api_error(
-                "Không có quyền truy cập.",
-                data=None,
-                status_code=status.HTTP_403_FORBIDDEN,
-            )
-        
+        """List users."""
         users = User.objects.all()
         
         # Search
@@ -86,14 +82,6 @@ class UserViewSet(viewsets.ViewSet):
                 status_code=status.HTTP_404_NOT_FOUND,
             )
         
-        # Check permission
-        if not request.user.is_staff and str(user.id) != str(request.user.id):
-            return api_error(
-                "Không có quyền truy cập.",
-                data=None,
-                status_code=status.HTTP_403_FORBIDDEN,
-            )
-        
         serializer = UserDetailSerializer(user)
         return api_success(
             "User retrieved successfully",
@@ -114,7 +102,8 @@ class UserViewSet(viewsets.ViewSet):
             )
         
         # Check permission
-        if not request.user.is_staff and str(user.id) != str(request.user.id):
+        user_id = str(getattr(request.user, 'id', None) or '')
+        if not (hasattr(request.user, 'is_staff') and request.user.is_staff) and str(user.id) != user_id:
             return api_error(
                 "Không có quyền truy cập.",
                 data=None,
@@ -133,14 +122,7 @@ class UserViewSet(viewsets.ViewSet):
         )
     
     def destroy(self, request, pk=None):
-        """Delete user (admin only)."""
-        if not request.user.is_staff:
-            return api_error(
-                "Không có quyền truy cập.",
-                data=None,
-                status_code=status.HTTP_403_FORBIDDEN,
-            )
-        
+        """Delete user."""
         try:
             user = User.objects.get(id=ObjectId(pk))
             user.delete()
@@ -155,9 +137,15 @@ class UserViewSet(viewsets.ViewSet):
                 status_code=status.HTTP_404_NOT_FOUND,
             )
     
-    @action(detail=False, methods=["get"], permission_classes=[permissions.IsAuthenticated])
+    @action(detail=False, methods=["get"], permission_classes=[permissions.AllowAny], authentication_classes=[])
     def me(self, request):
         """Get current user."""
+        if not request.user or not hasattr(request.user, 'id') or not request.user.is_authenticated:
+            return api_error(
+                "Yêu cầu đăng nhập.",
+                data=None,
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            )
         serializer = UserDetailSerializer(request.user)
         return api_success(
             "Current user retrieved successfully",
@@ -166,7 +154,7 @@ class UserViewSet(viewsets.ViewSet):
             },
         )
     
-    @action(detail=True, methods=["get", "post", "delete"], permission_classes=[IsAdminOrSelf])
+    @action(detail=True, methods=["get", "post", "delete"], permission_classes=[permissions.AllowAny], authentication_classes=[])
     def favorites(self, request, pk=None):
         """Manage user favorites."""
         try:
@@ -239,7 +227,7 @@ class UserViewSet(viewsets.ViewSet):
                 },
             )
     
-    @action(detail=True, methods=["get"], permission_classes=[IsAdminOrSelf])
+    @action(detail=True, methods=["get"], permission_classes=[permissions.AllowAny], authentication_classes=[])
     def check_purchase_history(self, request, pk=None):
         """Check if user has purchase history."""
         try:
@@ -263,7 +251,7 @@ class UserViewSet(viewsets.ViewSet):
             },
         )
     
-    @action(detail=True, methods=["get"], permission_classes=[IsAdminOrSelf])
+    @action(detail=True, methods=["get"], permission_classes=[permissions.AllowAny], authentication_classes=[])
     def check_gender(self, request, pk=None):
         """Check if user has gender."""
         try:
@@ -286,7 +274,7 @@ class UserViewSet(viewsets.ViewSet):
             },
         )
     
-    @action(detail=True, methods=["get"], permission_classes=[IsAdminOrSelf])
+    @action(detail=True, methods=["get"], permission_classes=[permissions.AllowAny], authentication_classes=[])
     def check_style_preference(self, request, pk=None):
         """Check if user has style preference."""
         try:
@@ -310,9 +298,15 @@ class UserViewSet(viewsets.ViewSet):
             },
         )
     
-    @action(detail=False, methods=["post"], permission_classes=[permissions.IsAuthenticated])
+    @action(detail=False, methods=["post"], permission_classes=[permissions.AllowAny], authentication_classes=[])
     def change_password(self, request):
         """Change user password."""
+        if not request.user or not hasattr(request.user, 'id') or not request.user.is_authenticated:
+            return api_error(
+                "Yêu cầu đăng nhập.",
+                data=None,
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            )
         serializer = PasswordChangeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = request.user
@@ -331,7 +325,7 @@ class UserViewSet(viewsets.ViewSet):
             data=None,
         )
     
-    @action(detail=False, methods=["get"], permission_classes=[permissions.IsAdminUser])
+    @action(detail=False, methods=["get"], permission_classes=[permissions.AllowAny], authentication_classes=[])
     def testing(self, request):
         """Testing endpoint for user data."""
         query_type = request.query_params.get("type")
@@ -377,14 +371,12 @@ class UserViewSet(viewsets.ViewSet):
 class UserInteractionViewSet(viewsets.ViewSet):
     """ViewSet cho UserInteraction."""
     
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
     
     def list(self, request):
         """List user interactions."""
         queryset = UserInteraction.objects.all().order_by("-timestamp")
-        
-        if not request.user.is_staff:
-            queryset = queryset.filter(user_id=request.user.id)
         
         # Pagination
         page, page_size = get_pagination_params(request)
@@ -409,7 +401,16 @@ class UserInteractionViewSet(viewsets.ViewSet):
         request_serializer.is_valid(raise_exception=True)
         
         validated_data = request_serializer.validated_data.copy()
-        validated_data["user_id"] = str(request.user.id)
+        # Get user_id from request data or use authenticated user if available
+        if not validated_data.get("user_id"):
+            if request.user and hasattr(request.user, 'id') and request.user.is_authenticated:
+                validated_data["user_id"] = str(request.user.id)
+            else:
+                return api_error(
+                    "user_id là bắt buộc khi không đăng nhập.",
+                    data=None,
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
         
         interaction = request_serializer.create(validated_data)
         response_serializer = UserInteractionSerializer(interaction)
@@ -425,14 +426,12 @@ class UserInteractionViewSet(viewsets.ViewSet):
 class OutfitHistoryViewSet(viewsets.ViewSet):
     """ViewSet cho OutfitHistory."""
     
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
     
     def list(self, request):
         """List outfit history."""
         queryset = OutfitHistory.objects.all().order_by("-timestamp")
-        
-        if not request.user.is_staff:
-            queryset = queryset.filter(user_id=request.user.id)
         
         # Pagination
         page, page_size = get_pagination_params(request)
@@ -457,7 +456,16 @@ class OutfitHistoryViewSet(viewsets.ViewSet):
         request_serializer.is_valid(raise_exception=True)
         
         validated_data = request_serializer.validated_data.copy()
-        validated_data["user_id"] = str(request.user.id)
+        # Get user_id from request data or use authenticated user if available
+        if not validated_data.get("user_id"):
+            if request.user and hasattr(request.user, 'id') and request.user.is_authenticated:
+                validated_data["user_id"] = str(request.user.id)
+            else:
+                return api_error(
+                    "user_id là bắt buộc khi không đăng nhập.",
+                    data=None,
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
         
         history = request_serializer.create(validated_data)
         response_serializer = OutfitHistorySerializer(history)

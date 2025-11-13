@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from rest_framework import status
+from django.core.exceptions import ValidationError
+from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -32,6 +33,8 @@ class TrainGNNView(APIView):
 
 class RecommendGNNView(APIView):
     serializer_class = GNNRecommendationSerializer
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
 
     def post(self, request, *args, **kwargs):
         serializer = self.serializer_class(data=request.data)
@@ -48,6 +51,20 @@ class RecommendGNNView(APIView):
             return Response(
                 {"detail": str(exc), "model": "gnn"},
                 status=status.HTTP_409_CONFLICT,
+            )
+        except ValidationError as exc:
+            error_data = {}
+            if hasattr(exc, "message_dict"):
+                error_data = exc.message_dict
+            elif hasattr(exc, "error_dict"):
+                error_data = {k: v if isinstance(v, list) else [v] for k, v in exc.error_dict.items()}
+            elif hasattr(exc, "error_list"):
+                error_data = {"detail": exc.error_list}
+            else:
+                error_data = {"detail": [str(exc)]}
+            return Response(
+                error_data,
+                status=status.HTTP_400_BAD_REQUEST,
             )
         return Response(payload, status=status.HTTP_200_OK)
 

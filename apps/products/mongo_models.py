@@ -37,6 +37,7 @@ class Color(me.Document):
     meta = {
         "collection": "colors",
         "indexes": ["name", "hex_code"],
+        "strict": False,
     }
     
     name = fields.StringField(required=True, unique=True, max_length=100)
@@ -52,6 +53,7 @@ class Size(me.Document):
     meta = {
         "collection": "sizes",
         "indexes": ["name", "code"],
+        "strict": False,
     }
     
     name = fields.StringField(required=True, unique=True, max_length=100)
@@ -151,6 +153,7 @@ class ProductVariant(me.Document):
     meta = {
         "collection": "product_variants",
         "indexes": ["product_id", "color_id", "size_id"],
+        "strict": False,
     }
     
     product_id = fields.ObjectIdField(required=True)
@@ -169,6 +172,7 @@ class ProductReview(me.Document):
     meta = {
         "collection": "product_reviews",
         "indexes": ["product_id", "user_id", "created_at"],
+        "strict": False,
     }
     
     product_id = fields.ObjectIdField(required=True)
@@ -194,6 +198,7 @@ class ContentSection(me.Document):
     meta = {
         "collection": "content_sections",
         "indexes": ["type", "created_at"],
+        "strict": False,
     }
     
     type = fields.StringField(required=True, max_length=100)

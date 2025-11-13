@@ -15,15 +15,12 @@ from .mongo_serializers import ChatThreadSerializer, MessageSerializer
 class ChatThreadViewSet(viewsets.ViewSet):
     """ViewSet cho ChatThread."""
     
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
     
     def list(self, request):
         """List chat threads."""
         queryset = ChatThread.objects.all().order_by("-updated_at")
-        
-        # Filter by user if not staff
-        if not request.user.is_staff:
-            queryset = queryset.filter(user_id=request.user.id)
         
         # Pagination
         page, page_size = get_pagination_params(request)
@@ -53,14 +50,6 @@ class ChatThreadViewSet(viewsets.ViewSet):
                 status_code=status.HTTP_404_NOT_FOUND,
             )
         
-        # Check permission
-        if not request.user.is_staff and str(thread.user_id) != str(request.user.id):
-            return api_error(
-                "Không có quyền truy cập.",
-                data=None,
-                status_code=status.HTTP_403_FORBIDDEN,
-            )
-        
         serializer = ChatThreadSerializer(thread)
         return api_success(
             "Chat thread retrieved successfully",
@@ -75,7 +64,16 @@ class ChatThreadViewSet(viewsets.ViewSet):
         request_serializer.is_valid(raise_exception=True)
         
         validated_data = request_serializer.validated_data.copy()
-        validated_data["user_id"] = str(request.user.id)
+        # Get user_id from request data or use authenticated user if available
+        if not validated_data.get("user_id"):
+            if request.user and hasattr(request.user, 'id') and request.user.is_authenticated:
+                validated_data["user_id"] = str(request.user.id)
+            else:
+                return api_error(
+                    "user_id là bắt buộc khi không đăng nhập.",
+                    data=None,
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
         
         thread = request_serializer.create(validated_data)
         response_serializer = ChatThreadSerializer(thread)
@@ -152,14 +150,6 @@ class ChatThreadViewSet(viewsets.ViewSet):
                 "ChatThread không tồn tại.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
-            )
-        
-        # Check permission
-        if not request.user.is_staff and str(thread.user_id) != str(request.user.id):
-            return api_error(
-                "Không có quyền truy cập.",
-                data=None,
-                status_code=status.HTTP_403_FORBIDDEN,
             )
         
         serializer = MessageSerializer(data=request.data)

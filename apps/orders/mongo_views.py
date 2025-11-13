@@ -16,15 +16,12 @@ from .mongo_serializers import OrderSerializer
 class OrderViewSet(viewsets.ViewSet):
     """ViewSet cho Order."""
     
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
     
     def list(self, request):
         """List orders with filtering."""
         queryset = Order.objects.all()
-        
-        # Filter by user if not staff
-        if not request.user.is_staff:
-            queryset = queryset.filter(user_id=request.user.id)
         
         # Filter by status
         if request.query_params.get("is_paid") == "true":
@@ -73,14 +70,6 @@ class OrderViewSet(viewsets.ViewSet):
                 status_code=status.HTTP_404_NOT_FOUND,
             )
         
-        # Check permission
-        if not request.user.is_staff and str(order.user_id) != str(request.user.id):
-            return api_error(
-                "Không có quyền truy cập.",
-                data=None,
-                status_code=status.HTTP_403_FORBIDDEN,
-            )
-        
         serializer = OrderSerializer(order)
         return api_success(
             "Order retrieved successfully",
@@ -95,7 +84,16 @@ class OrderViewSet(viewsets.ViewSet):
         request_serializer.is_valid(raise_exception=True)
         
         validated_data = request_serializer.validated_data.copy()
-        validated_data["user_id"] = str(request.user.id)
+        # Get user_id from request data or use authenticated user if available
+        if not validated_data.get("user_id"):
+            if request.user and hasattr(request.user, 'id') and request.user.is_authenticated:
+                validated_data["user_id"] = str(request.user.id)
+            else:
+                return api_error(
+                    "user_id là bắt buộc khi không đăng nhập.",
+                    data=None,
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
         
         order = request_serializer.create(validated_data)
         response_serializer = OrderSerializer(order)
@@ -183,7 +181,7 @@ class OrderViewSet(viewsets.ViewSet):
             },
         )
     
-    @action(detail=True, methods=["post"], permission_classes=[permissions.IsAdminUser])
+    @action(detail=True, methods=["post"], permission_classes=[permissions.AllowAny], authentication_classes=[])
     def mark_delivered(self, request, pk=None):
         """Mark order as delivered."""
         try:
@@ -218,14 +216,6 @@ class OrderViewSet(viewsets.ViewSet):
                 status_code=status.HTTP_404_NOT_FOUND,
             )
         
-        # Check permission
-        if not request.user.is_staff and str(order.user_id) != str(request.user.id):
-            return api_error(
-                "Không có quyền truy cập.",
-                data=None,
-                status_code=status.HTTP_403_FORBIDDEN,
-            )
-        
         order.is_cancelled = True
         order.save()
         updated_serializer = OrderSerializer(order)
@@ -236,10 +226,20 @@ class OrderViewSet(viewsets.ViewSet):
             },
         )
 
-    @action(detail=False, methods=["get"], url_path="my/orders")
+    @action(detail=False, methods=["get"], url_path="my/orders", permission_classes=[permissions.AllowAny], authentication_classes=[])
     def my_orders(self, request):
         """Danh sách đơn hàng của người dùng hiện tại."""
-        queryset = Order.objects.filter(user_id=request.user.id).order_by("-created_at")
+        user_id = request.query_params.get("user_id")
+        if not user_id:
+            if request.user and hasattr(request.user, 'id') and request.user.is_authenticated:
+                user_id = str(request.user.id)
+            else:
+                return api_error(
+                    "user_id là bắt buộc khi không đăng nhập.",
+                    data=None,
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+        queryset = Order.objects.filter(user_id=user_id).order_by("-created_at")
 
         page, page_size = get_pagination_params(request)
         orders, total_count, total_pages, current_page, page_size = paginate_queryset(

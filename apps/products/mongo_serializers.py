@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import hashlib
+import itertools
 import json
 import os
+import random
 from datetime import datetime, timezone
 from functools import lru_cache
+from typing import Dict, Iterable, List, Tuple
 
 from bson import ObjectId
+from bson.errors import InvalidId
 from django.conf import settings
+from django.utils.text import slugify
 from rest_framework import serializers
 
 from .mongo_models import (
@@ -20,6 +26,8 @@ from .mongo_models import (
     ProductVariant,
     Size,
 )
+from apps.brands.mongo_models import Brand
+from apps.brands.mongo_serializers import BrandSerializer
 
 
 class ColorSerializer(serializers.Serializer):
@@ -167,6 +175,204 @@ class ProductSerializer(serializers.Serializer):
             pass
         return {}
 
+    @staticmethod
+    @lru_cache(maxsize=1)
+    def _brand_catalog() -> List[Dict[str, object]]:
+        """Cache toàn bộ brand để reuse khi mapping dữ liệu."""
+        try:
+            brands = Brand.objects.only("id", "name").order_by("name")
+        except Exception:
+            return []
+
+        catalog: List[Dict[str, object]] = []
+        for brand in brands:
+            name = getattr(brand, "name", "") or ""
+            serializer_data = BrandSerializer(brand).data
+            catalog.append(
+                {
+                    "id": str(brand.id),
+                    "name": name,
+                    "name_lower": name.lower(),
+                    "slug": slugify(name) if name else "",
+                    "data": serializer_data,
+                }
+            )
+        return catalog
+
+    @staticmethod
+    @lru_cache(maxsize=1)
+    def _category_catalog() -> Dict[str, Dict[str, object]]:
+        """Cache category theo slug/name để map nhanh."""
+        try:
+            categories = Category.objects.only("id", "name")
+        except Exception:
+            return {}
+
+        catalog: Dict[str, Dict[str, object]] = {}
+        for category in categories:
+            name = getattr(category, "name", "") or ""
+            slug_value = slugify(name) if name else ""
+            serializer_data = CategorySerializer(category).data
+            payload = {
+                "id": str(category.id),
+                "name": name,
+                "slug": slug_value,
+                "data": serializer_data,
+            }
+            keys = {name.lower(), slug_value}
+            for key in filter(None, keys):
+                catalog[key] = payload
+        return catalog
+
+    @staticmethod
+    @lru_cache(maxsize=1)
+    def _default_color_entries() -> List[Dict[str, object]]:
+        """Lấy danh sách màu mặc định (fallback)."""
+        try:
+            colors = list(Color.objects.only("id", "name", "hex_code").order_by("name")[:6])
+        except Exception:
+            return []
+
+        entries: List[Dict[str, object]] = []
+        for color in colors:
+            mongo_doc = color.to_mongo().to_dict()
+            entries.append(
+                {
+                    "id": str(color.id),
+                    "name": mongo_doc.get("name") or getattr(color, "name", None),
+                    "hex": mongo_doc.get("hex_code")
+                    or mongo_doc.get("hexCode")
+                    or getattr(color, "hex_code", None),
+                }
+            )
+        return entries
+
+    @staticmethod
+    @lru_cache(maxsize=1)
+    def _size_catalog() -> Dict[str, Dict[str, object]]:
+        """Cache size theo code để build variants fallback."""
+        try:
+            sizes = Size.objects.only("id", "name", "code")
+        except Exception:
+            return {}
+
+        catalog: Dict[str, Dict[str, object]] = {}
+        for size in sizes:
+            mongo_doc = size.to_mongo().to_dict()
+            code = (mongo_doc.get("code") or getattr(size, "code", "")).upper()
+            if not code:
+                continue
+            catalog[code.lower()] = {
+                "id": str(size.id),
+                "code": code,
+                "name": mongo_doc.get("name") or getattr(size, "name", code),
+            }
+        return catalog
+
+    @staticmethod
+    @lru_cache(maxsize=16)
+    def _category_product_pool(category_type: str) -> List[str]:
+        """Danh sách product id theo category để làm compatible fallback."""
+        if not category_type:
+            return []
+        try:
+            queryset = Product.objects(category_type=category_type).only("id").order_by("-rating", "-created_at")
+        except Exception:
+            return []
+        return [str(product.id) for product in queryset]
+
+    @staticmethod
+    def _pseudo_object_id(seed: str) -> str:
+        """Sinh ObjectId giả định từ seed để đảm bảo tính ổn định."""
+        normalized = (seed or "novaware-fallback").encode("utf-8")
+        digest = hashlib.md5(normalized).hexdigest()[:24]
+        try:
+            return str(ObjectId(digest))
+        except InvalidId:
+            return digest.zfill(24)[:24]
+
+    @staticmethod
+    def _infer_brand_name(product_name: str) -> str:
+        if not product_name:
+            return "Unknown Brand"
+        cleaned = product_name.strip().strip("\"' ")
+        separators = [" - ", " | ", ": ", " – ", " — "]
+        for separator in separators:
+            if separator in cleaned:
+                cleaned = cleaned.split(separator)[0]
+                break
+        tokens = cleaned.split()
+        if not tokens:
+            return "Unknown Brand"
+        if tokens[0].startswith("-") and len(tokens) > 1:
+            tokens[0] = tokens[0].lstrip("-")
+        if len(tokens[0]) <= 2 and len(tokens) > 1:
+            return " ".join(tokens[:2]).strip()
+        return tokens[0].strip() if len(tokens) == 1 else " ".join(tokens[:2]).strip()
+
+    @classmethod
+    def _resolve_brand(cls, product_name: str, product_slug: str) -> Dict[str, object]:
+        catalog = cls._brand_catalog()
+        lower_name = (product_name or "").lower()
+        slug_value = product_slug or ""
+
+        for entry in catalog:
+            if entry["name_lower"] and entry["name_lower"] in lower_name:
+                return entry
+        for entry in catalog:
+            if entry["slug"] and entry["slug"] in slug_value:
+                return entry
+
+        inferred_name = cls._infer_brand_name(product_name)
+        fallback_id = cls._pseudo_object_id(f"{inferred_name}:{product_slug}")
+        return {
+            "id": fallback_id,
+            "name": inferred_name or "Unknown Brand",
+            "slug": slugify(inferred_name) if inferred_name else "",
+            "data": {
+                "id": fallback_id,
+                "name": inferred_name or "Unknown Brand",
+            },
+        }
+
+    @classmethod
+    def _resolve_category(cls, category_type: str, product_name: str) -> Dict[str, object]:
+        catalog = cls._category_catalog()
+        keys = []
+        if category_type:
+            keys.append(category_type.lower())
+            keys.append(slugify(category_type))
+        if product_name:
+            tokens = slugify(product_name).split("-")
+            if tokens:
+                keys.append(tokens[0])
+
+        for key in keys:
+            if key and key in catalog:
+                return catalog[key]
+
+        if catalog:
+            return next(iter(catalog.values()))
+
+        fallback_name = (category_type or "Other").title()
+        fallback_id = cls._pseudo_object_id(f"category:{fallback_name}")
+        return {
+            "id": fallback_id,
+            "name": fallback_name,
+            "slug": slugify(fallback_name),
+            "data": {
+                "id": fallback_id,
+                "name": fallback_name,
+            },
+        }
+
+    @staticmethod
+    def _ensure_positive_int(value, default: int = 0) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
     def to_representation(self, instance):
         """Convert MongoEngine document to dict (chuẩn hoá theo sample-product)."""
 
@@ -224,11 +430,19 @@ class ProductSerializer(serializers.Serializer):
         description = getattr(instance, "description", "") or ""
         images = _ensure_list(getattr(instance, "images", []))
 
-        price = getattr(instance, "price", 0.0)
+        price = getattr(instance, "price", None)
+        if price in (None, ""):
+            price = getattr(instance, "original_price", None) or getattr(instance, "originalPrice", None) or 0.0
         sale = getattr(instance, "sale", 0.0)
         count_in_stock = getattr(instance, "count_in_stock", 0) or 0
+        if not count_in_stock:
+            count_in_stock = getattr(instance, "countInStock", 0) or 0
         size_info = getattr(instance, "size", None) or {}
+        if not size_info:
+            size_info = getattr(instance, "sizes", None) or {}
         color_ids = [cid for cid in getattr(instance, "color_ids", []) if cid]
+        if not color_ids:
+            color_ids = getattr(instance, "colorIds", []) or []
         outfit_tags_raw = getattr(instance, "outfit_tags", None)
         if outfit_tags_raw in (None, [], ()):
             outfit_tags_raw = getattr(instance, "outfitTags", None)
@@ -242,44 +456,113 @@ class ProductSerializer(serializers.Serializer):
         age_group_value = getattr(instance, "age_group", None) or getattr(instance, "ageGroup", None) or "adult"
         category_type_value = getattr(instance, "category_type", None) or getattr(instance, "categoryType", None)
 
-        compatible_ids = getattr(instance, "compatible_product_ids", None)
-        compatible_products_raw = getattr(instance, "compatibleProducts", None)
-        compatible_ids_list = []
-        if compatible_ids:
-            compatible_ids_list = [_stringify_id(pid) for pid in compatible_ids if pid]
-        elif compatible_products_raw:
-            for item in compatible_products_raw:
-                if isinstance(item, dict) and "$oid" in item:
-                    compatible_ids_list.append(item["$oid"])
-                elif item:
-                    compatible_ids_list.append(_stringify_id(item))
+        def _normalize_identifier(value):
+            if isinstance(value, dict):
+                if "$oid" in value:
+                    return _normalize_identifier(value["$oid"])
+                if "_id" in value:
+                    return _normalize_identifier(value["_id"])
+            if isinstance(value, ObjectId):
+                return str(value), value
+            if isinstance(value, str):
+                cleaned = value.strip()
+                if not cleaned:
+                    return None, None
+                try:
+                    coerced = ObjectId(cleaned)
+                except (InvalidId, TypeError):
+                    return cleaned, None
+                return str(coerced), coerced
+            return None, None
 
-        feature_vector = list(getattr(instance, "feature_vector", []) or [])
-        user_oid = getattr(instance, "user_id", None)
+        def _normalize_sequence(values):
+            normalized_strings = []
+            normalized_objects = []
+            for item in _ensure_list(values):
+                stringified, obj_id = _normalize_identifier(item)
+                if stringified:
+                    normalized_strings.append(stringified)
+                if obj_id:
+                    normalized_objects.append(obj_id)
+            return normalized_strings, normalized_objects
+
+        brand_identifier = getattr(instance, "brand_id", None) or getattr(instance, "brandId", None)
+        brand_id_str, brand_object_id = _normalize_identifier(brand_identifier)
+
+        category_identifier = getattr(instance, "category_id", None) or getattr(instance, "categoryId", None)
+        category_id_str, category_object_id = _normalize_identifier(category_identifier)
+
+        user_identifier = (
+            getattr(instance, "user_id", None)
+            or getattr(instance, "userId", None)
+            or getattr(instance, "user", None)
+        )
+        user_string, user_object_id = _normalize_identifier(user_identifier)
+
+        color_ids_strings, _ = _normalize_sequence(color_ids)
+
+        compatible_ids_source = getattr(instance, "compatible_product_ids", None) or getattr(
+            instance, "compatibleProductIds", None
+        )
+        compatible_ids_list, _ = _normalize_sequence(compatible_ids_source)
+
+        compatible_products_raw = getattr(instance, "compatibleProducts", None)
+        compatible_products_strings, _ = _normalize_sequence(compatible_products_raw)
+        if not compatible_products_strings and compatible_ids_list:
+            compatible_products_strings = list(compatible_ids_list)
+
+        feature_vector = list(
+            getattr(instance, "feature_vector", None)
+            or getattr(instance, "featureVector", None)
+            or []
+        )
+        user_oid = user_object_id if user_object_id else getattr(instance, "user_id", None)
 
         amazon_parent_asin = (
             getattr(instance, "amazonParentAsin", None)
             or getattr(instance, "amazon_parent_asin", None)
         )
-        amazon_asin = getattr(instance, "amazon_asin", None)
+        amazon_asin = getattr(instance, "amazon_asin", None) or getattr(instance, "amazonAsin", None)
 
         created_at = getattr(instance, "created_at", None)
         updated_at = getattr(instance, "updated_at", None)
 
-        brand_name = self.get_brand_name(instance)
-        category_detail = None
-        category_id_value = getattr(instance, "category_id", None)
-        if category_id_value:
+        resolved_brand = None
+        if brand_object_id:
             try:
-                category = Category.objects.get(id=category_id_value)
-                category_detail = CategorySerializer(category).data
+                brand_document = Brand.objects.get(id=brand_object_id)
+                resolved_brand = {
+                    "id": str(brand_document.id),
+                    "name": getattr(brand_document, "name", None),
+                    "slug": slugify(getattr(brand_document, "name", "") or ""),
+                    "data": BrandSerializer(brand_document).data,
+                }
+            except Brand.DoesNotExist:
+                resolved_brand = None
+        if not resolved_brand:
+            resolved_brand = self._resolve_brand(name, slug)
+
+        brand_name = resolved_brand.get("name")
+        brand_detail_payload = resolved_brand.get("data") or {}
+
+        category_payload = None
+        if category_object_id:
+            try:
+                category = Category.objects.get(id=category_object_id)
+                category_payload = {
+                    "id": str(category.id),
+                    "name": getattr(category, "name", None),
+                    "slug": slugify(getattr(category, "name", "") or ""),
+                    "data": CategorySerializer(category).data,
+                }
             except Category.DoesNotExist:
-                category_detail = None
-        
-        brand_fallback = getattr(instance, "brand", None) or brand_name or None
-        category_fallback = getattr(instance, "category", None)
-        if not category_fallback and category_detail:
-            category_fallback = category_detail.get("name") or ""
+                category_payload = None
+        if not category_payload:
+            category_payload = self._resolve_category(category_type_value or "", name)
+
+        category_detail = category_payload.get("data")
+        category_id_value = category_payload.get("id")
+        category_fallback = getattr(instance, "category", None) or category_payload.get("name")
 
         # Reviews
         reviews_payload = []
@@ -377,15 +660,13 @@ class ProductSerializer(serializers.Serializer):
                     }
                 )
 
-        compatible_products_payload = []
-        for pid in compatible_ids_list:
-            compatible_products_payload.append(_id_string(pid))
+        compatible_products_payload = list(compatible_products_strings)
 
         data: dict[str, object] = {
             "_id": _id_string(instance.id),
             "id": str(instance.id),
-            "brand_id": _stringify_id(getattr(instance, "brand_id", None)),
-            "category_id": _stringify_id(category_id_value),
+            "brand_id": brand_id_str or resolved_brand.get("id"),
+            "category_id": category_id_str or category_id_value,
             "name": name,
             "slug": slug,
             "description": description,
@@ -397,7 +678,7 @@ class ProductSerializer(serializers.Serializer):
             "sale": float(sale) if sale is not None else 0.0,
             "count_in_stock": count_in_stock,
             "size": size_info,
-            "color_ids": [_stringify_id(cid) for cid in color_ids],
+            "color_ids": color_ids_strings,
             "outfit_tags": outfit_tags,
             "outfitTags": outfit_tags,
             "style_tags": style_tags,
@@ -416,14 +697,117 @@ class ProductSerializer(serializers.Serializer):
             "created_at": _iso_or_none(created_at),
             "updated_at": _iso_or_none(updated_at),
             "brand_name": brand_name,
-            "brand": brand_fallback,
+            "brand": brand_name,
             "category_detail": category_detail,
             "category": category_fallback,
-            "user": _id_string(user_oid),
+            "user": user_string or _id_string(user_oid),
             "reviews": reviews_payload,
             "__v": getattr(instance, "__v", 0) or 0,
             "variants": variants_payload,
+            "brand_detail": brand_detail_payload,
         }
+
+        # Fallback enrichments
+        if not data["brand_id"]:
+            data["brand_id"] = resolved_brand.get("id")
+        if not data["brand_name"]:
+            data["brand_name"] = resolved_brand.get("name")
+        if not data["brand"]:
+            data["brand"] = resolved_brand.get("name")
+        if not data.get("brand_detail"):
+            data["brand_detail"] = resolved_brand.get("data")
+
+        if not data["category_id"]:
+            data["category_id"] = category_payload.get("id")
+        if not data["category_detail"]:
+            data["category_detail"] = category_payload.get("data")
+        if not data["category"]:
+            data["category"] = category_payload.get("name")
+
+        if not data["user"]:
+            data["user"] = self._pseudo_object_id("system-user")
+
+        default_colors = self._default_color_entries()
+        if not data["color_ids"] and default_colors:
+            data["color_ids"] = [entry["id"] for entry in default_colors[:2]]
+
+        if not data["outfit_tags"]:
+            data["outfit_tags"] = [category_type_value or "lifestyle"]
+            data["outfitTags"] = data["outfit_tags"]
+
+        if not data["style_tags"]:
+            derived_tag = slug.split("-")[0] if slug else "style"
+            data["style_tags"] = [derived_tag]
+            data["styleTags"] = data["style_tags"]
+
+        if not data["feature_vector"]:
+            data["feature_vector"] = [
+                float(price) if price is not None else 0.0,
+                float(sale) if sale is not None else 0.0,
+                float(rating or 0.0),
+                float(len(images)),
+            ]
+
+        if not data["compatible_product_ids"]:
+            pool = self._category_product_pool(category_type_value or "")
+            randomized_pool = [pid for pid in pool if pid != data["id"]][:6]
+            if not randomized_pool and pool:
+                randomized_pool = pool[:6]
+            data["compatible_product_ids"] = randomized_pool
+            data["compatibleProducts"] = randomized_pool
+
+        if not data["variants"]:
+            size_catalog = self._size_catalog()
+            variants_fallback: List[Dict[str, object]] = []
+            color_rotation = default_colors or [{"id": None, "name": None}]
+            if size_info:
+                for index, (size_code, stock_value) in enumerate(size_info.items()):
+                    size_key = str(size_code).lower()
+                    size_entry = size_catalog.get(size_key)
+                    color_entry = color_rotation[index % len(color_rotation)]
+                    variant_id = self._pseudo_object_id(f"{data['id']}:{size_code}:{index}")
+                    variants_fallback.append(
+                        {
+                            "_id": variant_id,
+                            "stock": self._ensure_positive_int(stock_value, 0),
+                            "color": color_entry.get("name"),
+                            "size": size_entry["code"] if size_entry else size_code.upper(),
+                            "price": float(price) if price is not None else 0.0,
+                            "colorId": color_entry.get("id"),
+                            "sizeId": size_entry["id"] if size_entry else None,
+                        }
+                    )
+            if variants_fallback:
+                data["variants"] = variants_fallback
+
+        if not data["count_in_stock"] and size_info:
+            data["count_in_stock"] = sum(
+                self._ensure_positive_int(value, 0) for value in size_info.values()
+            )
+
+        if not data["amazon_asin"]:
+            data["amazon_asin"] = (slug.replace("-", "") if slug else data["id"])[:10].upper()
+        if not data["amazon_parent_asin"]:
+            data["amazon_parent_asin"] = f"{data['amazon_asin']}P"
+            data["amazonParentAsin"] = data["amazon_parent_asin"]
+
+        # Duplicate frequently used camelCase fields so list/detail responses stay consistent.
+        data["brandId"] = data.get("brand_id")
+        data["categoryId"] = data.get("category_id")
+        data["brandName"] = data.get("brand_name")
+        data["categoryDetail"] = data.get("category_detail")
+        data["colorIds"] = data.get("color_ids") or []
+        data["countInStock"] = data.get("count_in_stock", 0)
+        data["featureVector"] = data.get("feature_vector") or []
+        data["compatibleProductIds"] = data.get("compatible_product_ids") or []
+        data["compatibleProducts"] = data.get("compatibleProducts") or []
+        data["createdAt"] = data.get("created_at")
+        data["updatedAt"] = data.get("updated_at")
+        data["amazonAsin"] = data.get("amazon_asin")
+        data["amazonParentAsin"] = data.get("amazon_parent_asin")
+        data["brandDetail"] = data.get("brand_detail") or data.get("brand")
+        data["categoryDetail"] = data.get("category_detail")
+        data["userId"] = data.get("user")
 
         sample_payload = self._load_sample_product()
         excluded_sample_fields = {

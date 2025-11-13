@@ -25,7 +25,8 @@ from .mongo_services import RecommendationService
 class OutfitViewSet(viewsets.ViewSet):
     """ViewSet cho Outfit."""
     
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
     
     def list(self, request):
         """List all outfits."""
@@ -139,15 +140,12 @@ class OutfitViewSet(viewsets.ViewSet):
 class RecommendationRequestViewSet(viewsets.ViewSet):
     """ViewSet cho RecommendationRequest."""
     
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
     
     def list(self, request):
         """List recommendation requests."""
         queryset = RecommendationRequest.objects.all().order_by("-created_at")
-        
-        # Filter by user if not staff
-        if not request.user.is_staff:
-            queryset = queryset.filter(user_id=request.user.id)
         
         # Pagination
         page, page_size = get_pagination_params(request)
@@ -177,14 +175,6 @@ class RecommendationRequestViewSet(viewsets.ViewSet):
                 status_code=status.HTTP_404_NOT_FOUND,
             )
         
-        # Check permission
-        if not request.user.is_staff and str(request_obj.user_id) != str(request.user.id):
-            return api_error(
-                "Không có quyền truy cập.",
-                data=None,
-                status_code=status.HTTP_403_FORBIDDEN,
-            )
-        
         serializer = RecommendationRequestSerializer(request_obj)
         return api_success(
             "Recommendation request retrieved successfully",
@@ -199,7 +189,16 @@ class RecommendationRequestViewSet(viewsets.ViewSet):
         request_serializer.is_valid(raise_exception=True)
         
         validated_data = request_serializer.validated_data.copy()
-        validated_data["user_id"] = str(request.user.id)
+        # Get user_id from request data or use authenticated user if available
+        if not validated_data.get("user_id"):
+            if request.user and hasattr(request.user, 'id') and request.user.is_authenticated:
+                validated_data["user_id"] = str(request.user.id)
+            else:
+                return api_error(
+                    "user_id là bắt buộc khi không đăng nhập.",
+                    data=None,
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
         
         request_obj = request_serializer.create(validated_data)
         RecommendationService.enqueue_recommendation(request_obj)
@@ -267,7 +266,7 @@ class RecommendationRequestViewSet(viewsets.ViewSet):
             data=None,
         )
     
-    @action(detail=True, methods=["post"], permission_classes=[permissions.IsAuthenticated])
+    @action(detail=True, methods=["post"], permission_classes=[permissions.AllowAny], authentication_classes=[])
     def refresh(self, request, pk=None):
         """Refresh recommendation request."""
         try:
@@ -277,14 +276,6 @@ class RecommendationRequestViewSet(viewsets.ViewSet):
                 "RecommendationRequest không tồn tại.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
-            )
-        
-        # Check permission
-        if not request.user.is_staff and str(request_obj.user_id) != str(request.user.id):
-            return api_error(
-                "Không có quyền truy cập.",
-                data=None,
-                status_code=status.HTTP_403_FORBIDDEN,
             )
         
         RecommendationService.enqueue_recommendation(request_obj)
@@ -301,18 +292,12 @@ class RecommendationRequestViewSet(viewsets.ViewSet):
 class RecommendationResultViewSet(viewsets.ViewSet):
     """ViewSet cho RecommendationResult (read-only)."""
     
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
     
     def list(self, request):
         """List recommendation results."""
         queryset = RecommendationResult.objects.all().order_by("-created_at")
-        
-        # Filter by user if not staff
-        if not request.user.is_staff:
-            # Get user's request IDs
-            user_requests = RecommendationRequest.objects.filter(user_id=request.user.id)
-            request_ids = [r.id for r in user_requests]
-            queryset = queryset.filter(request_id__in=request_ids)
         
         # Pagination
         page, page_size = get_pagination_params(request)
@@ -341,23 +326,6 @@ class RecommendationResultViewSet(viewsets.ViewSet):
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
-        
-        # Check permission
-        if not request.user.is_staff:
-            try:
-                request_obj = RecommendationRequest.objects.get(id=result.request_id)
-                if str(request_obj.user_id) != str(request.user.id):
-                    return api_error(
-                        "Không có quyền truy cập.",
-                        data=None,
-                        status_code=status.HTTP_403_FORBIDDEN,
-                    )
-            except RecommendationRequest.DoesNotExist:
-                return api_error(
-                    "RecommendationRequest không tồn tại.",
-                    data=None,
-                    status_code=status.HTTP_404_NOT_FOUND,
-                )
         
         serializer = RecommendationResultSerializer(result)
         return api_success(
