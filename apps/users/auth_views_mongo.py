@@ -31,10 +31,15 @@ class MongoEngineTokenObtainPairView(APIView):
         serializer = MongoEngineTokenObtainPairSerializer()
         try:
             data = serializer.validate(request.data)
+            user = serializer.user
+            user_data = UserSerializer(user).data if user else None
+            if user_data is not None:
+                user_data["isAdmin"] = bool(getattr(user, "is_admin", False))
             return api_success(
                 "Login successfully.",
                 {
                     "tokens": data,
+                    "user": user_data,
                 },
             )
         except Exception as e:

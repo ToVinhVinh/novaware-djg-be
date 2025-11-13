@@ -1,8 +1,8 @@
 {
   "personalized": [
     {
-      "score": 1.1,
-      "reason": "sized for your adult age group; shares styles you like: tops",
+      "score": 0.6,
+      "reason": "sized for your adult age group; shares styles you like: tops; hybrid blend 0.60 graph / 0.40 content (G=0.0, C=1.5)",
       "product": {
         "id": "68fd616951f9562e9cca6b0e",
         "name": "YUEDGE 5 Pairs Men's Moisture Control Cushioned Dry Fit Casual Athletic Crew Socks for Men (Blue, Size 9-12)",
@@ -25,8 +25,8 @@
       }
     },
     {
-      "score": 1.1,
-      "reason": "sized for your adult age group; shares styles you like: tops",
+      "score": 0.6,
+      "reason": "sized for your adult age group; shares styles you like: tops; hybrid blend 0.60 graph / 0.40 content (G=0.0, C=1.5)",
       "product": {
         "id": "68fd616951f9562e9cca6b10",
         "name": "Pastel by Vivienne Honey Vanilla Girls' Trapeze Dress with Easy Removable Label Large 9-10 Years Navy",
@@ -46,8 +46,8 @@
       }
     },
     {
-      "score": 1.1,
-      "reason": "sized for your adult age group; shares styles you like: tops",
+      "score": 0.6,
+      "reason": "sized for your adult age group; shares styles you like: tops; hybrid blend 0.60 graph / 0.40 content (G=0.0, C=1.5)",
       "product": {
         "id": "68fd616951f9562e9cca6b11",
         "name": "Mento Streamtail",
@@ -70,8 +70,8 @@
       }
     },
     {
-      "score": 1.1,
-      "reason": "sized for your adult age group; shares styles you like: tops",
+      "score": 0.6,
+      "reason": "sized for your adult age group; shares styles you like: tops; hybrid blend 0.60 graph / 0.40 content (G=0.0, C=1.5)",
       "product": {
         "id": "68fd616951f9562e9cca6b12",
         "name": "RONNOX Women's 3-Pairs Bright Colored Calf Compression Tube Sleeves",
@@ -89,8 +89,8 @@
       }
     },
     {
-      "score": 1.1,
-      "reason": "sized for your adult age group; shares styles you like: tops",
+      "score": 0.6,
+      "reason": "sized for your adult age group; shares styles you like: tops; hybrid blend 0.60 graph / 0.40 content (G=0.0, C=1.5)",
       "product": {
         "id": "68fd616951f9562e9cca6b13",
         "name": "12pairs Egowz High Visibility Nylon Latex Foam Coated Work Gloves,Breathable Soft Wearproof Non-Slip Comfortable Safety Protective Gloves(S, Red)",
@@ -114,8 +114,8 @@
   ],
   "outfit": {
     "accessories": {
-      "score": 1.1,
-      "reason": "sized for your adult age group; shares styles you like: tops; fallback to complete outfit",
+      "score": 0.6,
+      "reason": "sized for your adult age group; shares styles you like: tops; hybrid blend 0.60 graph / 0.40 content (G=0.0, C=1.5); fallback to complete outfit",
       "product": {
         "id": "68fd616951f9562e9cca6b10",
         "name": "Pastel by Vivienne Honey Vanilla Girls' Trapeze Dress with Easy Removable Label Large 9-10 Years Navy",
@@ -135,8 +135,8 @@
       }
     },
     "bottoms": {
-      "score": 1.1,
-      "reason": "sized for your adult age group; shares styles you like: tops; fallback to complete outfit",
+      "score": 0.6,
+      "reason": "sized for your adult age group; shares styles you like: tops; hybrid blend 0.60 graph / 0.40 content (G=0.0, C=1.5); fallback to complete outfit",
       "product": {
         "id": "68fd616951f9562e9cca6b11",
         "name": "Mento Streamtail",
@@ -159,8 +159,8 @@
       }
     },
     "shoes": {
-      "score": 1.1,
-      "reason": "sized for your adult age group; shares styles you like: tops; fallback to complete outfit",
+      "score": 0.6,
+      "reason": "sized for your adult age group; shares styles you like: tops; hybrid blend 0.60 graph / 0.40 content (G=0.0, C=1.5); fallback to complete outfit",
       "product": {
         "id": "68fd616951f9562e9cca6b12",
         "name": "RONNOX Women's 3-Pairs Bright Colored Calf Compression Tube Sleeves",
@@ -178,8 +178,8 @@
       }
     },
     "tops": {
-      "score": 1.1,
-      "reason": "sized for your adult age group; shares styles you like: tops",
+      "score": 0.6,
+      "reason": "sized for your adult age group; shares styles you like: tops; hybrid blend 0.60 graph / 0.40 content (G=0.0, C=1.5)",
       "product": {
         "id": "68fd616951f9562e9cca6b0e",
         "name": "YUEDGE 5 Pairs Men's Moisture Control Cushioned Dry Fit Casual Athletic Crew Socks for Men (Blue, Size 9-12)",

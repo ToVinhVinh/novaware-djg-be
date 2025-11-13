@@ -74,7 +74,7 @@ class MongoEngineTokenObtainPairSerializer:
     username_field = "email"
     
     def __init__(self, *args, **kwargs):
-        pass
+        self.user: User | None = None
     
     def validate(self, attrs):
         """
@@ -98,6 +98,7 @@ class MongoEngineTokenObtainPairSerializer:
         if not user.is_active:
             raise exceptions.AuthenticationFailed("Tài khoản đã bị vô hiệu hóa.")
         
+        self.user = user
         refresh = self.get_token(user)
         
         return {
