@@ -75,9 +75,15 @@ class User(me.Document):
             base_username = self.email.split("@", 1)[0].replace(".", "_")
             counter = 1
             candidate = base_username
-            while User.objects(username=candidate).exclude(id=self.id).first():
-                counter += 1
-                candidate = f"{base_username}_{counter}"
+            # Use id__ne (not equal) for MongoEngine instead of exclude()
+            if self.id:
+                while User.objects(username=candidate, id__ne=self.id).first():
+                    counter += 1
+                    candidate = f"{base_username}_{counter}"
+            else:
+                while User.objects(username=candidate).first():
+                    counter += 1
+                    candidate = f"{base_username}_{counter}"
             self.username = candidate
         return super().save(*args, **kwargs)
     

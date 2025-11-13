@@ -116,14 +116,6 @@ class OrderViewSet(viewsets.ViewSet):
                 status_code=status.HTTP_404_NOT_FOUND,
             )
         
-        # Check permission
-        if not request.user.is_staff and str(order.user_id) != str(request.user.id):
-            return api_error(
-                "Không có quyền truy cập.",
-                data=None,
-                status_code=status.HTTP_403_FORBIDDEN,
-            )
-        
         request_serializer = OrderSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
         order = request_serializer.update(order, request_serializer.validated_data)
@@ -144,14 +136,6 @@ class OrderViewSet(viewsets.ViewSet):
                 "Order không tồn tại.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
-            )
-        
-        # Check permission
-        if not request.user.is_staff and str(order.user_id) != str(request.user.id):
-            return api_error(
-                "Không có quyền truy cập.",
-                data=None,
-                status_code=status.HTTP_403_FORBIDDEN,
             )
         
         order.delete()

@@ -12,16 +12,25 @@ from .mongo_models import OutfitHistory, PasswordResetAudit, User, UserInteracti
 class UserSerializer(serializers.Serializer):
     id = serializers.SerializerMethodField()
     email = serializers.EmailField()
-    username = serializers.CharField(required=False, allow_blank=True)
+    name = serializers.CharField(required=False, allow_blank=True)
+    username = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     first_name = serializers.CharField(required=False, allow_blank=True)
     last_name = serializers.CharField(required=False, allow_blank=True)
     is_staff = serializers.SerializerMethodField()
+    is_active = serializers.BooleanField(required=False)
     height = serializers.FloatField(required=False, allow_null=True)
     weight = serializers.FloatField(required=False, allow_null=True)
     gender = serializers.CharField(required=False, allow_null=True)
     age = serializers.IntegerField(required=False, allow_null=True)
     preferences = serializers.DictField(default=dict)
     amazon_user_id = serializers.CharField(required=False, allow_null=True)
+    favorites = serializers.ListField(child=serializers.CharField(), required=False)
+    user_embedding = serializers.ListField(child=serializers.FloatField(), required=False)
+    content_profile = serializers.DictField(required=False)
+    interaction_history = serializers.ListField(required=False)
+    outfit_history = serializers.ListField(required=False)
+    created_at = serializers.DateTimeField(required=False, allow_null=True)
+    updated_at = serializers.DateTimeField(required=False, allow_null=True)
     
     def get_id(self, obj):
         return str(obj.id)
@@ -31,20 +40,87 @@ class UserSerializer(serializers.Serializer):
     
     def to_representation(self, instance):
         """Convert MongoEngine document to dict."""
-        return {
-            "id": str(instance.id),
-            "email": instance.email,
-            "username": instance.username,
-            "first_name": instance.first_name or "",
-            "last_name": instance.last_name or "",
-            "is_staff": instance.is_admin,
-            "height": instance.height,
-            "weight": instance.weight,
-            "gender": instance.gender,
-            "age": instance.age,
-            "preferences": instance.preferences,
-            "amazon_user_id": instance.amazon_user_id,
+        # Get field values - mongoengine automatically maps db_field
+        name = getattr(instance, 'name', None) or ""
+        username = getattr(instance, 'username', None)
+        first_name = getattr(instance, 'first_name', None) or ""
+        last_name = getattr(instance, 'last_name', None) or ""
+        height = getattr(instance, 'height', None)
+        weight = getattr(instance, 'weight', None)
+        gender = getattr(instance, 'gender', None)
+        age = getattr(instance, 'age', None)
+        preferences_raw = getattr(instance, 'preferences', None) or {}
+        amazon_user_id = getattr(instance, 'amazon_user_id', None)
+        is_admin = getattr(instance, 'is_admin', False)
+        is_active = getattr(instance, 'is_active', True)
+        
+        # Get additional fields from database
+        favorites = getattr(instance, 'favorites', None) or []
+        user_embedding = getattr(instance, 'user_embedding', None) or []
+        content_profile = getattr(instance, 'content_profile', None) or {}
+        interaction_history = getattr(instance, 'interaction_history', None) or []
+        outfit_history = getattr(instance, 'outfit_history', None) or []
+        created_at = getattr(instance, 'created_at', None)
+        updated_at = getattr(instance, 'updated_at', None)
+        
+        # If name is empty but we have first_name or last_name, use them
+        if not name and (first_name or last_name):
+            name = f"{first_name} {last_name}".strip()
+        
+        # Ensure preferences has complete structure
+        preferences = {
+            "priceRange": preferences_raw.get("priceRange", {"min": 0, "max": 1000000}),
+            "style": preferences_raw.get("style", "casual"),
+            "colorPreferences": preferences_raw.get("colorPreferences", []) or [],
+            "brandPreferences": preferences_raw.get("brandPreferences", []) or []
         }
+        # Merge any additional preference fields
+        for key, value in preferences_raw.items():
+            if key not in preferences:
+                preferences[key] = value
+        
+        # Ensure content_profile has complete structure
+        content_profile_result = {
+            "featureVector": content_profile.get("featureVector", []) or [],
+            "categoryWeights": content_profile.get("categoryWeights", []) or []
+        }
+        # Merge any additional content_profile fields
+        for key, value in content_profile.items():
+            if key not in content_profile_result:
+                content_profile_result[key] = value
+        
+        # Convert favorites ObjectIds to strings
+        favorites_list = [str(fav_id) for fav_id in favorites] if favorites else []
+        
+        # Format timestamps
+        created_at_str = created_at.isoformat() if created_at else None
+        updated_at_str = updated_at.isoformat() if updated_at else None
+        
+        result = {
+            "id": str(instance.id),
+            "email": getattr(instance, 'email', ''),
+            "name": name,
+            "username": username,
+            "first_name": first_name,
+            "last_name": last_name,
+            "is_staff": is_admin,
+            "is_active": is_active,
+            "height": height,
+            "weight": weight,
+            "gender": gender,
+            "age": age,
+            "preferences": preferences,
+            "amazon_user_id": amazon_user_id,
+            "favorites": favorites_list,
+            "user_embedding": user_embedding,
+            "content_profile": content_profile_result,
+            "interaction_history": interaction_history,
+            "outfit_history": outfit_history,
+            "created_at": created_at_str,
+            "updated_at": updated_at_str,
+        }
+        
+        return result
     
     def update(self, instance, validated_data):
         """Update user."""

@@ -222,14 +222,6 @@ class RecommendationRequestViewSet(viewsets.ViewSet):
                 status_code=status.HTTP_404_NOT_FOUND,
             )
         
-        # Check permission
-        if not request.user.is_staff and str(request_obj.user_id) != str(request.user.id):
-            return api_error(
-                "Không có quyền truy cập.",
-                data=None,
-                status_code=status.HTTP_403_FORBIDDEN,
-            )
-        
         request_serializer = RecommendationRequestSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
         request_obj = request_serializer.update(request_obj, request_serializer.validated_data)
@@ -250,14 +242,6 @@ class RecommendationRequestViewSet(viewsets.ViewSet):
                 "RecommendationRequest không tồn tại.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
-            )
-        
-        # Check permission
-        if not request.user.is_staff and str(request_obj.user_id) != str(request.user.id):
-            return api_error(
-                "Không có quyền truy cập.",
-                data=None,
-                status_code=status.HTTP_403_FORBIDDEN,
             )
         
         request_obj.delete()

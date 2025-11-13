@@ -24,7 +24,7 @@ class OptionalDefaultRouter(routers.DefaultRouter):
             self.register(prefix, viewset, basename=basename)
 
 
-api_router = OptionalDefaultRouter()
+api_router = OptionalDefaultRouter(trailing_slash=False)
 api_router.extend(users_router)
 api_router.extend(products_router)
 api_router.extend(brands_router)

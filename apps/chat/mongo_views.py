@@ -96,14 +96,6 @@ class ChatThreadViewSet(viewsets.ViewSet):
                 status_code=status.HTTP_404_NOT_FOUND,
             )
         
-        # Check permission
-        if not request.user.is_staff and str(thread.user_id) != str(request.user.id):
-            return api_error(
-                "Không có quyền truy cập.",
-                data=None,
-                status_code=status.HTTP_403_FORBIDDEN,
-            )
-        
         request_serializer = ChatThreadSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
         thread = request_serializer.update(thread, request_serializer.validated_data)
@@ -124,14 +116,6 @@ class ChatThreadViewSet(viewsets.ViewSet):
                 "ChatThread không tồn tại.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
-            )
-        
-        # Check permission
-        if not request.user.is_staff and str(thread.user_id) != str(request.user.id):
-            return api_error(
-                "Không có quyền truy cập.",
-                data=None,
-                status_code=status.HTTP_403_FORBIDDEN,
             )
         
         thread.delete()

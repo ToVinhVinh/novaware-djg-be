@@ -101,15 +101,6 @@ class UserViewSet(viewsets.ViewSet):
                 status_code=status.HTTP_404_NOT_FOUND,
             )
         
-        # Check permission
-        user_id = str(getattr(request.user, 'id', None) or '')
-        if not (hasattr(request.user, 'is_staff') and request.user.is_staff) and str(user.id) != user_id:
-            return api_error(
-                "Không có quyền truy cập.",
-                data=None,
-                status_code=status.HTTP_403_FORBIDDEN,
-            )
-        
         request_serializer = UserSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
         user = request_serializer.update(user, request_serializer.validated_data)
