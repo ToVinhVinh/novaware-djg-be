@@ -37,6 +37,9 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/v1/", include(api_router.urls)),
     path("api/v1/auth/", include("apps.users.auth_urls")),
+    path("api/gnn/", include("apps.recommendations.gnn.urls")),
+    path("api/cbf/", include("apps.recommendations.cbf.urls")),
+    path("api/hybrid/", include("apps.recommendations.hybrid.urls")),
 ]
 
 if settings.DEBUG:

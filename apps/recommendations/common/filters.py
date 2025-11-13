@@ -1,0 +1,358 @@
+"""Candidate filtering utilities for recommendation engines."""
+
+from __future__ import annotations
+
+from collections import Counter, defaultdict
+from typing import Iterable, Sequence
+
+from django.contrib.auth import get_user_model
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.db.models import Prefetch, QuerySet
+from bson import ObjectId
+
+from apps.products.models import Product, Category as SqlCategory
+from apps.brands.models import Brand as SqlBrand
+from apps.users.models import UserInteraction
+try:
+    # Optional: available only when MongoDB connection is configured
+    from apps.users.mongo_models import User as MongoUser  # type: ignore
+    from apps.products.mongo_models import Product as MongoProduct  # type: ignore
+    from apps.products.mongo_models import Category as MongoCategory  # type: ignore
+    from apps.brands.mongo_models import Brand as MongoBrand  # type: ignore
+except Exception:  # pragma: no cover - optional dependency at runtime
+    MongoUser = None  # type: ignore
+    MongoProduct = None  # type: ignore
+    MongoCategory = None  # type: ignore
+    MongoBrand = None  # type: ignore
+
+from .constants import INTERACTION_WEIGHTS, MAX_STYLE_TAGS
+from .context import RecommendationContext
+
+User = get_user_model()
+
+
+class CandidateFilter:
+    """Build candidate pools that satisfy strict business constraints."""
+
+    @classmethod
+    def build_context(
+        cls,
+        *,
+        user_id: str | int,
+        current_product_id: str | int,
+        top_k_personal: int,
+        top_k_outfit: int,
+        request_params: dict | None = None,
+    ) -> RecommendationContext:
+        user = cls._resolve_user(user_id)
+        current_product = cls._resolve_product(current_product_id, owner_user=user)
+
+        resolved_gender = cls._resolve_gender(user, current_product)
+        resolved_age_group = cls._resolve_age_group(user, current_product)
+
+        interactions = cls._load_interactions(user)
+        history_products = [interaction.product for interaction in interactions if interaction.product_id]
+        excluded_ids = {current_product.id, *(product.id for product in history_products if product.id)}
+
+        candidate_products = cls._build_candidate_pool(
+            gender=resolved_gender,
+            age_group=resolved_age_group,
+            excluded_ids=excluded_ids,
+        )
+
+        if not candidate_products:
+            # Relaxed fallback: allow same gender but drop age restriction only if nothing matches.
+            fallback_products = cls._fallback_candidates(
+                gender=resolved_gender,
+                excluded_ids=excluded_ids,
+            )
+            candidate_products = fallback_products
+
+        style_counter = cls._build_style_profile(interactions, history_products, user, current_product)
+        brand_counter = cls._build_brand_profile(interactions)
+        interaction_weight_map = defaultdict(float)
+        for interaction in interactions:
+            if not interaction.product_id:
+                continue
+            interaction_weight_map[interaction.product_id] += INTERACTION_WEIGHTS.get(
+                interaction.interaction_type,
+                1.0,
+            )
+
+        return RecommendationContext(
+            user=user,
+            current_product=current_product,
+            top_k_personal=top_k_personal,
+            top_k_outfit=top_k_outfit,
+            interactions=interactions,
+            history_products=history_products,
+            candidate_products=candidate_products,
+            excluded_product_ids=excluded_ids,
+            style_counter=dict(style_counter),
+            brand_counter=dict(brand_counter),
+            interaction_weights=dict(interaction_weight_map),
+            resolved_gender=resolved_gender,
+            resolved_age_group=resolved_age_group,
+            request_params=request_params or {},
+        )
+
+    @staticmethod
+    def _looks_like_object_id(value: str | int) -> bool:
+        if not isinstance(value, str):
+            return False
+        return len(value) == 24 and all(c in "0123456789abcdefABCDEF" for c in value)
+
+    @classmethod
+    def _resolve_user(cls, user_id: str | int):
+        # 1) Try direct SQL PK
+        try:
+            return User.objects.get(pk=user_id)
+        except (ObjectDoesNotExist, ValueError):
+            pass
+
+        # 2) If looks like Mongo ObjectId, try mapping via Mongo → SQL by email
+        if cls._looks_like_object_id(user_id) and MongoUser is not None:
+            try:
+                mongo_user = MongoUser.objects(id=ObjectId(str(user_id))).first()  # type: ignore[attr-defined]
+                if mongo_user and getattr(mongo_user, "email", None):
+                    return User.objects.get(email=mongo_user.email)
+            except Exception:
+                pass
+
+        raise ValidationError({"user_id": "User not found"})
+
+    @classmethod
+    def _resolve_product(cls, product_id: str | int, owner_user) -> Product:
+        # 1) Try direct SQL PK
+        try:
+            return Product.objects.select_related("brand", "category").get(pk=product_id)
+        except (ObjectDoesNotExist, ValueError):
+            pass
+
+        # 2) If looks like Mongo ObjectId, try mapping via Mongo → SQL by slug or amazon_asin
+        if cls._looks_like_object_id(product_id) and MongoProduct is not None:
+            try:
+                mongo_product = MongoProduct.objects(id=ObjectId(str(product_id))).first()  # type: ignore[attr-defined]
+                if mongo_product:
+                    # Prefer slug (stable unique) then amazon_asin
+                    slug = getattr(mongo_product, "slug", None)
+                    if slug:
+                        try:
+                            return Product.objects.select_related("brand", "category").get(slug=slug)
+                        except Product.DoesNotExist:
+                            pass
+                    asin = getattr(mongo_product, "amazon_asin", None)
+                    if asin:
+                        try:
+                            return Product.objects.select_related("brand", "category").get(amazon_asin=asin)
+                        except Product.DoesNotExist:
+                            pass
+                    # 2b) As a last resort, create a shadow Product in SQL using Mongo data
+                    try:
+                        brand = None
+                        category = None
+                        if MongoBrand is not None:
+                            try:
+                                m_brand = MongoBrand.objects(id=getattr(mongo_product, "brand_id", None)).first()  # type: ignore[attr-defined]
+                                if m_brand and getattr(m_brand, "name", None):
+                                    brand, _ = SqlBrand.objects.get_or_create(name=m_brand.name)
+                            except Exception:
+                                pass
+                        if brand is None:
+                            brand, _ = SqlBrand.objects.get_or_create(name="ImportedBrand")
+
+                        if MongoCategory is not None:
+                            try:
+                                m_cat = MongoCategory.objects(id=getattr(mongo_product, "category_id", None)).first()  # type: ignore[attr-defined]
+                                if m_cat and getattr(m_cat, "name", None):
+                                    category, _ = SqlCategory.objects.get_or_create(name=m_cat.name)
+                            except Exception:
+                                pass
+                        if category is None:
+                            category, _ = SqlCategory.objects.get_or_create(name="Imported")
+
+                        name = getattr(mongo_product, "name", "Imported Product")
+                        description = getattr(mongo_product, "description", "") or ""
+                        images = getattr(mongo_product, "images", []) or []
+                        price = getattr(mongo_product, "price", 0)
+                        sale = getattr(mongo_product, "sale", 0)
+                        count_in_stock = getattr(mongo_product, "count_in_stock", 0) or 0
+                        style_tags = getattr(mongo_product, "style_tags", []) or []
+                        outfit_tags = getattr(mongo_product, "outfit_tags", []) or []
+                        feature_vector = getattr(mongo_product, "feature_vector", []) or []
+                        gender = (getattr(mongo_product, "gender", "unisex") or "unisex").lower()
+                        age_group = (getattr(mongo_product, "age_group", "adult") or "adult").lower()
+                        category_type = (getattr(mongo_product, "category_type", "tops") or "tops").lower()
+                        slug_val = slug or f"imported-{str(ObjectId())[:8]}"
+                        asin_val = getattr(mongo_product, "amazon_asin", None)
+
+                        created = Product.objects.create(
+                            user=owner_user,
+                            brand=brand,
+                            category=category,
+                            name=name,
+                            slug=slug_val,
+                            description=description,
+                            images=list(images),
+                            price=price,
+                            sale=sale,
+                            count_in_stock=count_in_stock,
+                            size={},
+                            outfit_tags=list(outfit_tags),
+                            style_tags=list(style_tags),
+                            feature_vector=list(feature_vector),
+                            gender=gender,
+                            age_group=age_group,
+                            category_type=category_type,
+                            amazon_asin=asin_val,
+                        )
+                        return created
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        raise ValidationError({"current_product_id": "Product not found"})
+
+    @staticmethod
+    def _load_interactions(user: User) -> list[UserInteraction]:
+        qs = (
+            UserInteraction.objects.filter(user=user)
+            .select_related("product", "product__brand", "product__category")
+            .order_by("-timestamp")
+        )
+        return list(qs)
+
+    @classmethod
+    def _build_candidate_pool(
+        cls,
+        *,
+        gender: str,
+        age_group: str,
+        excluded_ids: set[int],
+    ) -> list[Product]:
+        allowed_genders = cls._allowed_genders(gender)
+        queryset: QuerySet[Product] = (
+            Product.objects.filter(
+                gender__in=allowed_genders,
+                age_group=age_group,
+            )
+            .exclude(id__in=excluded_ids)
+            .select_related("brand", "category")
+        )
+        products = list(queryset)
+        return cls._deduplicate(products)
+
+    @classmethod
+    def _fallback_candidates(cls, *, gender: str, excluded_ids: set[int]) -> list[Product]:
+        allowed_genders = cls._allowed_genders(gender)
+        queryset: QuerySet[Product] = (
+            Product.objects.filter(gender__in=allowed_genders)
+            .exclude(id__in=excluded_ids)
+            .select_related("brand", "category")
+        )
+        return cls._deduplicate(list(queryset))
+
+    @staticmethod
+    def _deduplicate(products: Sequence[Product]) -> list[Product]:
+        seen: set[int] = set()
+        unique_products: list[Product] = []
+        for product in products:
+            if product.id in seen:
+                continue
+            seen.add(product.id)
+            unique_products.append(product)
+        return unique_products
+
+    @staticmethod
+    def _allowed_genders(gender: str) -> list[str]:
+        allowed = ["unisex"]
+        if gender:
+            allowed.insert(0, gender)
+        return list(dict.fromkeys(allowed))
+
+    @staticmethod
+    def _resolve_gender(user, current_product: Product) -> str:
+        gender = (user.gender or "").lower()
+        if gender in ("male", "female"):
+            return gender
+        current = (getattr(current_product, "gender", None) or "").lower()
+        if current in ("male", "female"):
+            return current
+        return "unisex"
+
+    @staticmethod
+    def _resolve_age_group(user, current_product: Product) -> str:
+        if hasattr(user, "age") and user.age:
+            age = user.age
+            if age <= 12:
+                return "kid"
+            if age <= 19:
+                return "teen"
+            return "adult"
+        prod_age = getattr(current_product, "age_group", None)
+        if prod_age in ("kid", "teen", "adult"):
+            return prod_age
+        return "adult"
+
+    @staticmethod
+    def _build_style_profile(
+        interactions: Iterable[UserInteraction],
+        history_products: Iterable[Product],
+        user,
+        current_product: Product,
+    ) -> Counter:
+        counter: Counter = Counter()
+        product_weights: defaultdict[int, float] = defaultdict(float)
+        for interaction in interactions:
+            if not interaction.product_id:
+                continue
+            weight = INTERACTION_WEIGHTS.get(interaction.interaction_type, 1.0)
+            product_weights[interaction.product_id] += weight
+        for product in history_products:
+            weight = product_weights.get(product.id, 1.0)
+            for token in _collect_style_tokens(product):
+                counter[token] += weight
+        preference_styles = _extract_user_preference_styles(user)
+        for token in preference_styles:
+            counter[token] += 1.5
+        for token in _collect_style_tokens(current_product):
+            counter[token] += 0.5
+        most_common = counter.most_common(MAX_STYLE_TAGS)
+        return Counter(dict(most_common))
+
+    @staticmethod
+    def _build_brand_profile(interactions: Iterable[UserInteraction]) -> Counter:
+        brand_counter: Counter = Counter()
+        for interaction in interactions:
+            product = interaction.product
+            if not product or not product.brand_id:
+                continue
+            weight = INTERACTION_WEIGHTS.get(interaction.interaction_type, 1.0)
+            brand_counter[product.brand_id] += weight
+        return brand_counter
+
+
+def _collect_style_tokens(product: Product) -> list[str]:
+    tokens: list[str] = []
+    if isinstance(getattr(product, "style_tags", None), list):
+        tokens.extend(token.lower() for token in product.style_tags if token)
+    if isinstance(getattr(product, "outfit_tags", None), list):
+        tokens.extend(token.lower() for token in product.outfit_tags if token)
+    if getattr(product, "category_type", None):
+        tokens.append(product.category_type.lower())
+    if getattr(product, "category", None) and getattr(product.category, "name", None):
+        tokens.append(product.category.name.lower())
+    return tokens
+
+
+def _extract_user_preference_styles(user) -> list[str]:
+    preferences = getattr(user, "preferences", {}) or {}
+    styles = preferences.get("styles") or preferences.get("style_tags") or []
+    normalized: list[str] = []
+    for token in styles:
+        if not token:
+            continue
+        normalized.append(str(token).lower())
+    return normalized
+
