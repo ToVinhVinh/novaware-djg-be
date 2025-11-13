@@ -7,14 +7,15 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.recommendations.common.exceptions import ModelNotTrainedError
-
 from .models import recommend_gnn, train_gnn_model
+from .mongo_engine import recommend_gnn_mongo
 from .serializers import GNNRecommendationSerializer, GNNTrainSerializer
 
 
 class TrainGNNView(APIView):
     serializer_class = GNNTrainSerializer
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
 
     def post(self, request, *args, **kwargs):
         serializer = self.serializer_class(data=request.data)
@@ -40,19 +41,13 @@ class RecommendGNNView(APIView):
         serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            payload = recommend_gnn(
+            payload = recommend_gnn_mongo(
                 user_id=serializer.validated_data["user_id"],
                 current_product_id=serializer.validated_data["current_product_id"],
                 top_k_personal=serializer.validated_data["top_k_personal"],
                 top_k_outfit=serializer.validated_data["top_k_outfit"],
-                request_params=serializer.validated_data,
             )
-        except ModelNotTrainedError as exc:
-            return Response(
-                {"detail": str(exc), "model": "gnn"},
-                status=status.HTTP_409_CONFLICT,
-            )
-        except ValidationError as exc:
+        except (ValueError, ValidationError) as exc:
             error_data = {}
             if hasattr(exc, "message_dict"):
                 error_data = exc.message_dict
@@ -65,6 +60,11 @@ class RecommendGNNView(APIView):
             return Response(
                 error_data,
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            return Response(
+                {"detail": [str(exc)]},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
         return Response(payload, status=status.HTTP_200_OK)
 

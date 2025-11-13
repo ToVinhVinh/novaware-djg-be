@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from rest_framework import status
+from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -14,6 +14,8 @@ from .serializers import CBFRecommendationSerializer, CBFTrainSerializer
 
 class TrainCBFView(APIView):
     serializer_class = CBFTrainSerializer
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
 
     def post(self, request, *args, **kwargs):
         serializer = self.serializer_class(data=request.data)
@@ -32,6 +34,8 @@ class TrainCBFView(APIView):
 
 class RecommendCBFView(APIView):
     serializer_class = CBFRecommendationSerializer
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
 
     def post(self, request, *args, **kwargs):
         serializer = self.serializer_class(data=request.data)

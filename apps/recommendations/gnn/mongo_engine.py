@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import datetime, timedelta
+from time import time
 from typing import Any, Iterable
 
 from bson import ObjectId
@@ -24,6 +26,12 @@ INTERACTION_WEIGHTS: dict[str, float] = {
 }
 
 _COLOR_NAME_CACHE: dict[str, str] = {}
+
+_GNN_ARTIFACTS_CACHE: dict[str, Any] | None = None
+_CACHE_TTL_SECONDS = 3600  # 1 hour cache TTL
+
+# Only process interactions from the last N days to improve performance
+_INTERACTION_LOOKBACK_DAYS = 90  # Process last 90 days of interactions only
 
 
 def _style_tokens(product: MongoProduct) -> Iterable[str]:
@@ -97,7 +105,7 @@ def _load_interactions(user: MongoUser) -> list[MongoInteraction]:
 def _build_context(
     *,
     user_id: str | ObjectId,
-    current_product_id: str | ObjectId,
+    current_product_id: str | ObjectId, 
     top_k_personal: int,
     top_k_outfit: int,
 ) -> MongoRecommendationContext:
@@ -207,31 +215,96 @@ def _build_context(
     )
 
 
-def train_gnn_mongo() -> dict[str, Any]:
-    """Build a simple co-occurrence graph from Mongo interactions."""
+def train_gnn_mongo(force_rebuild: bool = False) -> dict[str, Any]:
+    """Build a simple co-occurrence graph from Mongo interactions.
+    
+    Uses in-memory cache to avoid rebuilding the graph on every request.
+    Cache is invalidated after TTL expires or if interaction count changes.
+    """
+    global _GNN_ARTIFACTS_CACHE
+    
+    current_time = time()
+    
+    # Check if cache is valid
+    if not force_rebuild and _GNN_ARTIFACTS_CACHE is not None:
+        cache_age = current_time - _GNN_ARTIFACTS_CACHE.get("timestamp", 0)
+        if cache_age < _CACHE_TTL_SECONDS:
+            # Check if interaction count has changed (simple invalidation check)
+            # Only check count if cache is relatively fresh (< 5 minutes) to avoid frequent DB queries
+            if cache_age < 300:  # 5 minutes
+                current_count = MongoInteraction.objects(product_id__ne=None).count()
+                cached_count = _GNN_ARTIFACTS_CACHE.get("interaction_count", 0)
+                if current_count == cached_count:
+                    return _GNN_ARTIFACTS_CACHE["artifacts"]
+            else:
+                # For older cache, just return it without checking count (will refresh on next TTL)
+                return _GNN_ARTIFACTS_CACHE["artifacts"]
+    
+    # Build artifacts
     co_occurrence: dict[str, dict[str, float]] = defaultdict(dict)
     product_frequency: dict[str, float] = defaultdict(float)
 
-    interactions = MongoInteraction.objects().order_by("+user_id", "+timestamp")
+    # Limit to recent interactions only for performance
+    cutoff_date = datetime.utcnow() - timedelta(days=_INTERACTION_LOOKBACK_DAYS)
+    
+    # Get total interaction count for cache invalidation (only count valid, recent interactions)
+    interaction_count = MongoInteraction.objects(
+        product_id__ne=None,
+        timestamp__gte=cutoff_date
+    ).count()
+    
+    # Only load recent interactions with product_id and only necessary fields
+    # Use only() to limit fields loaded from database
+    # Limit to recent interactions to improve performance significantly
+    interactions = (
+        MongoInteraction.objects(
+            product_id__ne=None,
+            timestamp__gte=cutoff_date
+        )
+        .only("user_id", "product_id", "interaction_type")
+        .order_by("+user_id", "+timestamp")
+    )
+    
+    # Optimized: Use dict to track last N products per user instead of full history
+    # This reduces O(n²) complexity to O(n*k) where k is max history per user
+    MAX_HISTORY_PER_USER = 50  # Only keep last 50 products per user
     user_histories: dict[str, list[tuple[str, float]]] = defaultdict(list)
 
+    # Process interactions - optimized algorithm
     for it in interactions:
         if not it.product_id:
             continue
         product_id = str(it.product_id)
         weight = INTERACTION_WEIGHTS.get(it.interaction_type, 1.0)
-        history = user_histories[str(it.user_id)]
+        user_id_str = str(it.user_id)
+        history = user_histories[user_id_str]
+        
+        # Build co-occurrence with current history (limited size)
         for other_id, other_weight in history:
             total = weight + other_weight
             co_occurrence[product_id][other_id] = co_occurrence[product_id].get(other_id, 0.0) + total
             co_occurrence[other_id][product_id] = co_occurrence[other_id].get(product_id, 0.0) + total
+        
+        # Add to history, but limit size to avoid memory bloat
         history.append((product_id, weight))
+        if len(history) > MAX_HISTORY_PER_USER:
+            history.pop(0)  # Remove oldest
+        
         product_frequency[product_id] += weight
 
-    return {
+    artifacts = {
         "co_occurrence": {pid: dict(nei) for pid, nei in co_occurrence.items()},
         "product_frequency": dict(product_frequency),
     }
+    
+    # Update cache
+    _GNN_ARTIFACTS_CACHE = {
+        "artifacts": artifacts,
+        "timestamp": current_time,
+        "interaction_count": interaction_count,
+    }
+    
+    return artifacts
 
 
 def _as_product_object(prod: MongoProduct, *, color_cache: dict[str, list[str]]) -> dict[str, Any]:
@@ -326,7 +399,7 @@ def recommend_gnn_mongo(
     top_k_personal: int = 5,
     top_k_outfit: int = 4,
 ) -> dict[str, Any]:
-    # Build artifacts on the fly (could be cached in Mongo later)
+    # Build artifacts (now with caching for performance)
     artifacts = train_gnn_mongo()
     context = _build_context(
         user_id=user_id,

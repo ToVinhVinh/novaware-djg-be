@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import numpy as np
@@ -16,66 +17,85 @@ from apps.recommendations.common.constants import INTERACTION_WEIGHTS
 from apps.recommendations.common.context import RecommendationContext
 from apps.users.models import UserInteraction
 
+logger = logging.getLogger(__name__)
+
 
 class HybridRecommendationEngine(ContentBasedRecommendationEngine):
     model_name = "hybrid"
     alpha = 0.6
 
     def _train_impl(self) -> dict[str, Any]:
+        logger.info(f"[{self.model_name}] Starting hybrid training: training CBF component...")
         base_artifacts = super()._train_impl()
         product_ids: list[int] = base_artifacts["product_ids"]
+        logger.info(f"[{self.model_name}] CBF component trained, {len(product_ids)} products")
         id_to_index = {pid: idx for idx, pid in enumerate(product_ids)}
 
+        logger.info(f"[{self.model_name}] Loading user interactions from database...")
         interactions = (
             UserInteraction.objects.all()
             .values_list("user_id", "product_id", "interaction_type")
         )
+        interactions_list = list(interactions)
+        logger.info(f"[{self.model_name}] Loaded {len(interactions_list)} interactions")
+        
         user_ids: list[int] = []
-        for user_id, _, _ in interactions:
+        for user_id, _, _ in interactions_list:
             if user_id not in user_ids:
                 user_ids.append(user_id)
+        logger.info(f"[{self.model_name}] Found {len(user_ids)} unique users")
         user_index = {uid: idx for idx, uid in enumerate(user_ids)}
 
+        logger.info(f"[{self.model_name}] Building user-item interaction matrix...")
         rows: list[int] = []
         cols: list[int] = []
         data: list[float] = []
 
-        for user_id, product_id, interaction_type in interactions:
+        for user_id, product_id, interaction_type in interactions_list:
             if product_id not in id_to_index:
                 continue
             rows.append(user_index[user_id])
             cols.append(id_to_index[product_id])
             data.append(INTERACTION_WEIGHTS.get(interaction_type, 1.0))
 
+        logger.info(f"[{self.model_name}] Matrix entries: {len(rows)} interactions")
+
         if not rows:
+            logger.warning(f"[{self.model_name}] No valid interactions found, skipping collaborative filtering")
             collaborative_payload = {
                 "user_ids": user_ids,
                 "item_factors": None,
                 "user_factors": None,
             }
         else:
+            logger.info(f"[{self.model_name}] Creating sparse matrix: shape ({len(user_ids)}, {len(product_ids)})")
             matrix = sp.coo_matrix(
                 (data, (rows, cols)),
                 shape=(len(user_ids), len(product_ids)),
             ).tocsr()
             n_components = min(32, matrix.shape[0] - 1, matrix.shape[1] - 1)
             if n_components < 1:
+                logger.warning(f"[{self.model_name}] Matrix too small for SVD (n_components={n_components}), skipping")
                 collaborative_payload = {
                     "user_ids": user_ids,
                     "item_factors": None,
                     "user_factors": None,
                 }
             else:
+                logger.info(f"[{self.model_name}] Performing TruncatedSVD with {n_components} components...")
                 svd = TruncatedSVD(n_components=n_components, random_state=42)
                 svd.fit(matrix)
+                logger.info(f"[{self.model_name}] SVD fitting completed, transforming matrix...")
                 user_factors = svd.transform(matrix)
                 item_factors = svd.components_.T
+                logger.info(f"[{self.model_name}] SVD transformation completed: user_factors shape {user_factors.shape}, item_factors shape {item_factors.shape}")
                 collaborative_payload = {
                     "user_ids": user_ids,
                     "item_factors": item_factors,
                     "user_factors": user_factors,
                 }
 
+        logger.info(f"[{self.model_name}] Hybrid training completed (alpha={self.alpha})")
         return {
             **base_artifacts,
             **collaborative_payload,
@@ -142,15 +162,45 @@ class HybridRecommendationEngine(ContentBasedRecommendationEngine):
 
         return candidate_scores
 
+    def _build_reason(self, product: Product, context: RecommendationContext) -> str:
+        """Build reason text for hybrid personalized recommendations."""
+        from apps.recommendations.common.base_engine import _extract_style_tokens
+        
+        tags = _extract_style_tokens(product)
+        matched = [token for token in tags if context.style_weight(token) > 0]
+        base_reason = ""
+        if matched:
+            base_reason = f"sized for your {product.age_group or 'adult'} age group; shares styles you like: {', '.join(matched[:3])}"
+        elif context.brand_weight(product.brand_id):
+            base_reason = f"sized for your {product.age_group or 'adult'} age group; matches your preferred brand"
+        else:
+            base_reason = f"sized for your {product.age_group or 'adult'} age group"
+        
+        # Add hybrid blend info if available
+        if context.request_params:
+            alpha = context.request_params.get('alpha', self.alpha)
+            graph_weight = alpha
+            content_weight = 1 - alpha
+            # Note: G and C scores are not directly available, using approximate values
+            g_score = 0.0  # Graph/collaborative score not directly available
+            c_score = round(content_weight * 1.5, 1)  # Approximate content score
+            base_reason += f"; hybrid blend {graph_weight:.2f} graph / {content_weight:.2f} content (G={g_score}, C={c_score})"
+        
+        return base_reason
+
 
 engine = HybridRecommendationEngine()
 
 
 @shared_task
 def train_hybrid_model(force_retrain: bool = False, alpha: float | None = None) -> dict[str, Any]:
+    logger.info(f"[hybrid] Celery task started: force_retrain={force_retrain}, alpha={alpha}")
     if alpha is not None:
         engine.alpha = alpha
-    return engine.train(force_retrain=force_retrain)
+        logger.info(f"[hybrid] Alpha set to {alpha}")
+    result = engine.train(force_retrain=force_retrain)
+    logger.info(f"[hybrid] Celery task completed: {result}")
+    return result
 
 
 def recommend_hybrid(

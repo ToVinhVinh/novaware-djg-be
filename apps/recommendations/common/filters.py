@@ -7,6 +7,7 @@ from typing import Iterable, Sequence
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.db import IntegrityError
 from django.db.models import Prefetch, QuerySet
 from bson import ObjectId
 
@@ -45,7 +46,7 @@ class CandidateFilter:
         request_params: dict | None = None,
     ) -> RecommendationContext:
         user = cls._resolve_user(user_id)
-        current_product = cls._resolve_product(current_product_id, owner_user=user)
+        current_product, product_id_to_mongo_id = cls._resolve_product_with_mapping(current_product_id, owner_user=user)
 
         resolved_gender = cls._resolve_gender(user, current_product)
         resolved_age_group = cls._resolve_age_group(user, current_product)
@@ -67,6 +68,12 @@ class CandidateFilter:
                 excluded_ids=excluded_ids,
             )
             candidate_products = fallback_products
+
+        # Build MongoDB ID mapping for all candidate products (one-time batch operation)
+        product_id_to_mongo_id = cls._build_mongo_mapping(candidate_products, product_id_to_mongo_id)
+        # Also map current product and history products
+        product_id_to_mongo_id = cls._build_mongo_mapping([current_product], product_id_to_mongo_id)
+        product_id_to_mongo_id = cls._build_mongo_mapping(history_products, product_id_to_mongo_id)
 
         style_counter = cls._build_style_profile(interactions, history_products, user, current_product)
         brand_counter = cls._build_brand_profile(interactions)
@@ -94,6 +101,7 @@ class CandidateFilter:
             resolved_gender=resolved_gender,
             resolved_age_group=resolved_age_group,
             request_params=request_params or {},
+            product_id_to_mongo_id=product_id_to_mongo_id,
         )
 
     @staticmethod
@@ -114,23 +122,98 @@ class CandidateFilter:
         if cls._looks_like_object_id(user_id) and MongoUser is not None:
             try:
                 mongo_user = MongoUser.objects(id=ObjectId(str(user_id))).first()  # type: ignore[attr-defined]
-                if mongo_user and getattr(mongo_user, "email", None):
-                    return User.objects.get(email=mongo_user.email)
+                if mongo_user:
+                    email = getattr(mongo_user, "email", None)
+                    if email:
+                        try:
+                            return User.objects.get(email=email)
+                        except User.DoesNotExist:
+                            pass
+                    # 2b) As a last resort, create a shadow User in SQL using Mongo data
+                    try:
+                        email_val = email or f"imported_{str(ObjectId())[:8]}@imported.local"
+                        # Check if email already exists (might have been created by another process)
+                        try:
+                            return User.objects.get(email=email_val)
+                        except User.DoesNotExist:
+                            pass
+                        
+                        username = getattr(mongo_user, "username", None)
+                        if not username:
+                            base_username = email_val.split("@", 1)[0].replace(".", "_")
+                            counter = 1
+                            candidate = base_username
+                            while User.objects.filter(username=candidate).exists():
+                                counter += 1
+                                candidate = f"{base_username}_{counter}"
+                            username = candidate
+                        
+                        first_name = getattr(mongo_user, "first_name", None) or ""
+                        last_name = getattr(mongo_user, "last_name", None) or ""
+                        name = getattr(mongo_user, "name", None) or ""
+                        if not first_name and not last_name and name:
+                            # Try to split name into first/last
+                            parts = name.split(maxsplit=1)
+                            if len(parts) >= 2:
+                                first_name, last_name = parts[0], parts[1]
+                            elif len(parts) == 1:
+                                first_name = parts[0]
+                        
+                        gender = getattr(mongo_user, "gender", None)
+                        age = getattr(mongo_user, "age", None)
+                        height = getattr(mongo_user, "height", None)
+                        weight = getattr(mongo_user, "weight", None)
+                        preferences = getattr(mongo_user, "preferences", {}) or {}
+                        amazon_user_id = getattr(mongo_user, "amazon_user_id", None)
+                        is_active = getattr(mongo_user, "is_active", True)
+                        is_staff = getattr(mongo_user, "is_admin", False)
+                        
+                        try:
+                            created = User.objects.create(
+                                email=email_val,
+                                username=username,
+                                first_name=first_name,
+                                last_name=last_name,
+                                gender=gender,
+                                age=age,
+                                height=height,
+                                weight=weight,
+                                preferences=preferences,
+                                amazon_user_id=amazon_user_id,
+                                is_active=is_active,
+                                is_staff=is_staff,
+                                is_superuser=is_staff,
+                            )
+                            return created
+                        except IntegrityError:
+                            # Race condition: user was created by another process, try to get it
+                            try:
+                                return User.objects.get(email=email_val)
+                            except User.DoesNotExist:
+                                pass
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
         raise ValidationError({"user_id": "User not found"})
 
     @classmethod
-    def _resolve_product(cls, product_id: str | int, owner_user) -> Product:
+    def _resolve_product_with_mapping(cls, product_id: str | int, owner_user) -> tuple[Product, dict[int, str]]:
+        """Resolve product and return mapping of Django ID to MongoDB ObjectId."""
+        product_id_to_mongo_id: dict[int, str] = {}
+        
         # 1) Try direct SQL PK
         try:
-            return Product.objects.select_related("brand", "category").get(pk=product_id)
+            product = Product.objects.select_related("brand", "category").get(pk=product_id)
+            return product, product_id_to_mongo_id
         except (ObjectDoesNotExist, ValueError):
             pass
 
         # 2) If looks like Mongo ObjectId, try mapping via Mongo → SQL by slug or amazon_asin
+        original_mongo_id = None
         if cls._looks_like_object_id(product_id) and MongoProduct is not None:
+            original_mongo_id = str(product_id)
             try:
                 mongo_product = MongoProduct.objects(id=ObjectId(str(product_id))).first()  # type: ignore[attr-defined]
                 if mongo_product:
@@ -138,13 +221,19 @@ class CandidateFilter:
                     slug = getattr(mongo_product, "slug", None)
                     if slug:
                         try:
-                            return Product.objects.select_related("brand", "category").get(slug=slug)
+                            product = Product.objects.select_related("brand", "category").get(slug=slug)
+                            if product.id:
+                                product_id_to_mongo_id[product.id] = original_mongo_id
+                            return product, product_id_to_mongo_id
                         except Product.DoesNotExist:
                             pass
                     asin = getattr(mongo_product, "amazon_asin", None)
                     if asin:
                         try:
-                            return Product.objects.select_related("brand", "category").get(amazon_asin=asin)
+                            product = Product.objects.select_related("brand", "category").get(amazon_asin=asin)
+                            if product.id:
+                                product_id_to_mongo_id[product.id] = original_mongo_id
+                            return product, product_id_to_mongo_id
                         except Product.DoesNotExist:
                             pass
                     # 2b) As a last resort, create a shadow Product in SQL using Mongo data
@@ -206,13 +295,59 @@ class CandidateFilter:
                             category_type=category_type,
                             amazon_asin=asin_val,
                         )
-                        return created
+                        if created.id:
+                            product_id_to_mongo_id[created.id] = original_mongo_id
+                        return created, product_id_to_mongo_id
                     except Exception:
                         pass
             except Exception:
                 pass
 
         raise ValidationError({"current_product_id": "Product not found"})
+    
+    @classmethod
+    def _resolve_product(cls, product_id: str | int, owner_user) -> Product:
+        """Backward compatibility wrapper."""
+        product, _ = cls._resolve_product_with_mapping(product_id, owner_user)
+        return product
+
+    @staticmethod
+    def _build_mongo_mapping(products: list[Product], existing_mapping: dict[int, str]) -> dict[int, str]:
+        """Build MongoDB ObjectId mapping for a list of Django products (batch operation)."""
+        if not products or not MongoProduct:
+            return existing_mapping
+        
+        mapping = existing_mapping.copy()
+        
+        try:
+            # Batch lookup by slug (most efficient)
+            slugs = [p.slug for p in products if p.slug]
+            if slugs:
+                mongo_products_by_slug = {}
+                for mp in MongoProduct.objects(slug__in=slugs):
+                    mongo_products_by_slug[mp.slug] = mp
+                
+                for product in products:
+                    if product.id and product.slug and product.slug in mongo_products_by_slug:
+                        mapping[product.id] = str(mongo_products_by_slug[product.slug].id)
+            
+            # Batch lookup by amazon_asin for remaining products
+            remaining_products = [p for p in products if p.id and p.id not in mapping and hasattr(p, 'amazon_asin') and p.amazon_asin]
+            if remaining_products:
+                asins = [p.amazon_asin for p in remaining_products]
+                mongo_products_by_asin = {}
+                for mp in MongoProduct.objects(amazon_asin__in=asins):
+                    if mp.amazon_asin:
+                        mongo_products_by_asin[mp.amazon_asin] = mp
+                
+                for product in remaining_products:
+                    if product.id and product.amazon_asin and product.amazon_asin in mongo_products_by_asin:
+                        mapping[product.id] = str(mongo_products_by_asin[product.amazon_asin].id)
+        except Exception:
+            # If batch lookup fails, fall back to individual lookups (slower but works)
+            pass
+        
+        return mapping
 
     @staticmethod
     def _load_interactions(user: User) -> list[UserInteraction]:

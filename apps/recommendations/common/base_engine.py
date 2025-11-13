@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from typing import Any, Iterable
 
@@ -14,6 +15,8 @@ from .outfit import OutfitBuilder
 from .schema import PersonalizedRecommendation, RecommendationPayload
 from .storage import ArtifactStorage
 
+logger = logging.getLogger(__name__)
+
 
 class BaseRecommendationEngine(ABC):
     """Abstract base class that handles persistence and response assembly."""
@@ -24,15 +27,20 @@ class BaseRecommendationEngine(ABC):
         self.storage = ArtifactStorage(self.model_name)
 
     def train(self, force_retrain: bool = False) -> dict[str, Any]:
+        logger.info(f"[{self.model_name}] Starting training process (force_retrain={force_retrain})")
         if not force_retrain and self.storage.exists():
+            logger.info(f"[{self.model_name}] Model already trained, skipping")
             return {"status": "already_trained", "model": self.model_name}
+        logger.info(f"[{self.model_name}] Training implementation started...")
         artifacts = self._train_impl()
+        logger.info(f"[{self.model_name}] Training implementation completed, saving artifacts...")
         metadata = {
             "model": self.model_name,
             "trained_at": timezone.now().isoformat(),
             "artifacts": artifacts,
         }
         self.storage.save(metadata)
+        logger.info(f"[{self.model_name}] Training completed successfully")
         return {"status": "training_completed", "model": self.model_name}
 
     def recommend(self, context: RecommendationContext) -> RecommendationPayload:
@@ -70,7 +78,7 @@ class BaseRecommendationEngine(ABC):
         for product_id, score in ranked[: context.top_k_personal]:
             product = candidate_map[product_id]
             reason = self._build_reason(product, context)
-            results.append(PersonalizedRecommendation(product, score, reason))
+            results.append(PersonalizedRecommendation(product, score, reason, context=context))
         return results
 
     def _build_reason(self, product: Product, context: RecommendationContext) -> str:

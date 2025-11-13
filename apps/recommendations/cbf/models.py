@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 from typing import Any
 
@@ -15,19 +16,28 @@ from apps.products.models import Product
 from apps.recommendations.common import BaseRecommendationEngine, CandidateFilter
 from apps.recommendations.common.context import RecommendationContext
 
+logger = logging.getLogger(__name__)
+
 
 class ContentBasedRecommendationEngine(BaseRecommendationEngine):
     model_name = "cbf"
 
     def _train_impl(self) -> dict[str, Any]:
+        logger.info(f"[{self.model_name}] Loading products from database...")
         products = list(
             Product.objects.all().select_related("brand", "category")
         )
+        logger.info(f"[{self.model_name}] Loaded {len(products)} products")
+        
         product_ids = [product.id for product in products if product.id is not None]
+        logger.info(f"[{self.model_name}] Building documents for {len(product_ids)} products...")
         documents = [_build_document(product) for product in products if product.id is not None]
+        logger.info(f"[{self.model_name}] Documents built, creating TF-IDF vectorizer...")
 
         vectorizer = TfidfVectorizer(token_pattern=r"(?u)\b\w+\b")
+        logger.info(f"[{self.model_name}] Fitting TF-IDF vectorizer on {len(documents)} documents...")
         product_matrix = vectorizer.fit_transform(documents)
+        logger.info(f"[{self.model_name}] TF-IDF matrix created: shape {product_matrix.shape}")
 
         return {
             "product_ids": product_ids,

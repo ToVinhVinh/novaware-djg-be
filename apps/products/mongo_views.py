@@ -378,20 +378,56 @@ class ProductViewSet(viewsets.ViewSet):
         """List products with filtering and pagination."""
         queryset = Product.objects.all()
         
+        # Filter by category FIRST (before brand filter)
+        category_id = request.query_params.get("category")
+        if category_id:
+            try:
+                category_object_id = ObjectId(category_id)
+                
+                # Try multiple filter methods and use the one that works
+                # Method 1: Direct field access with ObjectId (MongoEngine's preferred way)
+                queryset1 = queryset.filter(category_id=category_object_id)
+                count1 = queryset1.count()
+                
+                if count1 > 0:
+                    queryset = queryset1
+                else:
+                    # Method 2: __raw__ with ObjectId
+                    queryset2 = Product.objects.all().filter(__raw__={"category_id": category_object_id})
+                    count2 = queryset2.count()
+                    
+                    if count2 > 0:
+                        queryset = queryset2
+                    else:
+                        # Method 3: __raw__ with string (in case it's stored as string)
+                        queryset3 = Product.objects.all().filter(__raw__={"category_id": category_id})
+                        count3 = queryset3.count()
+                        
+                        if count3 > 0:
+                            queryset = queryset3
+                        else:
+                            # Method 4: Try direct field access with string (MongoEngine auto-conversion)
+                            try:
+                                queryset4 = Product.objects.all().filter(category_id=category_id)
+                                count4 = queryset4.count()
+                                if count4 > 0:
+                                    queryset = queryset4
+                            except:
+                                pass
+                            
+            except Exception as e:
+                # If ObjectId conversion fails, try as string
+                queryset = queryset.filter(__raw__={"category_id": category_id})
+        
         # Filter by brand
         brand_id = request.query_params.get("brand")
         if brand_id:
             try:
-                queryset = queryset.filter(brand_id=ObjectId(brand_id))
-            except Exception:
-                pass
-        
-        # Filter by category
-        category_id = request.query_params.get("category")
-        if category_id:
-            try:
-                queryset = queryset.filter(category_id=ObjectId(category_id))
-            except Exception:
+                brand_object_id = ObjectId(brand_id)
+                # Use __raw__ to ensure proper filtering
+                queryset = queryset.filter(__raw__={"brand_id": brand_object_id})
+            except Exception as e:
+                # Invalid ObjectId format, skip filter
                 pass
         
         # Search
@@ -674,6 +710,128 @@ class ProductViewSet(viewsets.ViewSet):
                 "count": total_count,
             },
         )
+    
+    @action(detail=False, methods=["get"], permission_classes=[permissions.AllowAny], authentication_classes=[])
+    def debug_category(self, request):
+        """Debug endpoint to check category and products count."""
+        category_id = request.query_params.get("category")
+        if not category_id:
+            return api_error("Category ID is required", status_code=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            category_object_id = ObjectId(category_id)
+        except Exception as e:
+            return api_error(f"Invalid category ID format: {str(e)}", status_code=status.HTTP_400_BAD_REQUEST)
+        
+        debug_info = {
+            "category_id": category_id,
+            "category_object_id": str(category_object_id),
+        }
+        
+        # Check if category exists
+        try:
+            category = Category.objects.get(id=category_object_id)
+            debug_info["category_exists"] = True
+            debug_info["category_name"] = category.name
+        except Category.DoesNotExist:
+            debug_info["category_exists"] = False
+            debug_info["category_name"] = None
+        except Exception as e:
+            debug_info["category_error"] = str(e)
+        
+        # Test different filter methods
+        total_products = Product.objects.all().count()
+        debug_info["total_products"] = total_products
+        
+        # Method 1: Direct field access with ObjectId
+        try:
+            queryset1 = Product.objects.all().filter(category_id=category_object_id)
+            count1 = queryset1.count()
+            debug_info["method1_direct_objectid"] = {
+                "count": count1,
+                "works": count1 > 0
+            }
+            if count1 > 0:
+                sample1 = queryset1.first()
+                debug_info["method1_direct_objectid"]["sample_category_id_type"] = str(type(sample1.category_id))
+                debug_info["method1_direct_objectid"]["sample_category_id_value"] = str(sample1.category_id)
+        except Exception as e:
+            debug_info["method1_direct_objectid"] = {"error": str(e)}
+        
+        # Method 2: __raw__ with ObjectId
+        try:
+            queryset2 = Product.objects.all().filter(__raw__={"category_id": category_object_id})
+            count2 = queryset2.count()
+            debug_info["method2_raw_objectid"] = {
+                "count": count2,
+                "works": count2 > 0
+            }
+            if count2 > 0:
+                sample2 = queryset2.first()
+                debug_info["method2_raw_objectid"]["sample_category_id_type"] = str(type(sample2.category_id))
+                debug_info["method2_raw_objectid"]["sample_category_id_value"] = str(sample2.category_id)
+        except Exception as e:
+            debug_info["method2_raw_objectid"] = {"error": str(e)}
+        
+        # Method 3: __raw__ with string
+        try:
+            queryset3 = Product.objects.all().filter(__raw__={"category_id": category_id})
+            count3 = queryset3.count()
+            debug_info["method3_raw_string"] = {
+                "count": count3,
+                "works": count3 > 0
+            }
+            if count3 > 0:
+                sample3 = queryset3.first()
+                debug_info["method3_raw_string"]["sample_category_id_type"] = str(type(sample3.category_id))
+                debug_info["method3_raw_string"]["sample_category_id_value"] = str(sample3.category_id)
+        except Exception as e:
+            debug_info["method3_raw_string"] = {"error": str(e)}
+        
+        # Check actual data in first few products
+        try:
+            products_sample = Product.objects.all()[:5]
+            sample_data = []
+            for p in products_sample:
+                cat_id = p.category_id
+                sample_data.append({
+                    "product_id": str(p.id),
+                    "category_id_type": str(type(cat_id)),
+                    "category_id_value": str(cat_id),
+                    "matches": str(cat_id) == category_id
+                })
+            debug_info["sample_products"] = sample_data
+        except Exception as e:
+            debug_info["sample_products_error"] = str(e)
+        
+        # Try MongoDB raw query
+        try:
+            from mongoengine import connection
+            db = connection.get_db()
+            
+            # Raw query with ObjectId
+            count_raw1 = db.products.count_documents({"category_id": category_object_id})
+            debug_info["raw_mongodb_objectid"] = {"count": count_raw1}
+            
+            if count_raw1 > 0:
+                doc1 = db.products.find_one({"category_id": category_object_id})
+                if doc1:
+                    debug_info["raw_mongodb_objectid"]["sample_type"] = str(type(doc1.get("category_id")))
+                    debug_info["raw_mongodb_objectid"]["sample_value"] = str(doc1.get("category_id"))
+            
+            # Raw query with string
+            count_raw2 = db.products.count_documents({"category_id": category_id})
+            debug_info["raw_mongodb_string"] = {"count": count_raw2}
+            
+            if count_raw2 > 0:
+                doc2 = db.products.find_one({"category_id": category_id})
+                if doc2:
+                    debug_info["raw_mongodb_string"]["sample_type"] = str(type(doc2.get("category_id")))
+                    debug_info["raw_mongodb_string"]["sample_value"] = str(doc2.get("category_id"))
+        except Exception as e:
+            debug_info["raw_mongodb_error"] = str(e)
+        
+        return api_success("Category debug info", debug_info)
 
 
 class ContentSectionViewSet(viewsets.ViewSet):

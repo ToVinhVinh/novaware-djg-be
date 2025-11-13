@@ -31,6 +31,8 @@ class RecommendationContext:
     resolved_age_group: str = "adult"
     request_params: dict[str, Any] = field(default_factory=dict)
     prepared_at: datetime = field(default_factory=timezone.now)
+    # Mapping from Django product ID to MongoDB ObjectId
+    product_id_to_mongo_id: dict[int, str] = field(default_factory=dict)
 
     def iter_history_ids(self) -> Iterable[int]:
         for product in self.history_products:

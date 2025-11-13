@@ -23,19 +23,31 @@ class OutfitBuilder:
         context: RecommendationContext,
         scored_candidates: dict[int, float],
         top_k: int,
-    ) -> tuple[dict[str, list[OutfitRecommendation]], float]:
+    ) -> tuple[dict[str, OutfitRecommendation], float]:
         current_category = context.current_product.category_type
-        required_categories = cls.required_categories(current_category)
+        
+        # Always return all standard categories, not just based on current_category
+        # This matches the mongo_engine behavior
+        required_categories = ["accessories", "bottoms", "shoes", "tops"]
+        # Add dresses if user is female
+        if hasattr(context.user, "gender") and (context.user.gender or "").lower() == "female":
+            required_categories.insert(2, "dresses")
+        
         if not required_categories:
             return {}, 0.0
 
         candidate_map = context.candidate_map
         remaining_ids = set(candidate_map.keys())
+        used_ids: set[int] = set()
 
-        outfit_payload: dict[str, list[OutfitRecommendation]] = defaultdict(list)
+        outfit_payload: dict[str, OutfitRecommendation] = {}
         category_scores: list[float] = []
 
+        # First pass: try to find products matching each category
         for category in required_categories:
+            product_found = False
+            
+            # Step 1: Try to find in candidate pool matching category
             ranked = cls._rank_for_category(
                 category=category,
                 scored_candidates=scored_candidates,
@@ -43,16 +55,68 @@ class OutfitBuilder:
                 remaining_ids=remaining_ids,
                 context=context,
             )
-            if not ranked:
-                continue
-            top_entries = ranked[:top_k]
-            for product_id, score in top_entries:
+            if ranked:
+                # Take only the top item for each category
+                product_id, score = ranked[0]
                 product = candidate_map.get(product_id)
-                if not product:
-                    continue
-                outfit_payload[category].append(OutfitRecommendation(category, product, score))
-                remaining_ids.discard(product_id)
-                category_scores.append(score)
+                if product and product_id not in used_ids:
+                    reason = cls._build_reason(product, context, category, current_category)
+                    outfit_payload[category] = OutfitRecommendation(category, product, score, reason, context=context)
+                    remaining_ids.discard(product_id)
+                    used_ids.add(product_id)
+                    category_scores.append(score)
+                    product_found = True
+            
+            if not product_found:
+                # Step 2: Try to find from database matching category
+                fallback_product = cls._fallback_from_database(category, context, used_ids)
+                if fallback_product:
+                    fallback_id = fallback_product.id
+                    if fallback_id and fallback_id not in used_ids:
+                        fallback_score = scored_candidates.get(fallback_id, 0.0)
+                        reason = cls._build_reason(fallback_product, context, category, current_category, is_fallback=True)
+                        outfit_payload[category] = OutfitRecommendation(category, fallback_product, fallback_score, reason, context=context)
+                        used_ids.add(fallback_id)
+                        category_scores.append(fallback_score)
+                        product_found = True
+            
+            if not product_found:
+                # Step 3: Try to find matching category in candidate pool
+                # Only use products that match the category
+                for product_id in list(remaining_ids):
+                    if product_id in used_ids:
+                        continue
+                    product = candidate_map.get(product_id)
+                    if product and product.category_type == category:
+                        score = scored_candidates.get(product_id, 0.0)
+                        reason = cls._build_reason(product, context, category, current_category, is_fallback=False)
+                        outfit_payload[category] = OutfitRecommendation(category, product, score, reason, context=context)
+                        remaining_ids.discard(product_id)
+                        used_ids.add(product_id)
+                        category_scores.append(score)
+                        product_found = True
+                        break
+                
+                # Don't use products from other categories here - let Step 4 handle it from database
+            
+            if not product_found:
+                # Step 4: Final fallback - get any product from database (relax constraints)
+                relaxed_product = cls._fallback_from_database_relaxed(category, context, used_ids)
+                if relaxed_product:
+                    relaxed_id = relaxed_product.id
+                    if relaxed_id and relaxed_id not in used_ids:
+                        relaxed_score = scored_candidates.get(relaxed_id, 0.0)
+                        reason = cls._build_reason(relaxed_product, context, category, current_category, is_fallback=True)
+                        outfit_payload[category] = OutfitRecommendation(category, relaxed_product, relaxed_score, reason, context=context)
+                        used_ids.add(relaxed_id)
+                        category_scores.append(relaxed_score)
+                        product_found = True
+            
+            # If still no product found, log warning but continue
+            if not product_found:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Could not find product for outfit category: {category}")
 
         if not outfit_payload:
             return {}, 0.0
@@ -61,6 +125,88 @@ class OutfitBuilder:
         averaged_score = sum(category_scores) / len(category_scores) if category_scores else OUTFIT_SCORE_FLOOR
         outfit_score = max(OUTFIT_SCORE_FLOOR, min(1.0, (averaged_score + completeness_ratio) / 2))
         return dict(outfit_payload), outfit_score
+
+    @staticmethod
+    def _fallback_from_database(category: str, context: RecommendationContext, used_ids: set[int]):
+        """Try to get a product from database for the category."""
+        from apps.products.models import Product
+        
+        try:
+            excluded = used_ids | context.excluded_product_ids
+            allowed_genders = OutfitBuilder._allowed_genders(context.resolved_gender)
+            query = Product.objects.filter(
+                category_type=category,
+                gender__in=allowed_genders,
+                age_group=context.resolved_age_group,
+            ).exclude(id__in=excluded).select_related("brand", "category")
+            
+            product = query.first()
+            return product
+        except Exception:
+            return None
+
+    @staticmethod
+    def _fallback_from_database_relaxed(category: str, context: RecommendationContext, used_ids: set[int]):
+        """Try to get a product from database with relaxed constraints."""
+        from apps.products.models import Product
+        
+        try:
+            excluded = used_ids | context.excluded_product_ids
+            # First try: same category, any gender/age
+            query = Product.objects.filter(
+                category_type=category,
+            ).exclude(id__in=excluded).select_related("brand", "category")
+            product = query.first()
+            if product:
+                return product
+            
+            # Second try: any product not excluded
+            query = Product.objects.exclude(id__in=excluded).select_related("brand", "category")
+            product = query.first()
+            return product
+        except Exception:
+            return None
+
+    @staticmethod
+    def _allowed_genders(gender: str) -> list[str]:
+        allowed = ["unisex"]
+        if gender:
+            allowed.insert(0, gender)
+        return list(dict.fromkeys(allowed))
+
+    @staticmethod
+    def _build_reason(product, context: RecommendationContext, category: str, current_category: str, is_fallback: bool = False) -> str:
+        """Build reason text for outfit recommendation."""
+        from .base_engine import _extract_style_tokens
+        
+        tags = _extract_style_tokens(product)
+        matched = [token for token in tags if context.style_weight(token) > 0]
+        base_reason = ""
+        if matched:
+            base_reason = f"sized for your {product.age_group or 'adult'} age group; shares styles you like: {', '.join(matched[:3])}"
+        elif context.brand_weight(product.brand_id):
+            base_reason = f"sized for your {product.age_group or 'adult'} age group; matches your preferred brand"
+        else:
+            base_reason = f"sized for your {product.age_group or 'adult'} age group"
+        
+        # Add hybrid blend info if available
+        if hasattr(context, 'request_params') and context.request_params:
+            alpha = context.request_params.get('alpha', 0.6)
+            graph_weight = alpha
+            content_weight = 1 - alpha
+            # Note: G and C scores are not available in the current implementation
+            # Using approximate values based on the blend weights
+            g_score = 0.0  # Graph score not directly available
+            c_score = round(content_weight * 1.5, 1)  # Approximate content score
+            base_reason += f"; hybrid blend {graph_weight:.2f} graph / {content_weight:.2f} content (G={g_score}, C={c_score})"
+        
+        # Add fallback indicator if it's a fallback or category doesn't match
+        if is_fallback or (category != current_category and product.category_type != category):
+            # Only add if not already present
+            if "; fallback to complete outfit" not in base_reason:
+                base_reason += "; fallback to complete outfit"
+        
+        return base_reason
 
     @staticmethod
     def _rank_for_category(
