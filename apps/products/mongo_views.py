@@ -8,10 +8,11 @@ import random
 
 from bson import ObjectId
 from django.utils.text import slugify
-from rest_framework import permissions, status, viewsets
+from rest_framework import authentication, permissions, status, viewsets
 from rest_framework.decorators import action
 
 from apps.utils import api_error, api_success, get_pagination_params, paginate_queryset
+from apps.users.authentication import MongoEngineJWTAuthentication
 
 from .mongo_models import (
     Category,
@@ -36,13 +37,24 @@ from .mongo_serializers import (
 class CategoryViewSet(viewsets.ViewSet):
     """ViewSet cho Category."""
     
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]  # Mặc định cho phép công khai
+    authentication_classes = []  # Không yêu cầu authentication
 
     def get_permissions(self):
-        # Cho phép truy cập công khai cho các hành động đọc
-        if getattr(self, "action", None) in ["list", "retrieve"]:
-            return [permissions.AllowAny()]
-        return [permissions.IsAuthenticated()]
+        # Các action cần authentication
+        action = getattr(self, "action", None)
+        if action in ["create", "update", "destroy", "partial_update"]:
+            return [permissions.IsAuthenticated()]
+        # Các action khác cho phép công khai
+        return [permissions.AllowAny()]
+    
+    def get_authenticators(self):
+        """Override để yêu cầu authentication cho các action cần thiết."""
+        action = getattr(self, "action", None)
+        if action in ["create", "update", "destroy", "partial_update"]:
+            return [MongoEngineJWTAuthentication()]
+        # Các action khác không cần authentication
+        return []
     
     def list(self, request):
         """List all categories."""
@@ -343,19 +355,24 @@ class SizeViewSet(viewsets.ViewSet):
 class ProductViewSet(viewsets.ViewSet):
     """ViewSet cho Product."""
     
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]  # Mặc định cho phép công khai
+    authentication_classes = []  # Không yêu cầu authentication
 
     def get_permissions(self):
-        if getattr(self, "action", None) in [
-            "list",
-            "retrieve",
-            "top",
-            "variants",
-            "latest",
-            "sale",
-        ]:
-            return [permissions.AllowAny()]
-        return [permissions.IsAuthenticated()]
+        # Các action cần authentication
+        action = getattr(self, "action", None)
+        if action in ["create", "update", "destroy", "partial_update", "review"]:
+            return [permissions.IsAuthenticated()]
+        # Các action khác cho phép công khai
+        return [permissions.AllowAny()]
+    
+    def get_authenticators(self):
+        """Override để yêu cầu authentication cho các action cần thiết."""
+        action = getattr(self, "action", None)
+        if action in ["create", "update", "destroy", "partial_update", "review"]:
+            return [MongoEngineJWTAuthentication()]
+        # Các action khác không cần authentication
+        return []
     
     def list(self, request):
         """List products with filtering and pagination."""
@@ -513,7 +530,7 @@ class ProductViewSet(viewsets.ViewSet):
                 status_code=status.HTTP_404_NOT_FOUND,
             )
     
-    @action(detail=False, methods=["get"], permission_classes=[permissions.AllowAny])
+    @action(detail=False, methods=["get"], permission_classes=[permissions.AllowAny], authentication_classes=[])
     def top(self, request):
         """Get top rated products."""
         per_page_raw = request.query_params.get("perPage") or request.query_params.get("per_page")
@@ -595,7 +612,7 @@ class ProductViewSet(viewsets.ViewSet):
             },
         )
     
-    @action(detail=True, methods=["get"], permission_classes=[permissions.AllowAny])
+    @action(detail=True, methods=["get"], permission_classes=[permissions.AllowAny], authentication_classes=[])
     def variants(self, request, pk=None):
         """Get product variants."""
         try:
@@ -616,7 +633,7 @@ class ProductViewSet(viewsets.ViewSet):
             },
         )
 
-    @action(detail=False, methods=["get"], permission_classes=[permissions.AllowAny])
+    @action(detail=False, methods=["get"], permission_classes=[permissions.AllowAny], authentication_classes=[])
     def latest(self, request):
         """Get latest products (sorted by created_at desc)."""
         # Pagination aliases
@@ -637,7 +654,7 @@ class ProductViewSet(viewsets.ViewSet):
             },
         )
 
-    @action(detail=False, methods=["get"], permission_classes=[permissions.AllowAny])
+    @action(detail=False, methods=["get"], permission_classes=[permissions.AllowAny], authentication_classes=[])
     def sale(self, request):
         """Get products on sale (sale > 0), sorted by highest sale then newest."""
         page, page_size = get_pagination_params(request)

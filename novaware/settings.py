@@ -11,7 +11,6 @@ from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Nạp biến môi trường từ file .env (nếu có)
 load_dotenv(BASE_DIR / ".env")
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "change-me-please")
@@ -74,12 +73,9 @@ WSGI_APPLICATION = "novaware.wsgi.application"
 ASGI_APPLICATION = "novaware.asgi.application"
 
 
-# MongoDB Configuration với mongoengine
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/novaware")
 MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "novaware")
 
-# Django vẫn cần một database backend cho sessions và admin
-# Sử dụng SQLite nhỏ cho các tính năng Django core
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
