@@ -48,6 +48,23 @@ class Size(models.Model):
 
 
 class Product(models.Model):
+    class GenderChoices(models.TextChoices):
+        MALE = "male", "Male"
+        FEMALE = "female", "Female"
+        UNISEX = "unisex", "Unisex"
+
+    class AgeGroupChoices(models.TextChoices):
+        KID = "kid", "Kid"
+        TEEN = "teen", "Teen"
+        ADULT = "adult", "Adult"
+
+    class CategoryTypeChoices(models.TextChoices):
+        TOPS = "tops", "Tops"
+        BOTTOMS = "bottoms", "Bottoms"
+        DRESSES = "dresses", "Dresses"
+        SHOES = "shoes", "Shoes"
+        ACCESSORIES = "accessories", "Accessories"
+
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="products")
     brand = models.ForeignKey("brands.Brand", on_delete=models.PROTECT, related_name="products")
     category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name="products")
@@ -63,8 +80,27 @@ class Product(models.Model):
     size = models.JSONField(default=dict, blank=True)
     colors = models.ManyToManyField(Color, through="ProductColor", related_name="products", blank=True)
     outfit_tags = models.JSONField(default=list, blank=True)
+    style_tags = models.JSONField(default=list, blank=True)
     compatible_products = models.ManyToManyField("self", blank=True, symmetrical=False)
     feature_vector = models.JSONField(default=list, blank=True)
+    gender = models.CharField(
+        max_length=10,
+        choices=GenderChoices.choices,
+        default=GenderChoices.UNISEX,
+        db_index=True,
+    )
+    age_group = models.CharField(
+        max_length=10,
+        choices=AgeGroupChoices.choices,
+        default=AgeGroupChoices.ADULT,
+        db_index=True,
+    )
+    category_type = models.CharField(
+        max_length=20,
+        choices=CategoryTypeChoices.choices,
+        default=CategoryTypeChoices.TOPS,
+        db_index=True,
+    )
     amazon_asin = models.CharField(max_length=50, blank=True, null=True, db_index=True)
     amazon_parent_asin = models.CharField(max_length=50, blank=True, null=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)

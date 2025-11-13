@@ -99,6 +99,12 @@ class Product(me.Document):
     # Ratings
     rating = fields.FloatField(default=0.0, min_value=0.0, max_value=5.0)
     num_reviews = fields.IntField(default=0, min_value=0)
+    gender = fields.StringField(choices=("male", "female", "unisex"), default="unisex")
+    age_group = fields.StringField(choices=("kid", "teen", "adult"), default="adult")
+    category_type = fields.StringField(
+        choices=("tops", "bottoms", "dresses", "shoes", "accessories"),
+        default="tops",
+    )
     
     # Pricing
     price = fields.DecimalField(required=True, default=0.0, precision=10, decimal_places=2)
@@ -111,6 +117,7 @@ class Product(me.Document):
     
     # Features
     outfit_tags = fields.ListField(fields.StringField(), default=list)
+    style_tags = fields.ListField(fields.StringField(), default=list)
     compatible_product_ids = fields.ListField(fields.ObjectIdField(), default=list)
     feature_vector = fields.ListField(fields.FloatField(), default=list)
     
