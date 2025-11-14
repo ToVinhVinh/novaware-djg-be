@@ -8,6 +8,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+import apps.utils.json_encoder  # noqa: F401
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 

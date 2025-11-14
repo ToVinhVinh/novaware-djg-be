@@ -9,6 +9,18 @@ from apps.products.mongo_serializers import ProductSerializer
 from .mongo_models import OutfitHistory, PasswordResetAudit, User, UserInteraction
 
 
+def convert_objectid_to_str(obj):
+    """Recursively convert ObjectId instances to strings in nested data structures."""
+    if isinstance(obj, ObjectId):
+        return str(obj)
+    elif isinstance(obj, dict):
+        return {key: convert_objectid_to_str(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_objectid_to_str(item) for item in obj]
+    else:
+        return obj
+
+
 class UserSerializer(serializers.Serializer):
     id = serializers.SerializerMethodField()
     email = serializers.EmailField()
@@ -58,8 +70,8 @@ class UserSerializer(serializers.Serializer):
         favorites = getattr(instance, 'favorites', None) or []
         user_embedding = getattr(instance, 'user_embedding', None) or []
         content_profile = getattr(instance, 'content_profile', None) or {}
-        interaction_history = getattr(instance, 'interaction_history', None) or []
-        outfit_history = getattr(instance, 'outfit_history', None) or []
+        interaction_history_raw = getattr(instance, 'interaction_history', None) or []
+        outfit_history_raw = getattr(instance, 'outfit_history', None) or []
         created_at = getattr(instance, 'created_at', None)
         updated_at = getattr(instance, 'updated_at', None)
         
@@ -91,6 +103,12 @@ class UserSerializer(serializers.Serializer):
         
         # Convert favorites ObjectIds to strings
         favorites_list = [str(fav_id) for fav_id in favorites] if favorites else []
+        
+        # Convert ObjectId values in nested structures to strings
+        interaction_history = convert_objectid_to_str(interaction_history_raw)
+        outfit_history = convert_objectid_to_str(outfit_history_raw)
+        content_profile_result = convert_objectid_to_str(content_profile_result)
+        preferences = convert_objectid_to_str(preferences)
         
         # Format timestamps
         created_at_str = created_at.isoformat() if created_at else None

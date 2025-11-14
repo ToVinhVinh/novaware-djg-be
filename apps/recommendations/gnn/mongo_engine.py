@@ -488,6 +488,31 @@ def recommend_gnn_mongo(
 
     # Rank all candidates by score map for outfit selection
     score_map = {str(p.id): s for p, s in scores_sorted}
+    
+    # Always include the current product in its category
+    current_product = context.current_product
+    current_category = getattr(current_product, "category_type", None)
+    if current_category and current_category.lower() in [cat.lower() for cat in required_categories]:
+        current_category_lower = current_category.lower()
+        # Find the exact key in required_categories (case-insensitive match)
+        matching_key = next((cat for cat in required_categories if cat.lower() == current_category_lower), None)
+        if matching_key:
+            current_id = str(current_product.id)
+            current_score = score_map.get(current_id, 0.0)
+            # If not in score_map, calculate it
+            if current_id not in score_map:
+                cand_neighbors = graph.get(current_id, {})
+                for hid in history_ids:
+                    current_score += cand_neighbors.get(hid, 0.0)
+                current_neighbors_for_current = graph.get(current_id, {})
+                current_score += current_neighbors_for_current.get(current_id, 0.0) * 1.2
+                cand_style_tokens = list(_style_tokens(current_product))
+                current_score += sum(context.style_weights.get(t, 0.0) for t in cand_style_tokens)
+                current_score += 0.1 * frequency.get(current_id, 1.0)
+                cand_brand_id = str(getattr(current_product, "brand_id")) if getattr(current_product, "brand_id", None) else None
+                if cand_brand_id:
+                    current_score += 0.2 * context.brand_weights.get(cand_brand_id, 0.0)
+            outfit[matching_key] = as_item(current_product, current_score)
     by_category: dict[str, list[MongoProduct]] = defaultdict(list)
     for prod, _ in scores_sorted:
         key = category_key_for_user(getattr(prod, "category_type", None))
@@ -497,6 +522,9 @@ def recommend_gnn_mongo(
 
     # Pick the best single item per category
     for key in required_categories:
+        # Skip if current product is already in this category
+        if outfit.get(key) is not None:
+            continue
         products = by_category.get(key, [])
         if not products:
             # fallback: broaden search across Mongo collection for this category
@@ -521,22 +549,48 @@ def recommend_gnn_mongo(
         best = products_sorted[0]
         outfit[key] = as_item(best, score_map.get(str(best.id), 0.0))
 
-    # Backfill remaining categories with best available items regardless of category to keep outfit complete
+    # Backfill remaining categories with products matching the category
     used_product_ids = {
         item["product"]["id"] for item in outfit.values() if item and item.get("product")
     }
     for key in required_categories:
         if outfit.get(key) is not None:
             continue
+        # Try to find a product matching the category from scored candidates
+        product_found = False
         for prod, sc in scores_sorted:
             pid = str(prod.id)
             if pid in used_product_ids:
                 continue
-            fallback_item = as_item(prod, sc)
-            fallback_item["reason"] += "; fallback to complete outfit"
-            outfit[key] = fallback_item
-            used_product_ids.add(pid)
-            break
+            # Only use products that match the category
+            prod_category = getattr(prod, "category_type", None)
+            if prod_category and prod_category.lower() == key.lower():
+                fallback_item = as_item(prod, sc)
+                fallback_item["reason"] += "; fallback to complete outfit"
+                outfit[key] = fallback_item
+                used_product_ids.add(pid)
+                product_found = True
+                break
+        
+        # If still no product found, try querying MongoDB for products with correct category
+        if not product_found:
+            query = MongoProduct.objects(category_type=key)
+            if context.excluded_product_ids:
+                query = query.filter(__raw__={"_id": {"$nin": list(context.excluded_product_ids)}})
+            # Also exclude already used products
+            if used_product_ids:
+                used_str_ids = [str(uid) for uid in used_product_ids if uid]
+                valid_used_ids = [ObjectId(uid) for uid in used_str_ids if ObjectId.is_valid(uid)]
+                if valid_used_ids:
+                    query = query.filter(__raw__={"_id": {"$nin": valid_used_ids}})
+            fallback_prod = query.first()
+            if fallback_prod:
+                fallback_id = str(fallback_prod.id)
+                fallback_score = score_map.get(fallback_id, 0.0)
+                fallback_item = as_item(fallback_prod, fallback_score)
+                fallback_item["reason"] += "; fallback to complete outfit"
+                outfit[key] = fallback_item
+                used_product_ids.add(fallback_id)
 
     # Compute completeness score: fraction of categories filled
     filled = sum(1 for k in required_categories if outfit.get(k) is not None)

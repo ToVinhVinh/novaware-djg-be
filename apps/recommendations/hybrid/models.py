@@ -15,7 +15,7 @@ from apps.recommendations.cbf.models import ContentBasedRecommendationEngine, _s
 from apps.recommendations.common import CandidateFilter
 from apps.recommendations.common.constants import INTERACTION_WEIGHTS
 from apps.recommendations.common.context import RecommendationContext
-from apps.users.models import UserInteraction
+from apps.users.models import User, UserInteraction
 
 logger = logging.getLogger(__name__)
 
@@ -27,24 +27,147 @@ class HybridRecommendationEngine(ContentBasedRecommendationEngine):
     def _train_impl(self) -> dict[str, Any]:
         logger.info(f"[{self.model_name}] Starting hybrid training: training CBF component...")
         base_artifacts = super()._train_impl()
-        product_ids: list[int] = base_artifacts["product_ids"]
-        logger.info(f"[{self.model_name}] CBF component trained, {len(product_ids)} products")
-        id_to_index = {pid: idx for idx, pid in enumerate(product_ids)}
-
-        logger.info(f"[{self.model_name}] Loading user interactions from database...")
-        interactions = (
-            UserInteraction.objects.all()
-            .values_list("user_id", "product_id", "interaction_type")
-        )
-        interactions_list = list(interactions)
-        logger.info(f"[{self.model_name}] Loaded {len(interactions_list)} interactions")
         
-        user_ids: list[int] = []
-        for user_id, _, _ in interactions_list:
-            if user_id not in user_ids:
-                user_ids.append(user_id)
-        logger.info(f"[{self.model_name}] Found {len(user_ids)} unique users")
-        user_index = {uid: idx for idx, uid in enumerate(user_ids)}
+        # Load MongoDB data directly - use only MongoDB ObjectIds
+        logger.info(f"[{self.model_name}] Loading MongoDB data...")
+        
+        # Initialize variables
+        mongo_product_ids: list[str] = []
+        user_ids: list[str] = []
+        interactions_list: list[tuple[str, str, str]] = []
+        mongo_id_to_index: dict[str, int] = {}
+        user_index: dict[str, int] = {}
+        
+        try:
+            from apps.users.mongo_models import UserInteraction as MongoInteraction
+            from apps.products.mongo_models import Product as MongoProduct
+            from bson import ObjectId
+            
+            # Get all MongoDB interactions
+            mongo_interactions = MongoInteraction.objects.all()
+            logger.info(f"[{self.model_name}] Found {mongo_interactions.count()} MongoDB interactions")
+            
+            # Get all MongoDB products (not just from interactions) for matrix display
+            all_mongo_products = MongoProduct.objects.all().limit(100)  # Limit for performance
+            for mongo_product in all_mongo_products:
+                if mongo_product.id:
+                    mongo_product_ids.append(str(mongo_product.id))
+            
+            logger.info(f"[{self.model_name}] Found {len(mongo_product_ids)} MongoDB products for matrix")
+            
+            # If no products from all products, try to get from interactions
+            if len(mongo_product_ids) == 0:
+                mongo_product_ids_set = set()
+                for interaction in mongo_interactions:
+                    if interaction.product_id:
+                        mongo_product_ids_set.add(str(interaction.product_id))
+                
+                for product_id_str in mongo_product_ids_set:
+                    try:
+                        mongo_product = MongoProduct.objects(id=ObjectId(product_id_str)).first()
+                        if mongo_product:
+                            mongo_product_ids.append(product_id_str)
+                    except:
+                        continue
+                logger.info(f"[{self.model_name}] Found {len(mongo_product_ids)} products from interactions")
+            
+            # Get all MongoDB users (not just from interactions) for matrix display
+            from apps.users.mongo_models import User as MongoUser
+            all_mongo_users = MongoUser.objects.all().limit(100)  # Limit for performance
+            mongo_user_ids_list = []
+            for mongo_user in all_mongo_users:
+                if mongo_user.id:
+                    mongo_user_ids_list.append(str(mongo_user.id))
+            
+            logger.info(f"[{self.model_name}] Found {len(mongo_user_ids_list)} MongoDB users for matrix")
+            
+            # Create mapping: MongoDB product ID -> index
+            mongo_id_to_index = {pid: idx for idx, pid in enumerate(mongo_product_ids)}
+            
+            # Collect interactions with MongoDB IDs only
+            for interaction in mongo_interactions:
+                user_id_str = str(interaction.user_id)
+                product_id_str = str(interaction.product_id)
+                
+                # Only include if product exists in our MongoDB product list
+                if product_id_str in mongo_id_to_index:
+                    interactions_list.append((user_id_str, product_id_str, interaction.interaction_type))
+            
+            logger.info(f"[{self.model_name}] Loaded {len(interactions_list)} interactions with MongoDB IDs")
+            
+            # If no interactions but we have users and products, use all users
+            if len(interactions_list) == 0 and len(mongo_user_ids_list) > 0:
+                user_ids = mongo_user_ids_list[:5]  # Use first 5 users for display
+                logger.info(f"[{self.model_name}] No interactions found, using {len(user_ids)} users for matrix display")
+            elif len(interactions_list) > 0:
+                # Collect unique user IDs from interactions
+                user_ids_set = set()
+                for user_id, _, _ in interactions_list:
+                    user_ids_set.add(user_id)
+                user_ids = list(user_ids_set)
+                logger.info(f"[{self.model_name}] Found {len(user_ids)} unique users from interactions")
+            
+            # Ensure we have at least some users and products for matrix display
+            if len(user_ids) == 0:
+                if len(mongo_user_ids_list) > 0:
+                    user_ids = mongo_user_ids_list[:5]  # Use first 5 users
+                    logger.info(f"[{self.model_name}] Using {len(user_ids)} users from MongoDB for matrix display")
+                else:
+                    logger.warning(f"[{self.model_name}] No MongoDB users found!")
+                    user_ids = []
+            
+            if len(mongo_product_ids) == 0:
+                logger.warning(f"[{self.model_name}] No MongoDB products found!")
+            
+            # If we have no users or products, return empty matrix
+            if len(user_ids) == 0 or len(mongo_product_ids) == 0:
+                logger.warning(f"[{self.model_name}] Cannot create matrix: users={len(user_ids)}, products={len(mongo_product_ids)}")
+                return {
+                    **base_artifacts,
+                    "user_ids": [],
+                    "item_factors": None,
+                    "user_factors": None,
+                    "alpha": self.alpha,
+                    "matrix_data": {
+                        "shape": [0, 0],
+                        "display_shape": [0, 0],
+                        "data": [],
+                        "user_ids": [],
+                        "product_ids": [],
+                        "description": "User-Item Interaction Matrix",
+                        "row_label": "User ID",
+                        "col_label": "Product ID",
+                        "value_description": "Interaction weight (0 = no interaction, >0 = interaction strength)",
+                        "warning": f"No MongoDB data found. Users: {len(user_ids)}, Products: {len(mongo_product_ids)}",
+                    },
+                }
+            
+            # Create user index mapping
+            user_index = {uid: idx for idx, uid in enumerate(user_ids)}
+            logger.info(f"[{self.model_name}] Matrix will have {len(user_ids)} users and {len(mongo_product_ids)} products")
+            
+        except Exception as e:
+            logger.error(f"[{self.model_name}] Failed to load MongoDB data: {e}", exc_info=True)
+            # Return empty matrix data with error info
+            return {
+                **base_artifacts,
+                "user_ids": [],
+                "item_factors": None,
+                "user_factors": None,
+                "alpha": self.alpha,
+                "matrix_data": {
+                    "shape": [0, 0],
+                    "display_shape": [0, 0],
+                    "data": [],
+                    "user_ids": [],
+                    "product_ids": [],
+                    "description": "User-Item Interaction Matrix",
+                    "row_label": "User ID",
+                    "col_label": "Product ID",
+                    "value_description": "Interaction weight (0 = no interaction, >0 = interaction strength)",
+                    "error": f"Failed to load MongoDB data: {str(e)}",
+                },
+            }
 
         logger.info(f"[{self.model_name}] Building user-item interaction matrix...")
         rows: list[int] = []
@@ -52,54 +175,103 @@ class HybridRecommendationEngine(ContentBasedRecommendationEngine):
         data: list[float] = []
 
         for user_id, product_id, interaction_type in interactions_list:
-            if product_id not in id_to_index:
+            # All IDs are now MongoDB ObjectIds (strings)
+            if product_id not in mongo_id_to_index:
                 continue
             rows.append(user_index[user_id])
-            cols.append(id_to_index[product_id])
+            cols.append(mongo_id_to_index[product_id])
             data.append(INTERACTION_WEIGHTS.get(interaction_type, 1.0))
 
         logger.info(f"[{self.model_name}] Matrix entries: {len(rows)} interactions")
 
-        if not rows:
-            logger.warning(f"[{self.model_name}] No valid interactions found, skipping collaborative filtering")
+        # Prepare matrix data for response (sample for display)
+        # Always create matrix, even if no interactions (will be all zeros)
+        logger.info(f"[{self.model_name}] Creating matrix: shape ({len(user_ids)}, {len(mongo_product_ids)})")
+        
+        if rows:
+            # Create sparse matrix from interactions
+            matrix = sp.coo_matrix(
+                (data, (rows, cols)),
+                shape=(len(user_ids), len(mongo_product_ids)),
+            ).tocsr()
+        else:
+            # Create empty sparse matrix (all zeros)
+            matrix = sp.coo_matrix(
+                (len(user_ids), len(mongo_product_ids))
+            ).tocsr()
+            logger.info(f"[{self.model_name}] No interactions found, creating empty matrix (all zeros)")
+        
+        max_display_rows = min(5, len(user_ids))
+        max_display_cols = min(500, len(mongo_product_ids))
+        matrix_dense = matrix[:max_display_rows, :max_display_cols].toarray()
+        
+        # If we have fewer rows than desired, pad with empty rows for better visualization
+        display_rows = 5
+        if len(user_ids) < display_rows:
+            # Pad matrix with zero rows
+            padded_data = matrix_dense.tolist()
+            # Convert user_ids to strings for consistency
+            padded_user_ids = [str(uid) for uid in user_ids[:max_display_rows]]
+            
+            # Add empty rows to reach 5 rows
+            while len(padded_data) < display_rows:
+                padded_data.append([0.0] * max_display_cols)
+                # Use placeholder user IDs (negative numbers as strings to indicate they're not real)
+                padded_user_ids.append(f"-{len(padded_data)}")
+            
+            matrix_dense_display = padded_data[:display_rows]
+            user_ids_display = padded_user_ids[:display_rows]
+        else:
+            matrix_dense_display = matrix_dense.tolist()
+            user_ids_display = [str(uid) for uid in user_ids[:max_display_rows]]
+        
+        # Use MongoDB product IDs directly (already ObjectIds)
+        product_ids_display = mongo_product_ids[:max_display_cols]
+        
+        # Create matrix data structure for frontend
+        matrix_data = {
+            "shape": [len(user_ids), len(mongo_product_ids)],
+            "display_shape": [len(matrix_dense_display), max_display_cols],
+            "data": matrix_dense_display,
+            "user_ids": user_ids_display,
+            "product_ids": product_ids_display,
+            "description": "User-Item Interaction Matrix",
+            "row_label": "User ID",
+            "col_label": "Product ID",
+            "value_description": "Interaction weight (0 = no interaction, >0 = interaction strength)",
+        }
+        
+        # Create collaborative filtering payload
+        n_components = min(32, matrix.shape[0] - 1, matrix.shape[1] - 1)
+        if n_components < 1 or len(rows) == 0:
+            logger.warning(f"[{self.model_name}] Matrix too small for SVD (n_components={n_components}) or no interactions, skipping SVD")
             collaborative_payload = {
                 "user_ids": user_ids,
                 "item_factors": None,
                 "user_factors": None,
             }
         else:
-            logger.info(f"[{self.model_name}] Creating sparse matrix: shape ({len(user_ids)}, {len(product_ids)})")
-            matrix = sp.coo_matrix(
-                (data, (rows, cols)),
-                shape=(len(user_ids), len(product_ids)),
-            ).tocsr()
-            n_components = min(32, matrix.shape[0] - 1, matrix.shape[1] - 1)
-            if n_components < 1:
-                logger.warning(f"[{self.model_name}] Matrix too small for SVD (n_components={n_components}), skipping")
-                collaborative_payload = {
-                    "user_ids": user_ids,
-                    "item_factors": None,
-                    "user_factors": None,
-                }
-            else:
-                logger.info(f"[{self.model_name}] Performing TruncatedSVD with {n_components} components...")
-                svd = TruncatedSVD(n_components=n_components, random_state=42)
-                svd.fit(matrix)
-                logger.info(f"[{self.model_name}] SVD fitting completed, transforming matrix...")
-                user_factors = svd.transform(matrix)
-                item_factors = svd.components_.T
-                logger.info(f"[{self.model_name}] SVD transformation completed: user_factors shape {user_factors.shape}, item_factors shape {item_factors.shape}")
-                collaborative_payload = {
-                    "user_ids": user_ids,
-                    "item_factors": item_factors,
-                    "user_factors": user_factors,
-                }
+            logger.info(f"[{self.model_name}] Performing TruncatedSVD with {n_components} components...")
+            svd = TruncatedSVD(n_components=n_components, random_state=42)
+            svd.fit(matrix)
+            logger.info(f"[{self.model_name}] SVD fitting completed, transforming matrix...")
+            user_factors = svd.transform(matrix)
+            item_factors = svd.components_.T
+            logger.info(f"[{self.model_name}] SVD transformation completed: user_factors shape {user_factors.shape}, item_factors shape {item_factors.shape}")
+            collaborative_payload = {
+                "user_ids": user_ids,
+                "item_factors": item_factors,
+                "user_factors": user_factors,
+            }
 
         logger.info(f"[{self.model_name}] Hybrid training completed (alpha={self.alpha})")
         return {
             **base_artifacts,
             **collaborative_payload,
             "alpha": self.alpha,
+            "matrix_data": matrix_data,
+            "mongo_product_ids": mongo_product_ids,  # Store MongoDB product IDs
+            "mongo_user_ids": user_ids,  # Store MongoDB user IDs
         }
 
     def _score_candidates(
@@ -176,14 +348,12 @@ class HybridRecommendationEngine(ContentBasedRecommendationEngine):
         else:
             base_reason = f"sized for your {product.age_group or 'adult'} age group"
         
-        # Add hybrid blend info if available
         if context.request_params:
             alpha = context.request_params.get('alpha', self.alpha)
             graph_weight = alpha
             content_weight = 1 - alpha
-            # Note: G and C scores are not directly available, using approximate values
-            g_score = 0.0  # Graph/collaborative score not directly available
-            c_score = round(content_weight * 1.5, 1)  # Approximate content score
+            g_score = 0.0
+            c_score = round(content_weight * 1.5, 1)
             base_reason += f"; hybrid blend {graph_weight:.2f} graph / {content_weight:.2f} content (G={g_score}, C={c_score})"
         
         return base_reason

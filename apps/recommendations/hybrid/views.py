@@ -58,11 +58,17 @@ class TrainHybridView(APIView):
             logger.info("[hybrid] Running training in sync mode")
             try:
                 result = train_hybrid_model(force_retrain=force_retrain, alpha=alpha)
+                # Get matrix data from stored artifacts
+                from apps.recommendations.common.storage import ArtifactStorage
+                storage = ArtifactStorage("hybrid")
+                stored = storage.load()
+                matrix_data = stored.get("artifacts", {}).get("matrix_data")
                 return Response(
                     {
                         "status": "training_completed",
                         "model": "hybrid",
                         "result": result,
+                        "matrix_data": matrix_data,
                     },
                     status=status.HTTP_200_OK,
                 )
@@ -85,12 +91,18 @@ class TrainHybridView(APIView):
                 )
                 try:
                     result = train_hybrid_model(force_retrain=force_retrain, alpha=alpha)
+                    # Get matrix data from stored artifacts
+                    from apps.recommendations.common.storage import ArtifactStorage
+                    storage = ArtifactStorage("hybrid")
+                    stored = storage.load()
+                    matrix_data = stored.get("artifacts", {}).get("matrix_data")
                     return Response(
                         {
                             "status": "training_completed",
                             "model": "hybrid",
                             "result": result,
                             "warning": "Celery/Redis unavailable, automatically ran in sync mode",
+                            "matrix_data": matrix_data,
                         },
                         status=status.HTTP_200_OK,
                     )
@@ -132,12 +144,18 @@ class TrainHybridView(APIView):
                     )
                     try:
                         result = train_hybrid_model(force_retrain=force_retrain, alpha=alpha)
+                        # Get matrix data from stored artifacts
+                        from apps.recommendations.common.storage import ArtifactStorage
+                        storage = ArtifactStorage("hybrid")
+                        stored = storage.load()
+                        matrix_data = stored.get("artifacts", {}).get("matrix_data")
                         return Response(
                             {
                                 "status": "training_completed",
                                 "model": "hybrid",
                                 "result": result,
                                 "warning": "Celery task failed, ran in sync mode",
+                                "matrix_data": matrix_data,
                             },
                             status=status.HTTP_200_OK,
                         )
@@ -171,9 +189,15 @@ class RecommendHybridView(APIView):
     authentication_classes = []
 
     def post(self, request, *args, **kwargs):
+        import time
+        from apps.recommendations.common.evaluation import calculate_evaluation_metrics
+        
         serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
         alpha = serializer.validated_data.get("alpha")
+        
+        # Measure execution time
+        start_time = time.time()
         try:
             payload = recommend_hybrid(
                 user_id=serializer.validated_data["user_id"],
@@ -183,6 +207,20 @@ class RecommendHybridView(APIView):
                 alpha=alpha,
                 request_params=serializer.validated_data,
             )
+            execution_time = time.time() - start_time
+            
+            # Calculate evaluation metrics
+            personalized_recommendations = payload.get("personalized", [])
+            metrics = calculate_evaluation_metrics(
+                recommendations=personalized_recommendations,
+                ground_truth=None,  # Can be added if ground truth data is available
+                execution_time=execution_time,
+            )
+            metrics["model"] = "hybrid"
+            
+            # Add metrics to response
+            payload["evaluation_metrics"] = metrics
+            
         except ModelNotTrainedError as exc:
             return Response(
                 {"detail": str(exc), "model": "hybrid"},

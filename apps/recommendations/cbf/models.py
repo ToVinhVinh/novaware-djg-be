@@ -39,10 +39,39 @@ class ContentBasedRecommendationEngine(BaseRecommendationEngine):
         product_matrix = vectorizer.fit_transform(documents)
         logger.info(f"[{self.model_name}] TF-IDF matrix created: shape {product_matrix.shape}")
 
+        max_display = min(5, len(product_ids))
+        similarity_matrix = cosine_similarity(product_matrix[:max_display])
+        
+        display_rows = 5
+        matrix_data_list = similarity_matrix.tolist()
+        product_ids_display = product_ids[:max_display].copy()
+        
+        if len(product_ids) < display_rows:
+            while len(matrix_data_list) < display_rows:
+                # Add a new row with zeros
+                matrix_data_list.append([0.0] * len(matrix_data_list[0]) if matrix_data_list else [0.0] * display_rows)
+                # Add a new column to all existing rows
+                for row in matrix_data_list[:-1]:
+                    row.append(0.0)
+                product_ids_display.append(-(len(matrix_data_list)))
+        
+        # Create matrix data structure for frontend
+        matrix_data = {
+            "shape": [len(product_ids), len(product_ids)],
+            "display_shape": [len(matrix_data_list), len(matrix_data_list[0]) if matrix_data_list else 0],
+            "data": matrix_data_list[:display_rows],
+            "product_ids": product_ids_display[:display_rows],
+            "description": "Product Similarity Matrix (TF-IDF Cosine Similarity)",
+            "row_label": "Product ID",
+            "col_label": "Product ID",
+            "value_description": "Similarity score (0-1, higher = more similar)",
+        }
+
         return {
             "product_ids": product_ids,
             "product_matrix": product_matrix,
             "vectorizer": vectorizer,
+            "matrix_data": matrix_data,
         }
 
     def _score_candidates(

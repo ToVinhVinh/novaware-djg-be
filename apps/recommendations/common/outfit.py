@@ -43,6 +43,23 @@ class OutfitBuilder:
         outfit_payload: dict[str, OutfitRecommendation] = {}
         category_scores: list[float] = []
 
+        # First, always include the current product in its category
+        current_product_id = context.current_product.id
+        if current_product_id and current_category and current_category in required_categories:
+            # Get score for current product if available, otherwise use a default high score
+            current_score = scored_candidates.get(current_product_id, 1.0)
+            reason = cls._build_reason(context.current_product, context, current_category, current_category, is_fallback=False)
+            outfit_payload[current_category] = OutfitRecommendation(
+                current_category, 
+                context.current_product, 
+                current_score, 
+                reason, 
+                context=context
+            )
+            used_ids.add(current_product_id)
+            remaining_ids.discard(current_product_id)
+            category_scores.append(current_score)
+
         # First pass: try to find products matching each category
         for category in required_categories:
             product_found = False
@@ -82,25 +99,26 @@ class OutfitBuilder:
             
             if not product_found:
                 # Step 3: Try to find matching category in candidate pool
-                # Only use products that match the category
+                # Only use products that match the category (case-insensitive comparison)
                 for product_id in list(remaining_ids):
                     if product_id in used_ids:
                         continue
                     product = candidate_map.get(product_id)
-                    if product and product.category_type == category:
-                        score = scored_candidates.get(product_id, 0.0)
-                        reason = cls._build_reason(product, context, category, current_category, is_fallback=False)
-                        outfit_payload[category] = OutfitRecommendation(category, product, score, reason, context=context)
-                        remaining_ids.discard(product_id)
-                        used_ids.add(product_id)
-                        category_scores.append(score)
-                        product_found = True
-                        break
+                    if product and product.category_type:
+                        # Case-insensitive comparison to handle "Tops" vs "tops"
+                        product_category = str(product.category_type).lower().strip()
+                        target_category = str(category).lower().strip()
+                        if product_category == target_category:
+                            score = scored_candidates.get(product_id, 0.0)
+                            reason = cls._build_reason(product, context, category, current_category, is_fallback=False)
+                            outfit_payload[category] = OutfitRecommendation(category, product, score, reason, context=context)
+                            remaining_ids.discard(product_id)
+                            used_ids.add(product_id)
+                            category_scores.append(score)
+                            product_found = True
+                            break
                 
-                # Don't use products from other categories here - let Step 4 handle it from database
-            
             if not product_found:
-                # Step 4: Final fallback - get any product from database (relax constraints)
                 relaxed_product = cls._fallback_from_database_relaxed(category, context, used_ids)
                 if relaxed_product:
                     relaxed_id = relaxed_product.id
@@ -134,14 +152,19 @@ class OutfitBuilder:
         try:
             excluded = used_ids | context.excluded_product_ids
             allowed_genders = OutfitBuilder._allowed_genders(context.resolved_gender)
+            # Use case-insensitive filter - Django ORM doesn't support case-insensitive directly,
+            # so we'll filter in Python after fetching
             query = Product.objects.filter(
-                category_type=category,
                 gender__in=allowed_genders,
                 age_group=context.resolved_age_group,
             ).exclude(id__in=excluded).select_related("brand", "category")
             
-            product = query.first()
-            return product
+            # Filter by category_type case-insensitively
+            category_lower = str(category).lower().strip()
+            for product in query:
+                if product.category_type and str(product.category_type).lower().strip() == category_lower:
+                    return product
+            return None
         except Exception:
             return None
 
@@ -152,18 +175,32 @@ class OutfitBuilder:
         
         try:
             excluded = used_ids | context.excluded_product_ids
-            # First try: same category, any gender/age
-            query = Product.objects.filter(
-                category_type=category,
-            ).exclude(id__in=excluded).select_related("brand", "category")
-            product = query.first()
-            if product:
-                return product
+            category_lower = str(category).lower().strip()
             
-            # Second try: any product not excluded
+            # First try: same category, any gender/age (case-insensitive)
             query = Product.objects.exclude(id__in=excluded).select_related("brand", "category")
-            product = query.first()
-            return product
+            for product in query:
+                if product.category_type and str(product.category_type).lower().strip() == category_lower:
+                    return product
+            
+            # Second try: same category, relaxed gender constraints
+            allowed_genders = OutfitBuilder._allowed_genders(context.resolved_gender)
+            query = Product.objects.filter(
+                gender__in=allowed_genders,
+            ).exclude(id__in=excluded).select_related("brand", "category")
+            for product in query:
+                if product.category_type and str(product.category_type).lower().strip() == category_lower:
+                    return product
+            
+            # Third try: same category, any constraints
+            query = Product.objects.exclude(id__in=excluded).select_related("brand", "category")
+            for product in query:
+                if product.category_type and str(product.category_type).lower().strip() == category_lower:
+                    return product
+            
+            # Don't fall back to any product - return None to avoid duplicates
+            # This ensures each category gets a unique product or none
+            return None
         except Exception:
             return None
 
@@ -217,9 +254,14 @@ class OutfitBuilder:
         context: RecommendationContext,
     ) -> list[tuple[int, float]]:
         ranked: list[tuple[int, float]] = []
+        category_lower = str(category).lower().strip()
         for product_id in list(remaining_ids):
             product = candidate_map.get(product_id)
-            if not product or product.category_type != category:
+            if not product or not product.category_type:
+                continue
+            # Case-insensitive comparison
+            product_category = str(product.category_type).lower().strip()
+            if product_category != category_lower:
                 continue
             base_score = scored_candidates.get(product_id, 0.0)
             style_bonus = sum(context.style_weight(tag) for tag in _extract_style_tokens(product))

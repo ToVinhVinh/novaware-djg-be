@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
-
 class TrainRequestSerializer(serializers.Serializer):
     force_retrain = serializers.BooleanField(default=False)
-
+    sync = serializers.BooleanField(required=False, default=False, help_text="Run training synchronously (for testing)")
 
 class RecommendationRequestSerializer(serializers.Serializer):
     user_id = serializers.CharField()

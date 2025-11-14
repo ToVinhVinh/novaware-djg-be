@@ -156,17 +156,48 @@ def recommend_hybrid_mongo(
 
     outfit: dict[str, dict[str, Any] | None] = {k: None for k in required_categories}
     score_map = {str(candidate.id): blended for candidate, blended, _, _ in scores_sorted}
+    
+    # Always include the current product in its category
+    current_product = context.current_product
+    current_category = getattr(current_product, "category_type", None)
+    if current_category and current_category.lower() in [cat.lower() for cat in required_categories]:
+        current_category_lower = current_category.lower()
+        # Find the exact key in required_categories (case-insensitive match)
+        matching_key = next((cat for cat in required_categories if cat.lower() == current_category_lower), None)
+        if matching_key:
+            current_id = str(current_product.id)
+            current_blended = score_map.get(current_id, _content_score(context, current_product, frequency=frequency))
+            current_g_score = 0.0
+            current_c_score = current_blended
+            # Try to get graph score if available
+            current_neighbors = graph.get(current_id, {})
+            for hid in history_ids:
+                current_g_score += current_neighbors.get(hid, 0.0)
+            current_g_score += current_neighbors.get(current_id, 0.0) * 1.2
+            current_blended = alpha * current_g_score + (1 - alpha) * current_c_score
+            outfit[matching_key] = as_item(current_product, current_blended, current_g_score, current_c_score)
 
     from collections import defaultdict as _defaultdict  # local import to avoid repetition
 
     by_category: dict[str, list[Any]] = _defaultdict(list)
     for candidate, blended, g_score, c_score in scores_sorted:
-        key = category_key_for_user(getattr(candidate, "category_type", None))
+        candidate_category = getattr(candidate, "category_type", None)
+        if not candidate_category:
+            continue
+        # Normalize category for comparison
+        candidate_category_normalized = str(candidate_category).lower().strip()
+        key = category_key_for_user(candidate_category_normalized)
         if not key:
+            continue
+        # Double-check: ensure the normalized category matches the key
+        if candidate_category_normalized != key.lower():
             continue
         by_category[key].append((candidate, blended, g_score, c_score))
 
     for key in required_categories:
+        # Skip if current product is already in this category
+        if outfit.get(key) is not None:
+            continue
         entries = by_category.get(key, [])
         if entries:
             candidate, blended, g_score, c_score = sorted(entries, key=lambda tup: tup[1], reverse=True)[0]
@@ -193,15 +224,50 @@ def recommend_hybrid_mongo(
     for key in required_categories:
         if outfit.get(key) is not None:
             continue
+        # Try to find a product matching the category from scored candidates
+        product_found = False
         for candidate, blended, g_score, c_score in scores_sorted:
             cid = str(candidate.id)
             if cid in used_ids:
                 continue
-            item = as_item(candidate, blended, g_score, c_score)
-            item["reason"] += "; fallback to complete outfit"
-            outfit[key] = item
-            used_ids.add(cid)
-            break
+            # Only use products that match the category (strict case-insensitive comparison)
+            candidate_category = getattr(candidate, "category_type", None)
+            if not candidate_category:
+                continue
+            candidate_category_normalized = str(candidate_category).lower().strip()
+            key_normalized = str(key).lower().strip()
+            if candidate_category_normalized == key_normalized:
+                item = as_item(candidate, blended, g_score, c_score)
+                item["reason"] += "; fallback to complete outfit"
+                outfit[key] = item
+                used_ids.add(cid)
+                product_found = True
+                break
+        
+        # If still no product found, try querying MongoDB for products with correct category
+        if not product_found:
+            # Use case-insensitive query - MongoDB doesn't support case-insensitive directly in this ORM
+            # So we'll need to query and filter in Python
+            query = gnn_mongo.MongoProduct.objects  # type: ignore[attr-defined]
+            if context.excluded_product_ids:
+                excluded_str_ids = [str(eid) for eid in context.excluded_product_ids]
+                query = query.filter(__raw__={"_id": {"$nin": [ObjectId(eid) for eid in excluded_str_ids if ObjectId.is_valid(eid)]}})
+            # Also exclude already used products
+            if used_ids:
+                used_str_ids = [str(uid) for uid in used_ids if uid]
+                valid_used_ids = [ObjectId(uid) for uid in used_str_ids if ObjectId.is_valid(uid)]
+                if valid_used_ids:
+                    query = query.filter(__raw__={"_id": {"$nin": valid_used_ids}})
+            # Filter by category case-insensitively
+            key_normalized = str(key).lower().strip()
+            for candidate in query.limit(500):  # Limit to avoid loading too many
+                candidate_category = getattr(candidate, "category_type", None)
+                if candidate_category and str(candidate_category).lower().strip() == key_normalized:
+                    fallback_id = str(candidate.id)
+                    fallback_score = score_map.get(fallback_id, _content_score(context, candidate, frequency=frequency))
+                    outfit[key] = as_item(candidate, fallback_score, 0.0, fallback_score)
+                    used_ids.add(fallback_id)
+                    break
 
     filled = sum(1 for slot in outfit.values() if slot is not None)
     completeness = round(filled / len(required_categories), 3) if required_categories else 0.0

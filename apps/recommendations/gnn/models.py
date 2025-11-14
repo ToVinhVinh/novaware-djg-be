@@ -46,9 +46,54 @@ class GNNRecommendationEngine(BaseRecommendationEngine):
         serialized_graph = {
             product_id: dict(neighbours) for product_id, neighbours in co_occurrence.items()
         }
+        
+        # Create matrix data for display (co-occurrence matrix)
+        all_product_ids = sorted(set(list(serialized_graph.keys()) + list(product_frequency.keys())))
+        # Show approximately 5 rows for display
+        max_display = min(5, len(all_product_ids))
+        display_product_ids = all_product_ids[:max_display].copy()
+        
+        # Build matrix data
+        matrix_data_list = []
+        for i, product_id_i in enumerate(display_product_ids):
+            row = []
+            for j, product_id_j in enumerate(display_product_ids):
+                if product_id_i == product_id_j:
+                    row.append(0.0)  # Self-co-occurrence is 0
+                else:
+                    # Get co-occurrence value (symmetric)
+                    value = serialized_graph.get(product_id_i, {}).get(product_id_j, 0.0)
+                    row.append(float(value))
+            matrix_data_list.append(row)
+        
+        # If we have fewer products than desired, pad with empty rows for better visualization
+        display_rows = 5
+        if len(all_product_ids) < display_rows:
+            # Pad matrix with zero rows and columns
+            while len(matrix_data_list) < display_rows:
+                # Add a new row with zeros
+                matrix_data_list.append([0.0] * len(matrix_data_list[0]) if matrix_data_list else [0.0] * display_rows)
+                # Add a new column to all existing rows
+                for row in matrix_data_list[:-1]:
+                    row.append(0.0)
+                # Use placeholder product IDs (negative numbers to indicate they're not real)
+                display_product_ids.append(-(len(matrix_data_list)))
+        
+        matrix_data = {
+            "shape": [len(all_product_ids), len(all_product_ids)],
+            "display_shape": [len(matrix_data_list), len(matrix_data_list[0]) if matrix_data_list else 0],
+            "data": matrix_data_list[:display_rows],
+            "product_ids": display_product_ids[:display_rows],
+            "description": "Product Co-occurrence Matrix",
+            "row_label": "Product ID",
+            "col_label": "Product ID",
+            "value_description": "Co-occurrence weight (0 = no co-occurrence, >0 = co-occurrence strength)",
+        }
+        
         return {
             "co_occurrence": serialized_graph,
             "product_frequency": dict(product_frequency),
+            "matrix_data": matrix_data,
         }
 
     def _score_candidates(
