@@ -137,6 +137,8 @@ TIME_ZONE = os.getenv("DJANGO_TIME_ZONE", "Asia/Ho_Chi_Minh")
 USE_I18N = True
 USE_TZ = True
 
+APPEND_SLASH = False
+
 
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
