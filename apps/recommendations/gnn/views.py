@@ -227,6 +227,73 @@ class RecommendGNNView(APIView):
     serializer_class = GNNRecommendationSerializer
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
+    
+    def get(self, request, *args, **kwargs):
+        """Handle GET requests with query parameters."""
+        import time
+        from apps.recommendations.common.evaluation import calculate_evaluation_metrics
+        
+        # Extract query parameters
+        user_id = request.query_params.get('user_id')
+        product_id = request.query_params.get('product_id')
+        top_k_personal = int(request.query_params.get('top_k_personal', 5))
+        top_k_outfit = int(request.query_params.get('top_k_outfit', 4))
+        
+        if not user_id or not product_id:
+            return Response(
+                {"detail": "user_id and product_id are required query parameters"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        # Measure execution time
+        start_time = time.time()
+        try:
+            payload = recommend_gnn(
+                user_id=user_id,
+                current_product_id=product_id,
+                top_k_personal=top_k_personal,
+                top_k_outfit=top_k_outfit,
+                request_params=dict(request.query_params),
+            )
+            execution_time = time.time() - start_time
+            
+            # Calculate evaluation metrics
+            personalized_recommendations = payload.get("personalized", [])
+            metrics = calculate_evaluation_metrics(
+                recommendations=personalized_recommendations,
+                ground_truth=None,
+                execution_time=execution_time,
+            )
+            metrics["model"] = "gnn"
+            
+            # Add metrics to response
+            payload["evaluation_metrics"] = metrics
+            
+        except ModelNotTrainedError as exc:
+            return Response(
+                {"detail": str(exc), "model": "gnn"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except (ValueError, ValidationError) as exc:
+            error_data = {}
+            if hasattr(exc, "message_dict"):
+                error_data = exc.message_dict
+            elif hasattr(exc, "error_dict"):
+                error_data = {k: v if isinstance(v, list) else [v] for k, v in exc.error_dict.items()}
+            elif hasattr(exc, "error_list"):
+                error_data = {"detail": exc.error_list}
+            else:
+                error_data = {"detail": [str(exc)]}
+            return Response(
+                error_data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            return Response(
+                {"detail": [str(exc)]},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        return Response(payload, status=status.HTTP_200_OK)
 
     def post(self, request, *args, **kwargs):
         import time

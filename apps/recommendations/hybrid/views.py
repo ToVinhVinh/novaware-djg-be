@@ -249,6 +249,62 @@ class RecommendHybridView(APIView):
     serializer_class = HybridRecommendationSerializer
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
+    
+    def get(self, request, *args, **kwargs):
+        """Handle GET requests with query parameters."""
+        import time
+        from apps.recommendations.common.evaluation import calculate_evaluation_metrics
+        
+        # Extract query parameters
+        user_id = request.query_params.get('user_id')
+        product_id = request.query_params.get('product_id')
+        top_k_personal = int(request.query_params.get('top_k_personal', 5))
+        top_k_outfit = int(request.query_params.get('top_k_outfit', 4))
+        alpha = float(request.query_params.get('alpha', 0.7))  # Default 0.7 for CF
+        
+        if not user_id or not product_id:
+            return Response(
+                {"detail": "user_id and product_id are required query parameters"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        # Measure execution time
+        start_time = time.time()
+        try:
+            payload = recommend_hybrid(
+                user_id=user_id,
+                current_product_id=product_id,
+                top_k_personal=top_k_personal,
+                top_k_outfit=top_k_outfit,
+                alpha=alpha,
+                request_params=dict(request.query_params),
+            )
+            execution_time = time.time() - start_time
+            
+            # Calculate evaluation metrics
+            personalized_recommendations = payload.get("personalized", [])
+            metrics = calculate_evaluation_metrics(
+                recommendations=personalized_recommendations,
+                ground_truth=None,
+                execution_time=execution_time,
+            )
+            metrics["model"] = "hybrid"
+            metrics["alpha"] = alpha
+            
+            # Add metrics to response
+            payload["evaluation_metrics"] = metrics
+            
+        except ModelNotTrainedError as exc:
+            return Response(
+                {"detail": str(exc), "model": "hybrid"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except Exception as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        return Response(payload, status=status.HTTP_200_OK)
 
     def post(self, request, *args, **kwargs):
         import time
