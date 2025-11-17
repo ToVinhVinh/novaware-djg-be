@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
-from apps.products.models import Product
+
 
 try:
     from bson import ObjectId
@@ -23,24 +23,7 @@ _mongo_checked = False
 _mongo_actually_available = None
 
 
-def _get_product_name(product: Product) -> str | None:
-    return getattr(product, "name", None) or getattr(product, "productDisplayName", None)
 
-
-def _get_product_price(product: Product) -> float | int | None:
-    return getattr(product, "price", None)
-
-
-def _get_category_type(product: Product) -> str | None:
-    for attr in ("category_type", "subCategory", "masterCategory", "articleType"):
-        value = getattr(product, attr, None)
-        if value:
-            return value
-    return None
-
-
-def _get_age_group(product: Product) -> str | None:
-    return getattr(product, "age_group", None)
 
 def _check_mongo_available() -> bool:
     """Check if MongoDB is actually available (lazy check)."""
@@ -202,172 +185,45 @@ def _get_mongo_product_data(product: Product) -> dict[str, Any] | None:
     return None
 
 
-def _serialize_product(product: Product, original_mongo_id: str | None = None) -> dict[str, Any]:
-    import logging
-    logger = logging.getLogger(__name__)
+def _serialize_product(product: MongoProduct, original_mongo_id: str | None = None) -> dict[str, Any]:
+    """Serialize a MongoProduct object to a dictionary for the API response."""
+    # The 'product' argument is a MongoProduct instance from the recommendation engine.
+    # This function now correctly handles it, removing all legacy Django logic.
     
-    product_name = _get_product_name(product)
-    product_price = _get_product_price(product)
-    product_gender = getattr(product, "gender", None)
-    product_age_group = _get_age_group(product)
-    product_category = _get_category_type(product)
-    product_images = getattr(product, "images", None)
-    product_brand_id = getattr(product, "brand_id", None)
-
-    # Priority 1: If we have original MongoDB ObjectId from request/context, use it directly
-    if original_mongo_id and _check_mongo_available() and MongoProduct:
-        try:
-            mongo_product = MongoProduct.objects(id=ObjectId(original_mongo_id)).first()
-            if mongo_product:
-                logger.debug(f"Using MongoDB product from original_mongo_id: {original_mongo_id}")
-                # Format price properly (handle potential data issues)
-                mongo_price = 0.0
-                if mongo_product.price:
-                    try:
-                        price_val = float(mongo_product.price)
-                        # If price seems too high (likely data error), use Django price as fallback
-                        if price_val > 1000000:
-                            mongo_price = float(product_price) if product_price is not None else 0.0
-                        else:
-                            mongo_price = price_val
-                    except (ValueError, TypeError):
-                        mongo_price = float(product_price) if product_price is not None else 0.0
-                
-                return {
-                    "id": str(mongo_product.id),
-                    "name": mongo_product.name,  # Use MongoDB name
-                    "price": mongo_price,  # Use MongoDB price (with validation)
-                    "images": list(mongo_product.images) if mongo_product.images else [],
-                    "gender": mongo_product.gender or product_gender,
-                    "age_group": mongo_product.age_group or product_age_group,
-                    "category_type": mongo_product.category_type or product_category,
-                    "brand_id": str(mongo_product.brand_id) if mongo_product.brand_id else None,  # Use MongoDB brand_id
-                    "amazon_asin": mongo_product.amazon_asin if hasattr(mongo_product, "amazon_asin") else None,
-                    "colors": [str(cid) for cid in mongo_product.color_ids] if mongo_product.color_ids else [],
-                }
-        except Exception as e:
-            logger.warning(f"Failed to get MongoDB product by ID {original_mongo_id}: {e}")
+    product_id = getattr(product, "id", None)
     
-    # Priority 2: Try to get MongoDB data by slug/asin/name
-    mongo_data = _get_mongo_product_data(product)
-    
-    # Use MongoDB data if available, otherwise fall back to Django data
-    if mongo_data:
-        logger.debug(f"Using MongoDB data from _get_mongo_product_data for product: {product_name or '<unknown>'}")
-        return {
-            "id": mongo_data["id"],
-            "name": mongo_data.get("name", product_name),  # Prefer MongoDB name
-            "price": mongo_data.get("price") if mongo_data.get("price") is not None else (float(product_price) if product_price is not None else 0.0),  # Prefer MongoDB price
-            "images": mongo_data["images"] if mongo_data["images"] else [],
-            "gender": product_gender,
-            "age_group": product_age_group,
-            "category_type": product_category,
-            "brand_id": mongo_data["brand_id"],  # Use MongoDB brand_id
-            "amazon_asin": product.amazon_asin if hasattr(product, "amazon_asin") else None,
-            "colors": mongo_data.get("color_ids", []),
-        }
-    
-    # Fallback: Only if we don't have MongoDB ID from mapping, try to find similar product
-    # This should be rare - most products should be mapped during context building
-    if not original_mongo_id and _check_mongo_available() and MongoProduct:
-        # Quick lookup: try slug/asin first (fast)
-        mongo_data = _get_mongo_product_data(product)
-        if mongo_data:
-            base_payload = {
-                "id": mongo_data["id"],
-                "name": mongo_data.get("name", product_name),
-                "price": mongo_data.get("price") if mongo_data.get("price") is not None else (float(product_price) if product_price is not None else 0.0),
-                "images": mongo_data["images"] if mongo_data["images"] else [],
-                "gender": product_gender,
-                "age_group": product_age_group,
-                "category_type": product_category,
-                "brand_id": mongo_data["brand_id"],
-                "amazon_asin": product.amazon_asin if hasattr(product, "amazon_asin") else None,
-                "colors": mongo_data.get("color_ids", []),
-            }
-            return base_payload
-        
-        # Last resort: get one product with images (limit to 10 for speed)
-        # Use MongoDB product data completely (name, price, brand_id from MongoDB)
-        try:
-            for mp in MongoProduct.objects.limit(10):
-                if mp.images and len(mp.images) > 0:
-                    logger.debug(f"Using fallback MongoDB product for Django product '{product_name or '<unknown>'}': MongoDB product '{mp.name}' (ID: {mp.id})")
-                    # Format price properly (handle potential data issues)
-                    mongo_price = 0.0
-                    if mp.price:
-                        try:
-                            price_val = float(mp.price)
-                            # If price seems too high (likely data error), use Django price as fallback
-                            if price_val > 1000000:
-                                mongo_price = float(product_price) if product_price is not None else 0.0
-                            else:
-                                mongo_price = price_val
-                        except (ValueError, TypeError):
-                            mongo_price = float(product_price) if product_price is not None else 0.0
-                    
-                    return {
-                        "id": str(mp.id),
-                        "name": mp.name,  # Use MongoDB name
-                        "price": mongo_price,  # Use MongoDB price (with validation)
-                        "images": list(mp.images),
-                        "gender": getattr(mp, 'gender', None) or product_gender,
-                        "age_group": getattr(mp, 'age_group', None) or product_age_group,
-                        "category_type": getattr(mp, 'category_type', None) or product_category,
-                        "brand_id": str(mp.brand_id) if getattr(mp, 'brand_id', None) else None,  # Use MongoDB brand_id
-                        "amazon_asin": getattr(mp, 'amazon_asin', None) if hasattr(mp, "amazon_asin") else None,
-                        "colors": [str(cid) for cid in getattr(mp, 'color_ids', [])] if getattr(mp, 'color_ids', None) else [],
-                    }
-            # If no product with images, just get first one
-            mp = MongoProduct.objects.first()
-            if mp:
-                logger.debug(f"Using fallback MongoDB product (no images) for Django product '{product_name or '<unknown>'}': MongoDB product '{mp.name}' (ID: {mp.id})")
-                # Format price properly (handle potential data issues)
-                mongo_price = 0.0
-                if mp.price:
-                    try:
-                        price_val = float(mp.price)
-                        # If price seems too high (likely data error), use Django price as fallback
-                        if price_val > 1000000:
-                            mongo_price = float(product_price) if product_price is not None else 0.0
-                        else:
-                            mongo_price = price_val
-                    except (ValueError, TypeError):
-                        mongo_price = float(product_price) if product_price is not None else 0.0
-                
-                return {
-                    "id": str(mp.id),
-                    "name": mp.name,  # Use MongoDB name
-                    "price": mongo_price,  # Use MongoDB price (with validation)
-                    "images": list(mp.images) if mp.images else [],
-                    "gender": getattr(mp, 'gender', None) or product_gender,
-                    "age_group": getattr(mp, 'age_group', None) or product_age_group,
-                    "category_type": getattr(mp, 'category_type', None) or product_category,
-                    "brand_id": str(mp.brand_id) if getattr(mp, 'brand_id', None) else None,  # Use MongoDB brand_id
-                    "amazon_asin": getattr(mp, 'amazon_asin', None) if hasattr(mp, "amazon_asin") else None,
-                    "colors": [str(cid) for cid in getattr(mp, 'color_ids', [])] if getattr(mp, 'color_ids', None) else [],
-                }
-        except Exception as e:
-            logger.warning(f"Failed to get fallback MongoDB product: {e}")
-    
-    # Final fallback: Django data only
+    # Directly access attributes from the MongoProduct object.
+    # Use getattr to provide default values for fields that might be missing.
     return {
-        "id": str(getattr(product, "id", "")) if getattr(product, "id", None) is not None else "",
-        "name": product_name or "",
-        "price": float(product_price) if product_price is not None else 0.0,
-        "images": list(product_images) if isinstance(product_images, list) and product_images else [],
-        "gender": product_gender,
-        "age_group": product_age_group,
-        "category_type": product_category,
-        "brand_id": str(product_brand_id) if product_brand_id else None,
-        "amazon_asin": product.amazon_asin if hasattr(product, "amazon_asin") else None,
-        "colors": [str(c.id) for c in product.colors.all()] if hasattr(product, "colors") and hasattr(product.colors, "all") else [],
+        "id": int(product_id) if product_id is not None else None,
+        "gender": getattr(product, "gender", None),
+        "masterCategory": getattr(product, "masterCategory", None),
+        "subCategory": getattr(product, "subCategory", None),
+        "articleType": getattr(product, "articleType", None),
+        "baseColour": getattr(product, "baseColour", None),
+        "season": getattr(product, "season", None),
+        "year": getattr(product, "year", None),
+        "usage": getattr(product, "usage", None),
+        "productDisplayName": getattr(product, "productDisplayName", getattr(product, "name", None)),
+        
+        # Always return the product's own images, even if the list is empty.
+        "images": list(getattr(product, "images", [])) or [],
+        
+        "rating": float(getattr(product, "rating", 0.0)) if getattr(product, "rating", None) is not None else None,
+        "sale": float(getattr(product, "sale", 0.0)) if getattr(product, "sale", None) is not None else None,
+        
+        # Default empty lists for fields not currently in the model.
+        "reviews": [],
+        "variants": [],
+        
+        "created_at": getattr(product, "created_at", None).isoformat() if getattr(product, "created_at", None) else None,
+        "updated_at": getattr(product, "updated_at", None).isoformat() if getattr(product, "updated_at", None) else None,
     }
 
 
 @dataclass(slots=True)
 class PersonalizedRecommendation:
-    product: Product
+    product: MongoProduct
     score: float
     reason: str
     context: Any = None  # Optional context for MongoDB ID mapping

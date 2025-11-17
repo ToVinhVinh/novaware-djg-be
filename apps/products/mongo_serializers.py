@@ -123,30 +123,42 @@ class ProductReviewSerializer(serializers.Serializer):
 class ProductSerializer(serializers.Serializer):
     id = serializers.SerializerMethodField()
     user_id = serializers.CharField(write_only=True, required=False)
-    brand_id = serializers.CharField()
+    brand_id = serializers.CharField(required=False)
     brand_name = serializers.SerializerMethodField()
-    category_id = serializers.CharField()
+    category_id = serializers.CharField(required=False)
     category_detail = CategorySerializer(read_only=True, source="category")
-    name = serializers.CharField()
-    slug = serializers.SlugField()
-    description = serializers.CharField()
-    images = serializers.ListField(child=serializers.CharField())
+    name = serializers.CharField(required=False)
+    slug = serializers.SlugField(required=False)
+    description = serializers.CharField(required=False)
+    images = serializers.ListField(child=serializers.CharField(), required=False)
     rating = serializers.FloatField(read_only=True)
     num_reviews = serializers.IntegerField(read_only=True)
-    price = serializers.DecimalField(max_digits=10, decimal_places=2)
-    sale = serializers.DecimalField(max_digits=5, decimal_places=2)
+    price = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
+    sale = serializers.DecimalField(max_digits=5, decimal_places=2, required=False)
     count_in_stock = serializers.IntegerField(read_only=True)
-    size = serializers.DictField()
+    size = serializers.DictField(required=False)
     color_ids = serializers.ListField(child=serializers.CharField(), required=False)
     variants = ProductVariantSerializer(many=True, read_only=True)
     variants_payload = ProductVariantSerializer(many=True, write_only=True, required=False)
-    outfit_tags = serializers.ListField(child=serializers.CharField())
+    outfit_tags = serializers.ListField(child=serializers.CharField(), required=False)
     compatible_product_ids = serializers.ListField(child=serializers.CharField(), required=False)
-    feature_vector = serializers.ListField(child=serializers.FloatField())
+    feature_vector = serializers.ListField(child=serializers.FloatField(), required=False)
     amazon_asin = serializers.CharField(required=False, allow_null=True)
     amazon_parent_asin = serializers.CharField(required=False, allow_null=True)
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
+    
+    # Fields from CSV data that should be handled
+    _id = serializers.CharField(required=False)
+    productDisplayName = serializers.CharField(required=False)
+    gender = serializers.CharField(required=False)
+    masterCategory = serializers.CharField(required=False)
+    subCategory = serializers.CharField(required=False)
+    articleType = serializers.CharField(required=False)
+    baseColour = serializers.CharField(required=False)
+    season = serializers.CharField(required=False)
+    year = serializers.IntegerField(required=False)
+    usage = serializers.CharField(required=False)
     
     def get_id(self, obj):
         return str(obj.id)
@@ -697,13 +709,70 @@ class ProductSerializer(serializers.Serializer):
         variants_data = validated_data.pop("variants_payload", [])
         color_ids = validated_data.pop("color_ids", [])
         
+        # Handle CSV-style fields mapping
+        if "_id" in validated_data:
+            validated_data.pop("_id")  # Remove _id as it's not needed for create
+        
+        # Map productDisplayName to name if name is not provided
+        if "productDisplayName" in validated_data and "name" not in validated_data:
+            validated_data["name"] = validated_data["productDisplayName"]
+        
+        # Generate slug from name if not provided
+        if "name" in validated_data and "slug" not in validated_data:
+            validated_data["slug"] = slugify(validated_data["name"])
+        
+        # Set default values for required fields if not provided
+        if "brand_id" not in validated_data:
+            # Try to find or create a default brand
+            try:
+                default_brand = Brand.objects.first()
+                if default_brand:
+                    validated_data["brand_id"] = default_brand.id
+            except:
+                pass
+        
+        if "category_id" not in validated_data:
+            # Try to find or create a default category
+            try:
+                default_category = Category.objects.first()
+                if default_category:
+                    validated_data["category_id"] = default_category.id
+            except:
+                pass
+        
+        # Set default values for other required fields
+        if "description" not in validated_data:
+            validated_data["description"] = validated_data.get("productDisplayName", "No description available")
+        
+        if "price" not in validated_data:
+            validated_data["price"] = 0.0
+        
+        if "size" not in validated_data:
+            validated_data["size"] = {}
+        
+        if "outfit_tags" not in validated_data:
+            validated_data["outfit_tags"] = []
+        
+        if "feature_vector" not in validated_data:
+            # Generate a default feature vector (128 dimensions with random values)
+            validated_data["feature_vector"] = [0.0] * 128
+        
         # Convert string IDs to ObjectId
-        if "brand_id" in validated_data:
-            validated_data["brand_id"] = ObjectId(validated_data["brand_id"])
-        if "category_id" in validated_data:
-            validated_data["category_id"] = ObjectId(validated_data["category_id"])
-        if "user_id" in validated_data:
-            validated_data["user_id"] = ObjectId(validated_data["user_id"])
+        if "brand_id" in validated_data and isinstance(validated_data["brand_id"], str):
+            try:
+                validated_data["brand_id"] = ObjectId(validated_data["brand_id"])
+            except:
+                pass
+        if "category_id" in validated_data and isinstance(validated_data["category_id"], str):
+            try:
+                validated_data["category_id"] = ObjectId(validated_data["category_id"])
+            except:
+                pass
+        if "user_id" in validated_data and isinstance(validated_data["user_id"], str):
+            try:
+                validated_data["user_id"] = ObjectId(validated_data["user_id"])
+            except:
+                pass
         
         validated_data["color_ids"] = [ObjectId(cid) for cid in color_ids]
         
@@ -726,11 +795,65 @@ class ProductSerializer(serializers.Serializer):
         variants_data = validated_data.pop("variants_payload", None)
         color_ids = validated_data.pop("color_ids", None)
         
+        # Handle CSV-style fields mapping
+        if "_id" in validated_data:
+            validated_data.pop("_id")  # Remove _id as it's not needed for update
+        
+        # Map productDisplayName to name if name is not provided
+        if "productDisplayName" in validated_data and "name" not in validated_data:
+            validated_data["name"] = validated_data["productDisplayName"]
+        
+        # Generate slug from name if not provided
+        if "name" in validated_data and "slug" not in validated_data:
+            validated_data["slug"] = slugify(validated_data["name"])
+        
+        # Set default values for required fields if not provided
+        if "brand_id" not in validated_data:
+            # Try to find or create a default brand
+            try:
+                default_brand = Brand.objects.first()
+                if default_brand:
+                    validated_data["brand_id"] = default_brand.id
+            except:
+                pass
+        
+        if "category_id" not in validated_data:
+            # Try to find or create a default category
+            try:
+                default_category = Category.objects.first()
+                if default_category:
+                    validated_data["category_id"] = default_category.id
+            except:
+                pass
+        
+        # Set default values for other required fields
+        if "description" not in validated_data:
+            validated_data["description"] = validated_data.get("productDisplayName", "No description available")
+        
+        if "price" not in validated_data:
+            validated_data["price"] = 0.0
+        
+        if "size" not in validated_data:
+            validated_data["size"] = {}
+        
+        if "outfit_tags" not in validated_data:
+            validated_data["outfit_tags"] = []
+        
+        if "feature_vector" not in validated_data:
+            # Generate a default feature vector (128 dimensions with random values)
+            validated_data["feature_vector"] = [0.0] * 128
+        
         # Convert string IDs to ObjectId
-        if "brand_id" in validated_data:
-            validated_data["brand_id"] = ObjectId(validated_data["brand_id"])
-        if "category_id" in validated_data:
-            validated_data["category_id"] = ObjectId(validated_data["category_id"])
+        if "brand_id" in validated_data and isinstance(validated_data["brand_id"], str):
+            try:
+                validated_data["brand_id"] = ObjectId(validated_data["brand_id"])
+            except:
+                pass
+        if "category_id" in validated_data and isinstance(validated_data["category_id"], str):
+            try:
+                validated_data["category_id"] = ObjectId(validated_data["category_id"])
+            except:
+                pass
         
         if color_ids is not None:
             validated_data["color_ids"] = [ObjectId(cid) for cid in color_ids]

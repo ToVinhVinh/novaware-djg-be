@@ -427,13 +427,41 @@ class ProductViewSet(viewsets.ViewSet):
         # Search
         search = request.query_params.get("search")
         if search:
-            queryset = queryset.filter(
-                __raw__={"$or": [
-                    {"name": {"$regex": search, "$options": "i"}},
-                    {"slug": {"$regex": search, "$options": "i"}},
-                    {"description": {"$regex": search, "$options": "i"}},
-                ]}
-            )
+            # Check if search value is numeric (for ID search)
+            if search.isdigit():
+                try:
+                    search_id = int(search)
+                    # Search by ID first, then fallback to text search
+                    queryset = queryset.filter(
+                        __raw__={"$or": [
+                            {"_id": search_id},
+                            {"id": search_id},
+                            {"name": {"$regex": search, "$options": "i"}},
+                            {"productDisplayName": {"$regex": search, "$options": "i"}},
+                            {"slug": {"$regex": search, "$options": "i"}},
+                            {"description": {"$regex": search, "$options": "i"}},
+                        ]}
+                    )
+                except ValueError:
+                    # If conversion fails, treat as text search
+                    queryset = queryset.filter(
+                        __raw__={"$or": [
+                            {"name": {"$regex": search, "$options": "i"}},
+                            {"productDisplayName": {"$regex": search, "$options": "i"}},
+                            {"slug": {"$regex": search, "$options": "i"}},
+                            {"description": {"$regex": search, "$options": "i"}},
+                        ]}
+                    )
+            else:
+                # Text search
+                queryset = queryset.filter(
+                    __raw__={"$or": [
+                        {"name": {"$regex": search, "$options": "i"}},
+                        {"productDisplayName": {"$regex": search, "$options": "i"}},
+                        {"slug": {"$regex": search, "$options": "i"}},
+                        {"description": {"$regex": search, "$options": "i"}},
+                    ]}
+                )
         
         ordering = request.query_params.get("ordering")
         if ordering:

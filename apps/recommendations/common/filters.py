@@ -47,6 +47,7 @@ class CandidateFilter:
 
         resolved_gender = cls._resolve_gender(user, current_product)
         resolved_age_group = cls._resolve_age_group(user, current_product)
+        current_article_type = getattr(current_product, 'articleType', None)
 
         interactions = cls._load_interactions(user)
         history_products = [getattr(interaction, 'product', None) for interaction in interactions if getattr(interaction, 'product_id', None)]
@@ -62,6 +63,7 @@ class CandidateFilter:
         candidate_products = cls._build_candidate_pool(
             gender=resolved_gender,
             age_group=resolved_age_group,
+            article_type=current_article_type,
             excluded_ids=excluded_ids,
         )
 
@@ -69,6 +71,7 @@ class CandidateFilter:
             # Relaxed fallback: allow same gender but drop age restriction only if nothing matches.
             fallback_products = cls._fallback_candidates(
                 gender=resolved_gender,
+                article_type=current_article_type,
                 excluded_ids=excluded_ids,
             )
             candidate_products = fallback_products
@@ -197,9 +200,10 @@ class CandidateFilter:
         *,
         gender: str,
         age_group: str,
+        article_type: str | None = None,
         excluded_ids: set[int],
     ) -> list:
-        """Build candidate pool with strict gender and age filtering from MongoDB."""
+        """Build candidate pool with strict gender, age, and articleType filtering from MongoDB."""
         if MongoProduct is None:
             return []
         
@@ -207,6 +211,7 @@ class CandidateFilter:
         gender_filters = cls._gender_query_values(allowed_genders)
         allowed_gender_lower = {g.lower() for g in allowed_genders if g}
         normalized_age_group = (age_group or "").strip().lower()
+        normalized_article_type = (article_type or "").strip()
         
         try:
             query_filters: dict[str, Any] = {}
@@ -214,6 +219,9 @@ class CandidateFilter:
                 query_filters['gender__in'] = gender_filters
             if normalized_age_group and cls._product_has_field("age_group"):
                 query_filters['age_group__iexact'] = normalized_age_group
+            # Add articleType filtering for personalized recommendations
+            if normalized_article_type and cls._product_has_field("articleType"):
+                query_filters['articleType__iexact'] = normalized_article_type
             
             products = list(MongoProduct.objects(**query_filters))
             
@@ -225,10 +233,14 @@ class CandidateFilter:
                 
                 product_gender = (getattr(product, "gender", "") or "").strip().lower()
                 product_age = (getattr(product, "age_group", "") or "").strip().lower()
+                product_article = (getattr(product, "articleType", "") or "").strip()
                 
                 if product_gender and product_gender not in allowed_gender_lower:
                     continue
                 if normalized_age_group and product_age and product_age != normalized_age_group:
+                    continue
+                # Ensure articleType matches for personalized recommendations
+                if normalized_article_type and product_article and product_article != normalized_article_type:
                     continue
                 
                 filtered_products.append(product)
@@ -238,31 +250,39 @@ class CandidateFilter:
             return []
 
     @classmethod
-    def _fallback_candidates(cls, *, gender: str, excluded_ids: set[int]) -> list:
-        """Fallback candidate pool with relaxed age but strict gender filtering from MongoDB."""
+    def _fallback_candidates(cls, *, gender: str, article_type: str | None = None, excluded_ids: set[int]) -> list:
+        """Fallback candidate pool with relaxed age but strict gender and articleType filtering from MongoDB."""
         if MongoProduct is None:
             return []
         
         allowed_genders = cls._allowed_genders(gender)
         gender_filters = cls._gender_query_values(allowed_genders)
         allowed_gender_lower = {g.lower() for g in allowed_genders if g}
+        normalized_article_type = (article_type or "").strip()
         
         try:
             query_filters: dict[str, Any] = {}
             if gender_filters:
                 query_filters['gender__in'] = gender_filters
+            # Keep articleType filtering even in fallback for personalized recommendations
+            if normalized_article_type and cls._product_has_field("articleType"):
+                query_filters['articleType__iexact'] = normalized_article_type
             
             products = list(MongoProduct.objects(**query_filters))
             
-            # Filter out excluded IDs and check gender
+            # Filter out excluded IDs and check gender and articleType
             filtered_products = []
             for product in products:
                 product_id = getattr(product, 'id', None)
                 if not product_id or product_id in excluded_ids:
                     continue
                 product_gender = (getattr(product, "gender", "") or "").strip().lower()
+                product_article = (getattr(product, "articleType", "") or "").strip()
                 
                 if product_gender and product_gender not in allowed_gender_lower:
+                    continue
+                # Ensure articleType matches even in fallback for personalized recommendations
+                if normalized_article_type and product_article and product_article != normalized_article_type:
                     continue
                 
                 filtered_products.append(product)

@@ -8,21 +8,21 @@ from typing import Any, Iterable
 
 from django.utils import timezone
 
-from apps.products.models import Product
-from apps.users.models import User, UserInteraction
+from apps.products.mongo_models import Product as MongoProduct
+from apps.users.mongo_models import User as MongoUser
 
 
 @dataclass(slots=True)
 class RecommendationContext:
     """Runtime context shared across recommendation engines."""
 
-    user: User
-    current_product: Product
+    user: MongoUser
+    current_product: MongoProduct
     top_k_personal: int
     top_k_outfit: int
-    interactions: list[UserInteraction] = field(default_factory=list)
-    history_products: list[Product] = field(default_factory=list)
-    candidate_products: list[Product] = field(default_factory=list)
+    interactions: list = field(default_factory=list)  # Using generic list for now
+    history_products: list[MongoProduct] = field(default_factory=list)
+    candidate_products: list[MongoProduct] = field(default_factory=list)
     excluded_product_ids: set[int] = field(default_factory=set)
     style_counter: dict[str, float] = field(default_factory=dict)
     brand_counter: dict[int, float] = field(default_factory=dict)
@@ -40,7 +40,7 @@ class RecommendationContext:
                 yield product.id
 
     @property
-    def candidate_map(self) -> dict[int, Product]:
+    def candidate_map(self) -> dict[Any, MongoProduct]:
         return {candidate.id: candidate for candidate in self.candidate_products if candidate.id is not None}
 
     def style_weight(self, token: str) -> float:

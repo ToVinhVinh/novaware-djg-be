@@ -80,6 +80,8 @@ class Product(me.Document):
             "masterCategory",
             "subCategory",
             "productDisplayName",
+            "name",
+            "slug",
         ],
         "strict": False,
     }
@@ -96,6 +98,24 @@ class Product(me.Document):
     usage = fields.StringField(max_length=100)
     productDisplayName = fields.StringField(max_length=255)
     
+    # Additional required fields for API compatibility
+    name = fields.StringField(max_length=255)
+    slug = fields.StringField(max_length=255)
+    description = fields.StringField()
+    brand_id = fields.ObjectIdField()
+    category_id = fields.ObjectIdField()
+    price = fields.DecimalField(default=0.0, precision=10, decimal_places=2)
+    size = fields.DictField(default=dict)
+    outfit_tags = fields.ListField(fields.StringField(), default=list)
+    feature_vector = fields.ListField(fields.FloatField(), default=list)
+    color_ids = fields.ListField(fields.ObjectIdField(), default=list)
+    compatible_product_ids = fields.ListField(fields.StringField(), default=list)
+    amazon_asin = fields.StringField()
+    amazon_parent_asin = fields.StringField()
+    user_id = fields.ObjectIdField()
+    num_reviews = fields.IntField(default=0)
+    count_in_stock = fields.IntField(default=0)
+    
     # Các field giữ lại
     images = fields.ListField(fields.StringField(), default=list)
     rating = fields.FloatField(default=0.0, min_value=0.0, max_value=5.0)
@@ -110,8 +130,18 @@ class Product(me.Document):
         self.updated_at = datetime.utcnow()
         return super().save(*args, **kwargs)
     
+    def update_stock_from_variants(self):
+        """Update count_in_stock from variants."""
+        try:
+            variants = ProductVariant.objects(product_id=self.id)
+            total_stock = sum(variant.stock for variant in variants)
+            self.count_in_stock = total_stock
+            self.save()
+        except Exception:
+            pass
+    
     def __str__(self) -> str:
-        return self.productDisplayName or f"Product {self.id}"
+        return self.productDisplayName or self.name or f"Product {self.id}"
 
 
 class ProductVariant(me.Document):
