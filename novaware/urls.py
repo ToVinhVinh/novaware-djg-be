@@ -13,8 +13,6 @@ from apps.orders.urls import router as orders_router
 from apps.users.urls import router as users_router
 from apps.brands.urls import router as brands_router
 from apps.recommendations.urls import router as recommendations_router
-from apps.chat.urls import router as chat_router
-
 
 class OptionalDefaultRouter(routers.DefaultRouter):
     """Router ghép nhiều Router khác nhau mà không trùng prefix."""
@@ -30,7 +28,7 @@ api_router.extend(products_router)
 api_router.extend(brands_router)
 api_router.extend(orders_router)
 api_router.extend(recommendations_router)
-api_router.extend(chat_router)
+
 
 
 urlpatterns = [
