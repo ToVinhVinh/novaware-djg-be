@@ -14,6 +14,7 @@ from apps.products.mongo_models import (
     Color as MongoColor,
     Product as MongoProduct,
 )
+from apps.recommendations.common.gender_utils import normalize_gender
 from apps.users.mongo_models import User as MongoUser, UserInteraction as MongoInteraction
 
 
@@ -337,10 +338,10 @@ def _compose_reason(
 ) -> str:
     parts: list[str] = []
 
-    user_gender = (getattr(context.user, "gender", "") or "").lower()
-    product_gender = (getattr(product, "gender", "") or "").lower()
-    if user_gender:
-        if product_gender == user_gender:
+    user_gender = normalize_gender(getattr(context.user, "gender", ""))
+    product_gender = normalize_gender(getattr(product, "gender", ""))
+    if user_gender and product_gender:
+        if product_gender == user_gender and product_gender in ("male", "female"):
             parts.append(f"fits your {user_gender} profile")
         elif product_gender == "unisex":
             parts.append("works for your gender preference")

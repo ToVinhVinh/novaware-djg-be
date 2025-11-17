@@ -380,7 +380,12 @@ class ProductSerializer(serializers.Serializer):
         # because MongoEngine model may not have all fields defined
         from mongoengine import connection
         db = connection.get_db()
-        mongo_doc = db.products.find_one({"_id": instance.id})
+        # Handle both integer ID and ObjectId
+        product_id = instance.id
+        if isinstance(product_id, int):
+            mongo_doc = db.products.find_one({"_id": product_id})
+        else:
+            mongo_doc = db.products.find_one({"_id": product_id})
         if not mongo_doc:
             # Fallback to to_mongo() if direct query fails
             mongo_doc = instance.to_mongo().to_dict()
@@ -450,39 +455,37 @@ class ProductSerializer(serializers.Serializer):
                 return value
             return [value] if value else []
 
-        # Read fields directly from MongoDB document (prioritize camelCase as in MongoDB)
-        product_id = str(instance.id)
+        # Read fields directly from MongoDB document
+        # Handle product ID - can be integer or ObjectId
+        product_id_value = mongo_doc.get("_id")
+        if isinstance(product_id_value, dict):
+            # Handle Extended JSON format
+            if "$numberInt" in product_id_value:
+                product_id = int(product_id_value["$numberInt"])
+            elif "$oid" in product_id_value:
+                product_id = str(product_id_value["$oid"])
+            else:
+                product_id = int(product_id_value) if isinstance(product_id_value, (int, str)) else str(instance.id)
+        elif isinstance(product_id_value, int):
+            product_id = product_id_value
+        else:
+            product_id = int(product_id_value) if product_id_value else int(instance.id)
         
-        # Basic fields
-        name = _get_field(mongo_doc, "name", default="")
-        slug = _get_field(mongo_doc, "slug", default="")
-        description = _get_field(mongo_doc, "description", default="")
+        # Get product fields from MongoDB document
+        # Fields from the user's MongoDB document structure
+        gender = _get_field(mongo_doc, "gender")
+        masterCategory = _get_field(mongo_doc, "masterCategory")
+        subCategory = _get_field(mongo_doc, "subCategory")
+        articleType = _get_field(mongo_doc, "articleType")
+        baseColour = _get_field(mongo_doc, "baseColour")
+        season = _get_field(mongo_doc, "season")
+        year = _get_field(mongo_doc, "year")
+        if isinstance(year, dict):
+            year = _unwrap_extended_json(year)
+        year = int(year) if year else None
+        usage = _get_field(mongo_doc, "usage")
+        productDisplayName = _get_field(mongo_doc, "productDisplayName")
         images = _get_list_field(mongo_doc, "images")
-        
-        # Numeric fields - check both camelCase and snake_case
-        price = _get_field(mongo_doc, "price", default=0.0)
-        if isinstance(price, (dict, str)):
-            price = float(_unwrap_extended_json(price)) if price else 0.0
-        else:
-            price = float(price) if price else 0.0
-            
-        sale = _get_field(mongo_doc, "sale", default=0.0)
-        if isinstance(sale, (dict, str)):
-            sale = float(_unwrap_extended_json(sale)) if sale else 0.0
-        else:
-            sale = float(sale) if sale else 0.0
-        
-        # Count in stock - prioritize camelCase from MongoDB
-        count_in_stock = _get_field(mongo_doc, "countInStock", "count_in_stock", default=0)
-        if isinstance(count_in_stock, dict):
-            count_in_stock = _unwrap_extended_json(count_in_stock)
-        count_in_stock = int(count_in_stock) if count_in_stock else 0
-        
-        # Num reviews - prioritize camelCase from MongoDB
-        num_reviews = _get_field(mongo_doc, "numReviews", "num_reviews", default=0)
-        if isinstance(num_reviews, dict):
-            num_reviews = _unwrap_extended_json(num_reviews)
-        num_reviews = int(num_reviews) if num_reviews else 0
         
         # Rating
         rating = _get_field(mongo_doc, "rating", default=0.0)
@@ -490,66 +493,16 @@ class ProductSerializer(serializers.Serializer):
             rating = _unwrap_extended_json(rating)
         rating = float(rating) if rating else 0.0
         
-        # Size info
-        size_info = _get_field(mongo_doc, "size", default={})
-        if isinstance(size_info, dict):
-            # Unwrap nested number values in size dict
-            unwrapped_size = {}
-            for k, v in size_info.items():
-                if isinstance(v, dict):
-                    unwrapped_size[k] = _unwrap_extended_json(v)
-                else:
-                    unwrapped_size[k] = v
-            size_info = unwrapped_size
+        # Sale
+        sale = _get_field(mongo_doc, "sale", default=0.0)
+        if isinstance(sale, (dict, str)):
+            sale = float(_unwrap_extended_json(sale)) if sale else 0.0
+        else:
+            sale = float(sale) if sale else 0.0
         
-        # Tags - prioritize camelCase from MongoDB
-        outfit_tags = _get_list_field(mongo_doc, "outfitTags", "outfit_tags")
-        style_tags = _get_list_field(mongo_doc, "styleTags", "style_tags")
-        
-        # Other fields - only get if they exist in MongoDB (don't use defaults)
-        gender_value = _get_field(mongo_doc, "gender")
-        age_group_value = _get_field(mongo_doc, "ageGroup", "age_group")
-        category_type_value = _get_field(mongo_doc, "categoryType", "category_type")
-        
-        # Brand and Category - use direct string fields from MongoDB
-        # Check if field exists in document (not just if it has value)
-        brand_string = mongo_doc.get("brand") if "brand" in mongo_doc else None
-        category_string = mongo_doc.get("category") if "category" in mongo_doc else None
-        
-        # User - prioritize camelCase, then snake_case
-        user_value = _get_field(mongo_doc, "user", "user_id", "userId")
-        user_string = _stringify_id(user_value) if user_value else None
-        
-        # Brand ID and Category ID - try to get from references
-        brand_id_value = _get_field(mongo_doc, "brand_id", "brandId")
-        brand_id_str = _stringify_id(brand_id_value) if brand_id_value else None
-        
-        category_id_value = _get_field(mongo_doc, "category_id", "categoryId")
-        category_id_str = _stringify_id(category_id_value) if category_id_value else None
-        
-        # Color IDs
-        color_ids_raw = _get_list_field(mongo_doc, "colorIds", "color_ids")
-        color_ids_strings = [_stringify_id(cid) for cid in color_ids_raw if cid]
-        
-        # Compatible products - prioritize camelCase from MongoDB
-        compatible_products_raw = _get_list_field(mongo_doc, "compatibleProducts", "compatible_product_ids", "compatibleProductIds")
-        compatible_products_strings = [_stringify_id(pid) for pid in compatible_products_raw if pid]
-        
-        # Feature vector - prioritize camelCase from MongoDB
-        feature_vector_raw = _get_list_field(mongo_doc, "featureVector", "feature_vector")
-        feature_vector = []
-        for item in feature_vector_raw:
-            if isinstance(item, dict):
-                feature_vector.append(_unwrap_extended_json(item))
-            else:
-                feature_vector.append(float(item) if item is not None else 0.0)
-        
-        # Amazon ASINs
-        amazon_parent_asin = _get_field(mongo_doc, "amazonParentAsin", "amazon_parent_asin")
-        amazon_asin = _get_field(mongo_doc, "amazonAsin", "amazon_asin")
         
         # Timestamps - handle Extended JSON format from MongoDB
-        created_at_raw = _get_field(mongo_doc, "createdAt", "created_at")
+        created_at_raw = _get_field(mongo_doc, "created_at", "createdAt")
         created_at = None
         if created_at_raw:
             if isinstance(created_at_raw, datetime):
@@ -562,7 +515,7 @@ class ProductSerializer(serializers.Serializer):
             elif isinstance(created_at_raw, (int, float)):
                 created_at = datetime.fromtimestamp(created_at_raw / 1000, tz=timezone.utc).isoformat()
         
-        updated_at_raw = _get_field(mongo_doc, "updatedAt", "updated_at")
+        updated_at_raw = _get_field(mongo_doc, "updated_at", "updatedAt")
         updated_at = None
         if updated_at_raw:
             if isinstance(updated_at_raw, datetime):
@@ -574,12 +527,6 @@ class ProductSerializer(serializers.Serializer):
                     updated_at = datetime.fromtimestamp(updated_at / 1000, tz=timezone.utc).isoformat()
             elif isinstance(updated_at_raw, (int, float)):
                 updated_at = datetime.fromtimestamp(updated_at_raw / 1000, tz=timezone.utc).isoformat()
-        
-        # __v field
-        __v = _get_field(mongo_doc, "__v", default=0)
-        if isinstance(__v, dict):
-            __v = _unwrap_extended_json(__v)
-        __v = int(__v) if __v else 0
         
         # Reviews - check embedded reviews first, then separate collection
         reviews_payload = []
@@ -596,16 +543,30 @@ class ProductSerializer(serializers.Serializer):
                     
                     # Handle createdAt and updatedAt
                     created_at_review = unwrapped.get("createdAt") or unwrapped.get("created_at")
-                    if created_at_review and isinstance(created_at_review, dict):
-                        created_at_review = _unwrap_extended_json(created_at_review)
-                        if isinstance(created_at_review, (int, float)):
+                    if created_at_review:
+                        if isinstance(created_at_review, datetime):
+                            created_at_review = _iso_or_none(created_at_review)
+                        elif isinstance(created_at_review, dict):
+                            created_at_review = _unwrap_extended_json(created_at_review)
+                            if isinstance(created_at_review, (int, float)):
+                                created_at_review = datetime.fromtimestamp(created_at_review / 1000, tz=timezone.utc).isoformat()
+                        elif isinstance(created_at_review, (int, float)):
                             created_at_review = datetime.fromtimestamp(created_at_review / 1000, tz=timezone.utc).isoformat()
+                        else:
+                            created_at_review = str(created_at_review)
                     
                     updated_at_review = unwrapped.get("updatedAt") or unwrapped.get("updated_at")
-                    if updated_at_review and isinstance(updated_at_review, dict):
-                        updated_at_review = _unwrap_extended_json(updated_at_review)
-                        if isinstance(updated_at_review, (int, float)):
+                    if updated_at_review:
+                        if isinstance(updated_at_review, datetime):
+                            updated_at_review = _iso_or_none(updated_at_review)
+                        elif isinstance(updated_at_review, dict):
+                            updated_at_review = _unwrap_extended_json(updated_at_review)
+                            if isinstance(updated_at_review, (int, float)):
+                                updated_at_review = datetime.fromtimestamp(updated_at_review / 1000, tz=timezone.utc).isoformat()
+                        elif isinstance(updated_at_review, (int, float)):
                             updated_at_review = datetime.fromtimestamp(updated_at_review / 1000, tz=timezone.utc).isoformat()
+                        else:
+                            updated_at_review = str(updated_at_review)
                     
                     reviews_payload.append({
                         "_id": _id_string(unwrapped.get("_id") or unwrapped.get("id")),
@@ -617,26 +578,25 @@ class ProductSerializer(serializers.Serializer):
                         "updatedAt": updated_at_review,
                     })
         else:
-            # Try separate collection
-            reviews_queryset = ProductReview.objects(product_id=instance.id)
-            for review in reviews_queryset:
-                reviews_payload.append({
-                    "_id": _id_string(review.id),
-                    "name": review.name,
-                    "rating": review.rating,
-                    "comment": review.comment,
-                    "user": _id_string(review.user_id),
-                    "createdAt": _iso_or_none(review.created_at),
-                    "updatedAt": _iso_or_none(review.updated_at),
-                })
-        
-        # Update num_reviews and rating from embedded reviews if available
-        if embedded_reviews and num_reviews == 0:
-            num_reviews = len(embedded_reviews)
-        if embedded_reviews and rating == 0.0:
-            valid_ratings = [r.get("rating", 0) for r in reviews_payload if isinstance(r.get("rating"), (int, float))]
-            if valid_ratings:
-                rating = sum(valid_ratings) / len(valid_ratings)
+            # Try separate collection - handle both integer and ObjectId product_id
+            try:
+                if isinstance(product_id, int):
+                    reviews_queryset = ProductReview.objects(product_id=product_id)
+                else:
+                    reviews_queryset = ProductReview.objects(product_id=instance.id)
+                for review in reviews_queryset:
+                    reviews_payload.append({
+                        "_id": _id_string(review.id),
+                        "name": review.name,
+                        "rating": review.rating,
+                        "comment": review.comment,
+                        "user": _id_string(review.user_id),
+                        "createdAt": _iso_or_none(review.created_at),
+                        "updatedAt": _iso_or_none(review.updated_at),
+                    })
+            except Exception:
+                # If query fails, just use empty list
+                pass
 
         # Variants - check embedded variants first, then separate collection
         variants_payload = []
@@ -669,87 +629,66 @@ class ProductSerializer(serializers.Serializer):
         
         # Only try separate collection if no embedded variants found
         if not variants_payload:
-            # Try separate collection
-            variant_documents = list(ProductVariant.objects(product_id=instance.id))
-            for variant in variant_documents:
-                color_value = getattr(variant, "color", None)
-                size_value = getattr(variant, "size", None)
-                
-                # Try to get color/size from related documents
-                if not color_value and getattr(variant, "color_id", None):
-                    try:
-                        color_doc = Color.objects.get(id=variant.color_id)
-                        color_value = getattr(color_doc, "hex_code", None) or getattr(color_doc, "name", None)
-                    except Color.DoesNotExist:
-                        pass
-                
-                if not size_value and getattr(variant, "size_id", None):
-                    try:
-                        size_doc = Size.objects.get(id=variant.size_id)
-                        size_value = getattr(size_doc, "code", None) or getattr(size_doc, "name", None)
-                    except Size.DoesNotExist:
-                        pass
+            # Try separate collection - handle both integer and ObjectId product_id
+            try:
+                if isinstance(product_id, int):
+                    variant_documents = list(ProductVariant.objects(product_id=product_id))
+                else:
+                    variant_documents = list(ProductVariant.objects(product_id=instance.id))
+                for variant in variant_documents:
+                    color_value = getattr(variant, "color", None)
+                    size_value = getattr(variant, "size", None)
+                    
+                    # Try to get color/size from related documents
+                    if not color_value and getattr(variant, "color_id", None):
+                        try:
+                            color_doc = Color.objects.get(id=variant.color_id)
+                            color_value = getattr(color_doc, "hex_code", None) or getattr(color_doc, "name", None)
+                        except Color.DoesNotExist:
+                            pass
+                    
+                    if not size_value and getattr(variant, "size_id", None):
+                        try:
+                            size_doc = Size.objects.get(id=variant.size_id)
+                            size_value = getattr(size_doc, "code", None) or getattr(size_doc, "name", None)
+                        except Size.DoesNotExist:
+                            pass
 
-                variants_payload.append({
-                    "_id": _id_string(variant.id),
-                    "stock": variant.stock,
-                    "color": color_value or "",
-                    "size": size_value or "",
-                    "price": float(variant.price) if getattr(variant, "price", None) is not None else 0.0,
-                })
+                    variants_payload.append({
+                        "_id": _id_string(variant.id),
+                        "stock": variant.stock,
+                        "color": color_value or "",
+                        "size": size_value or "",
+                        "price": float(variant.price) if getattr(variant, "price", None) is not None else 0.0,
+                    })
+            except Exception:
+                # If query fails, just use empty list
+                pass
         
-        # Get colors field from MongoDB (if exists)
-        colors_raw = _get_list_field(mongo_doc, "colors")
-        colors_list = colors_raw if colors_raw else []
-        
-        # Build response data - ONLY include fields that exist in MongoDB
+        # Build response data according to user's desired format
         data: dict[str, object] = {
-            "_id": product_id,
-            "id": product_id,  # Keep id for API compatibility
-            "name": name,
-            "slug": slug,
-            "description": description,
+            "id": product_id,  # Use integer ID, not _id
+            "gender": gender,
+            "masterCategory": masterCategory,
+            "subCategory": subCategory,
+            "articleType": articleType,
+            "baseColour": baseColour,
+            "season": season,
+            "year": year,
+            "usage": usage,
+            "productDisplayName": productDisplayName,
             "images": images,
             "rating": rating,
-            "num_reviews": num_reviews,
-            "numReviews": num_reviews,
-            "price": price,
             "sale": sale,
-            "count_in_stock": count_in_stock,
-            "countInStock": count_in_stock,
-            "size": size_info,
-            "outfit_tags": outfit_tags,
-            "outfitTags": outfit_tags,
-            "compatibleProducts": compatible_products_strings,
-            "feature_vector": feature_vector,
-            "featureVector": feature_vector,
-            "amazon_parent_asin": amazon_parent_asin,
-            "amazonParentAsin": amazon_parent_asin,
-            "user": user_string,
             "reviews": reviews_payload,
-            "__v": __v,
             "variants": variants_payload,
         }
         
-        # Add brand field (string from MongoDB) - always add if field exists in MongoDB
-        if "brand" in mongo_doc:
-            data["brand"] = brand_string if brand_string is not None else ""
-        
-        # Add category field (string from MongoDB) - always add if field exists in MongoDB
-        if "category" in mongo_doc:
-            data["category"] = category_string if category_string is not None else ""
-        
-        # Add colors field (always add, even if empty array)
-        data["colors"] = colors_list
-        
-        # Add timestamps (if exist in MongoDB)
+        # Add timestamps if they exist
         if created_at:
             data["created_at"] = created_at
-            data["createdAt"] = created_at
-        
         if updated_at:
             data["updated_at"] = updated_at
-            data["updatedAt"] = updated_at
 
         return data
     

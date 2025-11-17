@@ -20,10 +20,6 @@ eggs/
 pip-wheel-metadata/
 sdist/
 wheels/
-
-# Django local database and media
-db.sqlite3
-*.sqlite3
 media/
 
 # Virtual environments

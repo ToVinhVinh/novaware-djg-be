@@ -86,7 +86,7 @@ class BaseRecommendationEngine(ABC):
         matched = [token for token in tags if context.style_weight(token) > 0]
         if matched:
             return f"Tương tự sở thích của bạn ({', '.join(matched[:3])})"
-        if context.brand_weight(product.brand_id):
+        # Brand field removed from Product model
             return "Phù hợp thương hiệu bạn yêu thích"
         return "Gợi ý dựa trên lịch sử tương tác của bạn"
 

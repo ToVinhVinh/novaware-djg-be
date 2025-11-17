@@ -57,23 +57,64 @@ class CategoryViewSet(viewsets.ViewSet):
         return []
     
     def list(self, request):
-        """List all categories."""
-        categories = Category.objects.all().order_by("name")
-
-        page_number, per_page = get_pagination_params(request)
-        paginated, total_count, total_pages, current_page, per_page = paginate_queryset(
-            categories, page_number, per_page
-        )
-
-        serializer = CategorySerializer(paginated, many=True)
+        """List all categories from unique values in Product collection."""
+        from collections import defaultdict
+        
+        # Get all products with category fields
+        products = Product.objects.only("masterCategory", "subCategory", "articleType").all()
+        
+        # Build hierarchical structure
+        hierarchy_dict = defaultdict(lambda: defaultdict(set))
+        master_categories_set = set()
+        sub_categories_set = set()
+        article_types_set = set()
+        # Track all subCategories per masterCategory (even without articleTypes)
+        master_sub_mapping = defaultdict(set)
+        
+        for product in products:
+            master_cat = getattr(product, "masterCategory", None)
+            sub_cat = getattr(product, "subCategory", None)
+            article_type = getattr(product, "articleType", None)
+            
+            # Filter out None/empty values and normalize strings
+            if master_cat and str(master_cat).strip():
+                master_cat = str(master_cat).strip()
+                master_categories_set.add(master_cat)
+                
+                if sub_cat and str(sub_cat).strip():
+                    sub_cat = str(sub_cat).strip()
+                    sub_categories_set.add(sub_cat)
+                    master_sub_mapping[master_cat].add(sub_cat)
+                    
+                    if article_type and str(article_type).strip():
+                        article_type = str(article_type).strip()
+                        hierarchy_dict[master_cat][sub_cat].add(article_type)
+                        article_types_set.add(article_type)
+        
+        # Build hierarchy list
+        hierarchy = []
+        for master_cat in sorted(master_categories_set):
+            sub_categories_list = []
+            # Get all subCategories for this masterCategory (including those without articleTypes)
+            for sub_cat in sorted(master_sub_mapping[master_cat]):
+                article_types_list = sorted(list(hierarchy_dict[master_cat].get(sub_cat, set())))
+                sub_categories_list.append({
+                    "subCategory": sub_cat,
+                    "articleTypes": article_types_list
+                })
+            hierarchy.append({
+                "masterCategory": master_cat,
+                "subCategories": sub_categories_list
+            })
+        
+        # Return structured data
         return api_success(
             "Categories retrieved successfully",
             {
-                "categories": serializer.data,
-                "page": current_page,
-                "pages": total_pages,
-                "perPage": per_page,
-                "count": total_count,
+                "hierarchy": hierarchy,
+                "masterCategories": sorted(master_categories_set),
+                "subCategories": sorted(sub_categories_set),
+                "articleTypes": sorted(article_types_set),
             },
         )
     
@@ -486,7 +527,13 @@ class ProductViewSet(viewsets.ViewSet):
     def retrieve(self, request, pk=None):
         """Get product by id."""
         try:
-            product = Product.objects.get(id=ObjectId(pk))
+            # Try integer ID first (for products imported from CSV)
+            try:
+                product_id = int(pk)
+                product = Product.objects.get(id=product_id)
+            except (ValueError, Product.DoesNotExist):
+                # Fallback to ObjectId if integer fails
+                product = Product.objects.get(id=ObjectId(pk))
         except (Product.DoesNotExist, Exception):
             return api_error(
                 "Product không tồn tại.",
@@ -526,7 +573,13 @@ class ProductViewSet(viewsets.ViewSet):
     def update(self, request, pk=None):
         """Update product."""
         try:
-            product = Product.objects.get(id=ObjectId(pk))
+            # Try integer ID first (for products imported from CSV)
+            try:
+                product_id = int(pk)
+                product = Product.objects.get(id=product_id)
+            except (ValueError, Product.DoesNotExist):
+                # Fallback to ObjectId if integer fails
+                product = Product.objects.get(id=ObjectId(pk))
         except (Product.DoesNotExist, Exception):
             return api_error(
                 "Product không tồn tại.",
@@ -553,7 +606,13 @@ class ProductViewSet(viewsets.ViewSet):
     def destroy(self, request, pk=None):
         """Delete product."""
         try:
-            product = Product.objects.get(id=ObjectId(pk))
+            # Try integer ID first (for products imported from CSV)
+            try:
+                product_id = int(pk)
+                product = Product.objects.get(id=product_id)
+            except (ValueError, Product.DoesNotExist):
+                # Fallback to ObjectId if integer fails
+                product = Product.objects.get(id=ObjectId(pk))
             product.delete()
             return api_success(
                 "Product deleted successfully",
@@ -606,7 +665,13 @@ class ProductViewSet(viewsets.ViewSet):
     def review(self, request, pk=None):
         """Add or update product review."""
         try:
-            product = Product.objects.get(id=ObjectId(pk))
+            # Try integer ID first (for products imported from CSV)
+            try:
+                product_id = int(pk)
+                product = Product.objects.get(id=product_id)
+            except (ValueError, Product.DoesNotExist):
+                # Fallback to ObjectId if integer fails
+                product = Product.objects.get(id=ObjectId(pk))
         except (Product.DoesNotExist, Exception):
             return api_error(
                 "Product không tồn tại.",
@@ -652,7 +717,13 @@ class ProductViewSet(viewsets.ViewSet):
     def variants(self, request, pk=None):
         """Get product variants."""
         try:
-            product = Product.objects.get(id=ObjectId(pk))
+            # Try integer ID first (for products imported from CSV)
+            try:
+                product_id = int(pk)
+                product = Product.objects.get(id=product_id)
+            except (ValueError, Product.DoesNotExist):
+                # Fallback to ObjectId if integer fails
+                product = Product.objects.get(id=ObjectId(pk))
         except (Product.DoesNotExist, Exception):
             return api_error(
                 "Product không tồn tại.",

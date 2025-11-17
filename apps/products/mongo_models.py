@@ -76,56 +76,31 @@ class Product(me.Document):
     meta = {
         "collection": "products",
         "indexes": [
-            "name",
-            "slug",
-            "user_id",
-            "brand_id",
-            "category_id",
-            "amazon_asin",
-            "amazon_parent_asin",
+            "id",
+            "gender",
+            "masterCategory",
+            "subCategory",
+            "productDisplayName",
         ],
         "strict": False,
     }
     
-    # References
-    user_id = fields.ObjectIdField(required=True)
-    brand_id = fields.ObjectIdField(required=True)
-    category_id = fields.ObjectIdField(required=True)
+    # Các field từ CSV
+    id = fields.IntField(primary_key=True)
+    gender = fields.StringField(max_length=50)
+    masterCategory = fields.StringField(max_length=255)
+    subCategory = fields.StringField(max_length=255)
+    articleType = fields.StringField(max_length=255)
+    baseColour = fields.StringField(max_length=100)
+    season = fields.StringField(max_length=50)
+    year = fields.IntField()
+    usage = fields.StringField(max_length=100)
+    productDisplayName = fields.StringField(max_length=255)
     
-    # Basic info
-    name = fields.StringField(required=True, max_length=255)
-    slug = fields.StringField(required=True, unique=True, max_length=255)
-    description = fields.StringField(required=True)
+    # Các field giữ lại
     images = fields.ListField(fields.StringField(), default=list)
-    
-    # Ratings
     rating = fields.FloatField(default=0.0, min_value=0.0, max_value=5.0)
-    num_reviews = fields.IntField(default=0, min_value=0)
-    gender = fields.StringField(choices=("male", "female", "unisex"), default="unisex")
-    age_group = fields.StringField(choices=("kid", "teen", "adult"), default="adult")
-    category_type = fields.StringField(
-        choices=("tops", "bottoms", "dresses", "shoes", "accessories"),
-        default="tops",
-    )
-    
-    # Pricing
-    price = fields.DecimalField(required=True, default=0.0, precision=10, decimal_places=2)
     sale = fields.DecimalField(default=0.0, precision=5, decimal_places=2)
-    count_in_stock = fields.IntField(default=0, min_value=0)
-    
-    # Variants
-    size = fields.DictField(default=dict)
-    color_ids = fields.ListField(fields.ObjectIdField(), default=list)
-    
-    # Features
-    outfit_tags = fields.ListField(fields.StringField(), default=list)
-    style_tags = fields.ListField(fields.StringField(), default=list)
-    compatible_product_ids = fields.ListField(fields.ObjectIdField(), default=list)
-    feature_vector = fields.ListField(fields.FloatField(), default=list)
-    
-    # Amazon
-    amazon_asin = fields.StringField(null=True, max_length=50)
-    amazon_parent_asin = fields.StringField(null=True, max_length=50)
     
     # Timestamps
     created_at = fields.DateTimeField(default=datetime.utcnow)
@@ -136,15 +111,8 @@ class Product(me.Document):
         self.updated_at = datetime.utcnow()
         return super().save(*args, **kwargs)
     
-    def update_stock_from_variants(self) -> None:
-        """Cập nhật tổng số lượng từ variants."""
-        variants = ProductVariant.objects(product_id=self.id)
-        total_stock = sum(variant.stock for variant in variants)
-        self.count_in_stock = total_stock
-        self.save()
-    
     def __str__(self) -> str:
-        return self.name
+        return self.productDisplayName or f"Product {self.id}"
 
 
 class ProductVariant(me.Document):
@@ -152,18 +120,18 @@ class ProductVariant(me.Document):
     
     meta = {
         "collection": "product_variants",
-        "indexes": ["product_id", "color_id", "size_id"],
+        "indexes": ["product_id", "color", "size"],
         "strict": False,
     }
     
-    product_id = fields.ObjectIdField(required=True)
-    color_id = fields.ObjectIdField(required=True)
-    size_id = fields.ObjectIdField(required=True)
+    product_id = fields.IntField(required=True)  # Reference to Product.id (int)
+    color = fields.StringField(required=True, max_length=7)  # Hex color code
+    size = fields.StringField(required=True, max_length=10)  # Size code
     price = fields.DecimalField(required=True, precision=10, decimal_places=2)
     stock = fields.IntField(default=0, min_value=0)
     
     def __str__(self) -> str:
-        return f"{self.product_id} - {self.color_id} / {self.size_id}"
+        return f"{self.product_id} - {self.color} / {self.size}"
 
 
 class ProductReview(me.Document):

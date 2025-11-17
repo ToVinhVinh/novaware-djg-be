@@ -2,18 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from collections import Counter, defaultdict
-from typing import Iterable, Sequence
+from typing import Any, Iterable, Sequence
 
-from django.contrib.auth import get_user_model
-from django.core.exceptions import ObjectDoesNotExist, ValidationError
-from django.db import IntegrityError
-from django.db.models import Prefetch, QuerySet
 from bson import ObjectId
-
-from apps.products.models import Product, Category as SqlCategory
-from apps.brands.models import Brand as SqlBrand
-from apps.users.models import UserInteraction
+from django.core.exceptions import ValidationError
 try:
     # Optional: available only when MongoDB connection is configured
     from apps.users.mongo_models import User as MongoUser  # type: ignore
@@ -27,13 +21,16 @@ except Exception:  # pragma: no cover - optional dependency at runtime
     MongoBrand = None  # type: ignore
 
 from .constants import INTERACTION_WEIGHTS, MAX_STYLE_TAGS
+from .gender_utils import gender_filter_values, normalize_gender
 from .context import RecommendationContext
 
-User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 class CandidateFilter:
     """Build candidate pools that satisfy strict business constraints."""
+
+    _product_field_names_cache: set[str] | None = None
 
     @classmethod
     def build_context(
@@ -52,8 +49,15 @@ class CandidateFilter:
         resolved_age_group = cls._resolve_age_group(user, current_product)
 
         interactions = cls._load_interactions(user)
-        history_products = [interaction.product for interaction in interactions if interaction.product_id]
-        excluded_ids = {current_product.id, *(product.id for product in history_products if product.id)}
+        history_products = [getattr(interaction, 'product', None) for interaction in interactions if getattr(interaction, 'product_id', None)]
+        history_products = [p for p in history_products if p is not None]
+        
+        current_product_id = getattr(current_product, 'id', None)
+        excluded_ids = {current_product_id} if current_product_id else set()
+        for product in history_products:
+            product_id = getattr(product, 'id', None)
+            if product_id:
+                excluded_ids.add(product_id)
 
         candidate_products = cls._build_candidate_pool(
             gender=resolved_gender,
@@ -79,10 +83,12 @@ class CandidateFilter:
         brand_counter = cls._build_brand_profile(interactions)
         interaction_weight_map = defaultdict(float)
         for interaction in interactions:
-            if not interaction.product_id:
+            product_id = getattr(interaction, 'product_id', None)
+            if not product_id:
                 continue
-            interaction_weight_map[interaction.product_id] += INTERACTION_WEIGHTS.get(
-                interaction.interaction_type,
+            interaction_type = getattr(interaction, 'interaction_type', None)
+            interaction_weight_map[product_id] += INTERACTION_WEIGHTS.get(
+                interaction_type,
                 1.0,
             )
 
@@ -112,251 +118,78 @@ class CandidateFilter:
 
     @classmethod
     def _resolve_user(cls, user_id: str | int):
-        # 1) Try direct SQL PK
-        try:
-            return User.objects.get(pk=user_id)
-        except (ObjectDoesNotExist, ValueError):
-            pass
-
-        # 2) If looks like Mongo ObjectId, try mapping via Mongo → SQL by email
-        if cls._looks_like_object_id(user_id) and MongoUser is not None:
+        """Resolve user from MongoDB only."""
+        if MongoUser is None:
+            raise ValidationError({"user_id": "MongoDB not configured"})
+        
+        # Try as integer ID first
+        if isinstance(user_id, int) or (isinstance(user_id, str) and user_id.isdigit()):
             try:
-                mongo_user = MongoUser.objects(id=ObjectId(str(user_id))).first()  # type: ignore[attr-defined]
+                mongo_user = MongoUser.objects(id=int(user_id)).first()
                 if mongo_user:
-                    email = getattr(mongo_user, "email", None)
-                    if email:
-                        try:
-                            return User.objects.get(email=email)
-                        except User.DoesNotExist:
-                            pass
-                    # 2b) As a last resort, create a shadow User in SQL using Mongo data
-                    try:
-                        email_val = email or f"imported_{str(ObjectId())[:8]}@imported.local"
-                        # Check if email already exists (might have been created by another process)
-                        try:
-                            return User.objects.get(email=email_val)
-                        except User.DoesNotExist:
-                            pass
-                        
-                        username = getattr(mongo_user, "username", None)
-                        if not username:
-                            base_username = email_val.split("@", 1)[0].replace(".", "_")
-                            counter = 1
-                            candidate = base_username
-                            while User.objects.filter(username=candidate).exists():
-                                counter += 1
-                                candidate = f"{base_username}_{counter}"
-                            username = candidate
-                        
-                        first_name = getattr(mongo_user, "first_name", None) or ""
-                        last_name = getattr(mongo_user, "last_name", None) or ""
-                        name = getattr(mongo_user, "name", None) or ""
-                        if not first_name and not last_name and name:
-                            # Try to split name into first/last
-                            parts = name.split(maxsplit=1)
-                            if len(parts) >= 2:
-                                first_name, last_name = parts[0], parts[1]
-                            elif len(parts) == 1:
-                                first_name = parts[0]
-                        
-                        gender = getattr(mongo_user, "gender", None)
-                        age = getattr(mongo_user, "age", None)
-                        height = getattr(mongo_user, "height", None)
-                        weight = getattr(mongo_user, "weight", None)
-                        preferences = getattr(mongo_user, "preferences", {}) or {}
-                        amazon_user_id = getattr(mongo_user, "amazon_user_id", None)
-                        is_active = getattr(mongo_user, "is_active", True)
-                        is_staff = getattr(mongo_user, "is_admin", False)
-                        
-                        try:
-                            created = User.objects.create(
-                                email=email_val,
-                                username=username,
-                                first_name=first_name,
-                                last_name=last_name,
-                                gender=gender,
-                                age=age,
-                                height=height,
-                                weight=weight,
-                                preferences=preferences,
-                                amazon_user_id=amazon_user_id,
-                                is_active=is_active,
-                                is_staff=is_staff,
-                                is_superuser=is_staff,
-                            )
-                            return created
-                        except IntegrityError:
-                            # Race condition: user was created by another process, try to get it
-                            try:
-                                return User.objects.get(email=email_val)
-                            except User.DoesNotExist:
-                                pass
-                    except Exception:
-                        pass
+                    return mongo_user
             except Exception:
                 pass
-
+        
+        # Try as ObjectId
+        if cls._looks_like_object_id(user_id):
+            try:
+                mongo_user = MongoUser.objects(id=ObjectId(str(user_id))).first()
+                if mongo_user:
+                    return mongo_user
+            except Exception:
+                pass
+        
         raise ValidationError({"user_id": "User not found"})
 
     @classmethod
-    def _resolve_product_with_mapping(cls, product_id: str | int, owner_user) -> tuple[Product, dict[int, str]]:
-        """Resolve product and return mapping of Django ID to MongoDB ObjectId."""
-        product_id_to_mongo_id: dict[int, str] = {}
+    def _resolve_product_with_mapping(cls, product_id: str | int, owner_user) -> tuple:
+        """Resolve product from MongoDB only."""
+        if MongoProduct is None:
+            raise ValidationError({"current_product_id": "MongoDB not configured"})
         
-        # 1) Try direct SQL PK
-        try:
-            product = Product.objects.select_related("brand", "category").get(pk=product_id)
-            return product, product_id_to_mongo_id
-        except (ObjectDoesNotExist, ValueError):
-            pass
-
-        # 2) If looks like Mongo ObjectId, try mapping via Mongo → SQL by slug or amazon_asin
-        original_mongo_id = None
-        if cls._looks_like_object_id(product_id) and MongoProduct is not None:
-            original_mongo_id = str(product_id)
-            try:
-                mongo_product = MongoProduct.objects(id=ObjectId(str(product_id))).first()  # type: ignore[attr-defined]
-                if mongo_product:
-                    # Prefer slug (stable unique) then amazon_asin
-                    slug = getattr(mongo_product, "slug", None)
-                    if slug:
-                        try:
-                            product = Product.objects.select_related("brand", "category").get(slug=slug)
-                            if product.id:
-                                product_id_to_mongo_id[product.id] = original_mongo_id
-                            return product, product_id_to_mongo_id
-                        except Product.DoesNotExist:
-                            pass
-                    asin = getattr(mongo_product, "amazon_asin", None)
-                    if asin:
-                        try:
-                            product = Product.objects.select_related("brand", "category").get(amazon_asin=asin)
-                            if product.id:
-                                product_id_to_mongo_id[product.id] = original_mongo_id
-                            return product, product_id_to_mongo_id
-                        except Product.DoesNotExist:
-                            pass
-                    # 2b) As a last resort, create a shadow Product in SQL using Mongo data
-                    try:
-                        brand = None
-                        category = None
-                        if MongoBrand is not None:
-                            try:
-                                m_brand = MongoBrand.objects(id=getattr(mongo_product, "brand_id", None)).first()  # type: ignore[attr-defined]
-                                if m_brand and getattr(m_brand, "name", None):
-                                    brand, _ = SqlBrand.objects.get_or_create(name=m_brand.name)
-                            except Exception:
-                                pass
-                        if brand is None:
-                            brand, _ = SqlBrand.objects.get_or_create(name="ImportedBrand")
-
-                        if MongoCategory is not None:
-                            try:
-                                m_cat = MongoCategory.objects(id=getattr(mongo_product, "category_id", None)).first()  # type: ignore[attr-defined]
-                                if m_cat and getattr(m_cat, "name", None):
-                                    category, _ = SqlCategory.objects.get_or_create(name=m_cat.name)
-                            except Exception:
-                                pass
-                        if category is None:
-                            category, _ = SqlCategory.objects.get_or_create(name="Imported")
-
-                        name = getattr(mongo_product, "name", "Imported Product")
-                        description = getattr(mongo_product, "description", "") or ""
-                        images = getattr(mongo_product, "images", []) or []
-                        price = getattr(mongo_product, "price", 0)
-                        sale = getattr(mongo_product, "sale", 0)
-                        count_in_stock = getattr(mongo_product, "count_in_stock", 0) or 0
-                        style_tags = getattr(mongo_product, "style_tags", []) or []
-                        outfit_tags = getattr(mongo_product, "outfit_tags", []) or []
-                        feature_vector = getattr(mongo_product, "feature_vector", []) or []
-                        gender = (getattr(mongo_product, "gender", "unisex") or "unisex").lower()
-                        age_group = (getattr(mongo_product, "age_group", "adult") or "adult").lower()
-                        category_type = (getattr(mongo_product, "category_type", "tops") or "tops").lower()
-                        slug_val = slug or f"imported-{str(ObjectId())[:8]}"
-                        asin_val = getattr(mongo_product, "amazon_asin", None)
-
-                        created = Product.objects.create(
-                            user=owner_user,
-                            brand=brand,
-                            category=category,
-                            name=name,
-                            slug=slug_val,
-                            description=description,
-                            images=list(images),
-                            price=price,
-                            sale=sale,
-                            count_in_stock=count_in_stock,
-                            size={},
-                            outfit_tags=list(outfit_tags),
-                            style_tags=list(style_tags),
-                            feature_vector=list(feature_vector),
-                            gender=gender,
-                            age_group=age_group,
-                            category_type=category_type,
-                            amazon_asin=asin_val,
-                        )
-                        if created.id:
-                            product_id_to_mongo_id[created.id] = original_mongo_id
-                        return created, product_id_to_mongo_id
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-
+        mongo_product, original_mongo_id = cls._fetch_mongo_product(product_id)
+        if mongo_product:
+            product_id_to_mongo_id = {}
+            if original_mongo_id:
+                # Use a simple numeric key for mapping (can be the mongo ID itself)
+                product_id_to_mongo_id[hash(original_mongo_id) % (10 ** 8)] = original_mongo_id
+            return mongo_product, product_id_to_mongo_id
+        
         raise ValidationError({"current_product_id": "Product not found"})
     
     @classmethod
-    def _resolve_product(cls, product_id: str | int, owner_user) -> Product:
+    def _resolve_product(cls, product_id: str | int, owner_user):
         """Backward compatibility wrapper."""
         product, _ = cls._resolve_product_with_mapping(product_id, owner_user)
         return product
 
     @staticmethod
-    def _build_mongo_mapping(products: list[Product], existing_mapping: dict[int, str]) -> dict[int, str]:
-        """Build MongoDB ObjectId mapping for a list of Django products (batch operation)."""
+    def _build_mongo_mapping(products: list, existing_mapping: dict[int, str]) -> dict[int, str]:
+        """Build MongoDB ObjectId mapping for a list of Mongo products."""
         if not products or not MongoProduct:
             return existing_mapping
         
         mapping = existing_mapping.copy()
         
         try:
-            # Batch lookup by slug (most efficient)
-            slugs = [p.slug for p in products if p.slug]
-            if slugs:
-                mongo_products_by_slug = {}
-                for mp in MongoProduct.objects(slug__in=slugs):
-                    mongo_products_by_slug[mp.slug] = mp
-                
-                for product in products:
-                    if product.id and product.slug and product.slug in mongo_products_by_slug:
-                        mapping[product.id] = str(mongo_products_by_slug[product.slug].id)
-            
-            # Batch lookup by amazon_asin for remaining products
-            remaining_products = [p for p in products if p.id and p.id not in mapping and hasattr(p, 'amazon_asin') and p.amazon_asin]
-            if remaining_products:
-                asins = [p.amazon_asin for p in remaining_products]
-                mongo_products_by_asin = {}
-                for mp in MongoProduct.objects(amazon_asin__in=asins):
-                    if mp.amazon_asin:
-                        mongo_products_by_asin[mp.amazon_asin] = mp
-                
-                for product in remaining_products:
-                    if product.id and product.amazon_asin and product.amazon_asin in mongo_products_by_asin:
-                        mapping[product.id] = str(mongo_products_by_asin[product.amazon_asin].id)
+            for product in products:
+                product_id = getattr(product, 'id', None)
+                if product_id:
+                    # Create a numeric hash key for the mapping
+                    key = hash(str(product_id)) % (10 ** 8)
+                    mapping[key] = str(product_id)
         except Exception:
-            # If batch lookup fails, fall back to individual lookups (slower but works)
             pass
         
         return mapping
 
     @staticmethod
-    def _load_interactions(user: User) -> list[UserInteraction]:
-        qs = (
-            UserInteraction.objects.filter(user=user)
-            .select_related("product", "product__brand", "product__category")
-            .order_by("-timestamp")
-        )
-        return list(qs)
+    def _load_interactions(user) -> list:
+        """Load user interactions from MongoDB."""
+        # TODO: Implement MongoDB-based interaction loading
+        # For now, return empty list to avoid SQL queries
+        return []
 
     @classmethod
     def _build_candidate_pool(
@@ -365,59 +198,147 @@ class CandidateFilter:
         gender: str,
         age_group: str,
         excluded_ids: set[int],
-    ) -> list[Product]:
+    ) -> list:
+        """Build candidate pool with strict gender and age filtering from MongoDB."""
+        if MongoProduct is None:
+            return []
+        
         allowed_genders = cls._allowed_genders(gender)
-        queryset: QuerySet[Product] = (
-            Product.objects.filter(
-                gender__in=allowed_genders,
-                age_group=age_group,
-            )
-            .exclude(id__in=excluded_ids)
-            .select_related("brand", "category")
-        )
-        products = list(queryset)
-        return cls._deduplicate(products)
+        
+        try:
+            # Query MongoDB for products matching gender and age group
+            query_filters = {
+                'gender__in': [g.lower() for g in allowed_genders],
+                'age_group': age_group.lower()
+            }
+            
+            products = list(MongoProduct.objects(**query_filters))
+            
+            # Filter out excluded IDs
+            filtered_products = []
+            for product in products:
+                product_id = getattr(product, 'id', None)
+                if product_id and product_id not in excluded_ids:
+                    # Double-check gender and age match
+                    product_gender = (getattr(product, "gender", "") or "").lower()
+                    product_age = (getattr(product, "age_group", "") or "").lower()
+                    
+                    if product_gender in [g.lower() for g in allowed_genders] and product_age == age_group.lower():
+                        filtered_products.append(product)
+            
+            return cls._deduplicate(filtered_products)
+        except Exception:
+            return []
 
     @classmethod
-    def _fallback_candidates(cls, *, gender: str, excluded_ids: set[int]) -> list[Product]:
+    def _fallback_candidates(cls, *, gender: str, excluded_ids: set[int]) -> list:
+        """Fallback candidate pool with relaxed age but strict gender filtering from MongoDB."""
+        if MongoProduct is None:
+            return []
+        
         allowed_genders = cls._allowed_genders(gender)
-        queryset: QuerySet[Product] = (
-            Product.objects.filter(gender__in=allowed_genders)
-            .exclude(id__in=excluded_ids)
-            .select_related("brand", "category")
-        )
-        return cls._deduplicate(list(queryset))
+        
+        try:
+            # Query MongoDB for products matching gender only (relaxed age)
+            query_filters = {
+                'gender__in': [g.lower() for g in allowed_genders]
+            }
+            
+            products = list(MongoProduct.objects(**query_filters))
+            
+            # Filter out excluded IDs and check gender
+            filtered_products = []
+            for product in products:
+                product_id = getattr(product, 'id', None)
+                if product_id and product_id not in excluded_ids:
+                    product_gender = (getattr(product, "gender", "") or "").lower()
+                    
+                    if product_gender in [g.lower() for g in allowed_genders]:
+                        filtered_products.append(product)
+            
+            return cls._deduplicate(filtered_products)
+        except Exception:
+            return []
+
+    @classmethod
+    def _product_field_names(cls) -> set[str]:
+        """Get MongoDB product field names."""
+        if cls._product_field_names_cache is None and MongoProduct:
+            # Get field names from MongoEngine document
+            cls._product_field_names_cache = set(MongoProduct._fields.keys()) if hasattr(MongoProduct, '_fields') else set()
+        return cls._product_field_names_cache or set()
+
+    @classmethod
+    def _product_has_field(cls, field_name: str) -> bool:
+        return field_name in cls._product_field_names()
+
+    @classmethod
+    def _fetch_mongo_product(cls, product_id: str | int):
+        if MongoProduct is None:
+            return None, None
+        candidate_ids: list[int] = []
+        if isinstance(product_id, int):
+            candidate_ids.append(product_id)
+        elif isinstance(product_id, str):
+            stripped = product_id.strip()
+            if stripped.isdigit():
+                try:
+                    candidate_ids.append(int(stripped))
+                except ValueError:
+                    pass
+        for cid in candidate_ids:
+            try:
+                mongo_product = MongoProduct.objects(id=cid).first()
+                if mongo_product:
+                    return mongo_product, str(cid)
+            except Exception:
+                pass
+        if cls._looks_like_object_id(product_id):
+            try:
+                oid = ObjectId(str(product_id))
+                mongo_product = MongoProduct.objects(id=oid).first()
+                if mongo_product:
+                    return mongo_product, str(oid)
+            except Exception:
+                pass
+        return None, None
+
+
 
     @staticmethod
-    def _deduplicate(products: Sequence[Product]) -> list[Product]:
-        seen: set[int] = set()
-        unique_products: list[Product] = []
+    def _deduplicate(products: Sequence) -> list:
+        """Deduplicate products by ID."""
+        seen: set = set()
+        unique_products: list = []
         for product in products:
-            if product.id in seen:
+            product_id = getattr(product, 'id', None)
+            if product_id and product_id in seen:
                 continue
-            seen.add(product.id)
+            if product_id:
+                seen.add(product_id)
             unique_products.append(product)
         return unique_products
 
     @staticmethod
     def _allowed_genders(gender: str) -> list[str]:
-        allowed = ["unisex"]
-        if gender:
-            allowed.insert(0, gender)
-        return list(dict.fromkeys(allowed))
+        return gender_filter_values(gender)
 
     @staticmethod
-    def _resolve_gender(user, current_product: Product) -> str:
-        gender = (user.gender or "").lower()
-        if gender in ("male", "female"):
-            return gender
-        current = (getattr(current_product, "gender", None) or "").lower()
-        if current in ("male", "female"):
-            return current
+    def _resolve_gender(user, current_product) -> str:
+        # Always prioritize user's gender over product gender
+        user_gender = normalize_gender(getattr(user, "gender", ""))
+        if user_gender in ("male", "female", "unisex"):
+            return user_gender
+        
+        # If user gender is not specified, use product gender as fallback
+        product_gender = normalize_gender(getattr(current_product, "gender", ""))
+        if product_gender in ("male", "female", "unisex"):
+            return product_gender
+        
         return "unisex"
 
     @staticmethod
-    def _resolve_age_group(user, current_product: Product) -> str:
+    def _resolve_age_group(user, current_product) -> str:
         if hasattr(user, "age") and user.age:
             age = user.age
             if age <= 12:
@@ -432,20 +353,23 @@ class CandidateFilter:
 
     @staticmethod
     def _build_style_profile(
-        interactions: Iterable[UserInteraction],
-        history_products: Iterable[Product],
+        interactions: Iterable,
+        history_products: Iterable,
         user,
-        current_product: Product,
+        current_product,
     ) -> Counter:
         counter: Counter = Counter()
-        product_weights: defaultdict[int, float] = defaultdict(float)
+        product_weights: defaultdict = defaultdict(float)
         for interaction in interactions:
-            if not interaction.product_id:
+            product_id = getattr(interaction, 'product_id', None)
+            if not product_id:
                 continue
-            weight = INTERACTION_WEIGHTS.get(interaction.interaction_type, 1.0)
-            product_weights[interaction.product_id] += weight
+            interaction_type = getattr(interaction, 'interaction_type', None)
+            weight = INTERACTION_WEIGHTS.get(interaction_type, 1.0)
+            product_weights[product_id] += weight
         for product in history_products:
-            weight = product_weights.get(product.id, 1.0)
+            product_id = getattr(product, 'id', None)
+            weight = product_weights.get(product_id, 1.0)
             for token in _collect_style_tokens(product):
                 counter[token] += weight
         preference_styles = _extract_user_preference_styles(user)
@@ -457,27 +381,38 @@ class CandidateFilter:
         return Counter(dict(most_common))
 
     @staticmethod
-    def _build_brand_profile(interactions: Iterable[UserInteraction]) -> Counter:
+    def _build_brand_profile(interactions: Iterable) -> Counter:
         brand_counter: Counter = Counter()
         for interaction in interactions:
-            product = interaction.product
-            if not product or not product.brand_id:
+            product = getattr(interaction, 'product', None)
+            if not product:
                 continue
-            weight = INTERACTION_WEIGHTS.get(interaction.interaction_type, 1.0)
-            brand_counter[product.brand_id] += weight
+            # Brand field removed from Product model - returning empty counter for now
+            # TODO: Implement brand tracking if needed
         return brand_counter
 
 
-def _collect_style_tokens(product: Product) -> list[str]:
+def _collect_style_tokens(product) -> list[str]:
     tokens: list[str] = []
     if isinstance(getattr(product, "style_tags", None), list):
         tokens.extend(token.lower() for token in product.style_tags if token)
     if isinstance(getattr(product, "outfit_tags", None), list):
         tokens.extend(token.lower() for token in product.outfit_tags if token)
-    if getattr(product, "category_type", None):
-        tokens.append(product.category_type.lower())
-    if getattr(product, "category", None) and getattr(product.category, "name", None):
-        tokens.append(product.category.name.lower())
+    
+    # Use new Product fields
+    if getattr(product, "articleType", None):
+        tokens.append(product.articleType.lower())
+    if getattr(product, "subCategory", None):
+        tokens.append(product.subCategory.lower())
+    if getattr(product, "masterCategory", None):
+        tokens.append(product.masterCategory.lower())
+    if getattr(product, "baseColour", None):
+        tokens.append(product.baseColour.lower())
+    if getattr(product, "usage", None):
+        tokens.append(product.usage.lower())
+    if getattr(product, "season", None):
+        tokens.append(product.season.lower())
+    
     return tokens
 
 

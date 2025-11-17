@@ -28,18 +28,11 @@ class SizeSerializer(serializers.ModelSerializer):
 
 
 class ProductVariantSerializer(serializers.ModelSerializer):
-    color = ColorSerializer(read_only=True)
-    color_id = serializers.PrimaryKeyRelatedField(
-        queryset=Color.objects.all(), source="color", write_only=True
-    )
-    size = SizeSerializer(read_only=True)
-    size_id = serializers.PrimaryKeyRelatedField(
-        queryset=Size.objects.all(), source="size", write_only=True
-    )
+    _id = serializers.CharField(source="id", read_only=True)
 
     class Meta:
         model = ProductVariant
-        fields = ["id", "color", "color_id", "size", "size_id", "price", "stock"]
+        fields = ["_id", "stock", "color", "size", "price"]
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -49,75 +42,41 @@ class CategorySerializer(serializers.ModelSerializer):
 
 
 class ProductReviewSerializer(serializers.ModelSerializer):
-    user_name = serializers.CharField(source="user.username", read_only=True)
+    _id = serializers.CharField(source="id", read_only=True)
+    user = serializers.CharField(source="user.id", read_only=True)
+    createdAt = serializers.DateTimeField(source="created_at", read_only=True)
+    updatedAt = serializers.DateTimeField(source="updated_at", read_only=True)
 
     class Meta:
         model = ProductReview
-        fields = ["id", "name", "rating", "comment", "user", "user_name", "created_at"]
-        read_only_fields = ["user", "created_at"]
+        fields = ["_id", "name", "rating", "comment", "user", "createdAt", "updatedAt"]
+        read_only_fields = ["user", "createdAt", "updatedAt"]
 
 
 class ProductSerializer(serializers.ModelSerializer):
-    brand_name = serializers.CharField(source="brand.name", read_only=True)
-    category_detail = CategorySerializer(source="category", read_only=True)
     variants = ProductVariantSerializer(many=True, read_only=True)
-    variants_payload = ProductVariantSerializer(many=True, write_only=True, required=False)
+    reviews = ProductReviewSerializer(many=True, read_only=True)
 
     class Meta:
         model = Product
         fields = [
             "id",
-            "user",
-            "brand",
-            "brand_name",
-            "category",
-            "category_detail",
-            "name",
-            "slug",
-            "description",
+            "gender",
+            "masterCategory",
+            "subCategory",
+            "articleType",
+            "baseColour",
+            "season",
+            "year",
+            "usage",
+            "productDisplayName",
             "images",
             "rating",
-            "num_reviews",
-            "price",
             "sale",
-            "count_in_stock",
-            "size",
-            "colors",
+            "reviews",
             "variants",
-            "variants_payload",
-            "outfit_tags",
-            "style_tags",
-            "compatible_products",
-            "feature_vector",
-            "gender",
-            "age_group",
-            "category_type",
-            "amazon_asin",
-            "amazon_parent_asin",
-            "created_at",
-            "updated_at",
         ]
-        read_only_fields = ["user", "rating", "num_reviews", "count_in_stock", "created_at", "updated_at"]
-
-    def create(self, validated_data):
-        variants_data = validated_data.pop("variants_payload", [])
-        product = super().create(validated_data)
-        for variant in variants_data:
-            product.variants.create(**variant)
-        product.count_in_stock = sum(v.stock for v in product.variants.all())
-        product.save(update_fields=["count_in_stock"])
-        return product
-
-    def update(self, instance, validated_data):
-        variants_data = validated_data.pop("variants_payload", None)
-        product = super().update(instance, validated_data)
-        if variants_data is not None:
-            instance.variants.all().delete()
-            for variant in variants_data:
-                instance.variants.create(**variant)
-            instance.count_in_stock = sum(v.stock for v in instance.variants.all())
-            instance.save(update_fields=["count_in_stock"])
-        return product
+        read_only_fields = ["id", "rating"]
 
 
 class ContentSectionSerializer(serializers.ModelSerializer):

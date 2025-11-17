@@ -5,7 +5,6 @@ from __future__ import annotations
 import random
 
 from django.db.models import Avg, Count
-from django.utils.text import slugify
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 
@@ -46,24 +45,14 @@ class SizeViewSet(viewsets.ModelViewSet):
 
 
 class ProductViewSet(viewsets.ModelViewSet):
-    queryset = Product.objects.select_related("brand", "category", "user").prefetch_related(
-        "variants__color",
-        "variants__size",
+    queryset = Product.objects.prefetch_related(
+        "variants",
         "reviews",
     )
     serializer_class = ProductSerializer
     permission_classes = [permissions.IsAuthenticated]
-    filterset_fields = ["brand", "category"]
-    search_fields = ["name", "slug", "description"]
-    ordering_fields = ["name", "price", "rating", "created_at"]
-
-    def perform_create(self, serializer):
-        slug = serializer.validated_data.get("slug") or slugify(serializer.validated_data["name"])
-        serializer.save(user=self.request.user, slug=slug)
-
-    def perform_update(self, serializer):
-        slug = serializer.validated_data.get("slug") or slugify(serializer.validated_data.get("name", serializer.instance.name))
-        serializer.save(slug=slug)
+    search_fields = ["productDisplayName", "masterCategory", "subCategory", "articleType"]
+    ordering_fields = ["id", "rating", "year", "created_at"]
 
     @action(detail=False, methods=["get"], permission_classes=[permissions.AllowAny])
     def top(self, request):
@@ -77,12 +66,12 @@ class ProductViewSet(viewsets.ModelViewSet):
         base_queryset = self.get_queryset()
         candidate_limit = max(per_page * 3, per_page)
 
-        top_queryset = base_queryset.filter(rating__gt=0).order_by("-rating", "-num_reviews", "-created_at")
+        top_queryset = base_queryset.filter(rating__gt=0).order_by("-rating", "-created_at")
         candidates = list(top_queryset[:candidate_limit])
 
         if len(candidates) < per_page:
             excluded_ids = [product.pk for product in candidates]
-            fallback_queryset = base_queryset.exclude(pk__in=excluded_ids).order_by("-num_reviews", "-rating", "-created_at")
+            fallback_queryset = base_queryset.exclude(pk__in=excluded_ids).order_by("-rating", "-created_at")
             needed = max(per_page - len(candidates), candidate_limit - len(candidates))
             candidates.extend(list(fallback_queryset[:needed]))
 
@@ -116,8 +105,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         )
         stats = product.reviews.aggregate(avg=Avg("rating"), count=Count("id"))
         product.rating = stats["avg"] or 0
-        product.num_reviews = stats["count"] or 0
-        product.save(update_fields=["rating", "num_reviews"])
+        product.save(update_fields=["rating"])
         return api_success(
             "Đánh giá đã được cập nhật",
             {

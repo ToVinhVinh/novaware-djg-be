@@ -40,24 +40,25 @@ class ProductVariantInline(admin.TabularInline):
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
     list_display = (
-        "name",
-        "brand",
-        "category",
-        "price",
+        "id",
+        "productDisplayName",
+        "gender",
+        "masterCategory",
+        "subCategory",
+        "articleType",
         "sale",
-        "count_in_stock",
         "rating",
+        "year",
     )
-    list_filter = ("brand", "category")
-    search_fields = ("name", "slug", "amazon_asin")
-    prepopulated_fields = {"slug": ("name",)}
+    list_filter = ("gender", "masterCategory", "subCategory", "season", "year")
+    search_fields = ("productDisplayName", "masterCategory", "subCategory", "articleType")
     inlines = [ProductVariantInline]
 
 
 @admin.register(ProductReview)
 class ProductReviewAdmin(admin.ModelAdmin):
     list_display = ("product", "user", "rating", "created_at")
-    search_fields = ("product__name", "user__email")
+    search_fields = ("product__productDisplayName", "user__email", "name")
     list_filter = ("rating", "created_at")
 
 

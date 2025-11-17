@@ -1,4 +1,4 @@
-"""Content-based filtering engine using TF-IDF embeddings."""
+"""Content-based filtering engine using Sentence-BERT + FAISS."""
 
 from __future__ import annotations
 
@@ -7,40 +7,88 @@ from functools import lru_cache
 from typing import Any
 
 import numpy as np
-import scipy.sparse as sp
 from celery import shared_task
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 
 from apps.products.models import Product
 from apps.recommendations.common import BaseRecommendationEngine, CandidateFilter
 from apps.recommendations.common.context import RecommendationContext
+from apps.recommendations.common.gender_utils import normalize_gender
 
 logger = logging.getLogger(__name__)
+
+# Lazy imports for FAISS and Sentence-BERT
+try:
+    import faiss
+    FAISS_AVAILABLE = True
+except ImportError:
+    FAISS_AVAILABLE = False
+    faiss = None
+
+try:
+    from sentence_transformers import SentenceTransformer
+    SBERT_AVAILABLE = True
+except ImportError:
+    SBERT_AVAILABLE = False
+    SentenceTransformer = None
+
+# Cache the Sentence-BERT model
+@lru_cache(maxsize=1)
+def _get_sbert_model():
+    """Get or load Sentence-BERT model."""
+    if not SBERT_AVAILABLE:
+        raise ImportError("sentence-transformers is not installed. Please install it with: pip install sentence-transformers")
+    try:
+        model = SentenceTransformer('all-MiniLM-L6-v2')
+        logger.info("[cbf] Loaded Sentence-BERT model: all-MiniLM-L6-v2")
+        return model
+    except Exception as e:
+        logger.error(f"[cbf] Failed to load Sentence-BERT model: {e}")
+        raise
 
 
 class ContentBasedRecommendationEngine(BaseRecommendationEngine):
     model_name = "cbf"
 
     def _train_impl(self) -> dict[str, Any]:
+        if not SBERT_AVAILABLE:
+            raise ImportError("sentence-transformers is not installed. Please install it with: pip install sentence-transformers")
+        if not FAISS_AVAILABLE:
+            raise ImportError("faiss-cpu is not installed. Please install it with: pip install faiss-cpu")
+        
         logger.info(f"[{self.model_name}] Loading products from database...")
         products = list(
-            Product.objects.all().select_related("brand", "category")
+            Product.objects.all()
         )
         logger.info(f"[{self.model_name}] Loaded {len(products)} products")
         
         product_ids = [product.id for product in products if product.id is not None]
         logger.info(f"[{self.model_name}] Building documents for {len(product_ids)} products...")
         documents = [_build_document(product) for product in products if product.id is not None]
-        logger.info(f"[{self.model_name}] Documents built, creating TF-IDF vectorizer...")
+        logger.info(f"[{self.model_name}] Documents built, creating Sentence-BERT embeddings...")
 
-        vectorizer = TfidfVectorizer(token_pattern=r"(?u)\b\w+\b")
-        logger.info(f"[{self.model_name}] Fitting TF-IDF vectorizer on {len(documents)} documents...")
-        product_matrix = vectorizer.fit_transform(documents)
-        logger.info(f"[{self.model_name}] TF-IDF matrix created: shape {product_matrix.shape}")
-
+        # Load Sentence-BERT model
+        model = _get_sbert_model()
+        
+        # Generate embeddings
+        logger.info(f"[{self.model_name}] Generating embeddings for {len(documents)} documents...")
+        embeddings = model.encode(documents, show_progress_bar=True, batch_size=32)
+        embeddings = np.array(embeddings).astype('float32')
+        
+        logger.info(f"[{self.model_name}] Embeddings created: shape {embeddings.shape}")
+        
+        # Build FAISS index for fast similarity search
+        dimension = embeddings.shape[1]
+        logger.info(f"[{self.model_name}] Building FAISS index with dimension {dimension}...")
+        
+        index = faiss.IndexFlatIP(dimension)
+        faiss.normalize_L2(embeddings)
+        index.add(embeddings)
+        
+        logger.info(f"[{self.model_name}] FAISS index built with {index.ntotal} vectors")
+        
+        # Create matrix data for display (similarity matrix)
         max_display = min(5, len(product_ids))
-        similarity_matrix = cosine_similarity(product_matrix[:max_display])
+        similarity_matrix = np.dot(embeddings[:max_display], embeddings[:max_display].T)
         
         display_rows = 5
         matrix_data_list = similarity_matrix.tolist()
@@ -48,20 +96,17 @@ class ContentBasedRecommendationEngine(BaseRecommendationEngine):
         
         if len(product_ids) < display_rows:
             while len(matrix_data_list) < display_rows:
-                # Add a new row with zeros
                 matrix_data_list.append([0.0] * len(matrix_data_list[0]) if matrix_data_list else [0.0] * display_rows)
-                # Add a new column to all existing rows
                 for row in matrix_data_list[:-1]:
                     row.append(0.0)
                 product_ids_display.append(-(len(matrix_data_list)))
         
-        # Create matrix data structure for frontend
         matrix_data = {
             "shape": [len(product_ids), len(product_ids)],
             "display_shape": [len(matrix_data_list), len(matrix_data_list[0]) if matrix_data_list else 0],
             "data": matrix_data_list[:display_rows],
             "product_ids": product_ids_display[:display_rows],
-            "description": "Product Similarity Matrix (TF-IDF Cosine Similarity)",
+            "description": "Product Similarity Matrix (Sentence-BERT Cosine Similarity)",
             "row_label": "Product ID",
             "col_label": "Product ID",
             "value_description": "Similarity score (0-1, higher = more similar)",
@@ -69,8 +114,9 @@ class ContentBasedRecommendationEngine(BaseRecommendationEngine):
 
         return {
             "product_ids": product_ids,
-            "product_matrix": product_matrix,
-            "vectorizer": vectorizer,
+            "embeddings": embeddings.tolist(),
+            "documents": documents,
+            "faiss_index": index,  # FAISS index can be pickled
             "matrix_data": matrix_data,
         }
 
@@ -79,31 +125,56 @@ class ContentBasedRecommendationEngine(BaseRecommendationEngine):
         context: RecommendationContext,
         artifacts: dict[str, Any],
     ) -> dict[int, float]:
-        vectorizer: TfidfVectorizer = artifacts["vectorizer"]
+        if not FAISS_AVAILABLE:
+            raise ImportError("faiss-cpu is not installed. Please install it with: pip install faiss-cpu")
+        
         product_ids: list[int] = artifacts["product_ids"]
-        product_matrix: sp.csr_matrix = artifacts["product_matrix"]
+        embeddings = np.array(artifacts["embeddings"]).astype('float32')
+        
+        faiss_index = artifacts.get("faiss_index")
+        if faiss_index is None:
+            dimension = embeddings.shape[1]
+            faiss_index = faiss.IndexFlatIP(dimension)
+            embeddings_normalized = embeddings.copy()
+            faiss.normalize_L2(embeddings_normalized)
+            faiss_index.add(embeddings_normalized)
+        else:
+            embeddings_normalized = embeddings.copy()
+            faiss.normalize_L2(embeddings_normalized)
+        
         id_to_index = {pid: idx for idx, pid in enumerate(product_ids)}
-
-        user_profile = self._build_user_profile(context, vectorizer, product_matrix, id_to_index)
-        if user_profile is None or user_profile.nnz == 0:
+        
+        user_profile = self._build_user_profile(context, embeddings, id_to_index)
+        if user_profile is None:
             user_profile = self._vector_for_product(
                 context.current_product,
-                vectorizer,
-                product_matrix,
+                embeddings,
                 id_to_index,
             )
+            if user_profile is None:
+                return {}
+
+        user_profile = user_profile / (np.linalg.norm(user_profile) + 1e-9)
+        user_profile = user_profile.reshape(1, -1).astype('float32')
 
         candidate_scores: dict[int, float] = {}
         for candidate in context.candidate_products:
             candidate_id = candidate.id
             if candidate_id is None:
                 continue
-            candidate_vector = self._vector_for_product(candidate, vectorizer, product_matrix, id_to_index)
-            if candidate_vector is None or candidate_vector.nnz == 0:
+            
+            candidate_vector = self._vector_for_product(candidate, embeddings_normalized, id_to_index)
+            if candidate_vector is None:
                 continue
-            similarity = cosine_similarity(user_profile, candidate_vector)[0][0]
+            
+            candidate_vector = candidate_vector / (np.linalg.norm(candidate_vector) + 1e-9)
+            candidate_vector = candidate_vector.reshape(1, -1).astype('float32')
+            
+            similarity = float(np.dot(user_profile, candidate_vector.T)[0, 0])
+            
             style_bonus = 0.05 * sum(context.style_weight(token) for token in _style_tokens(candidate))
-            brand_bonus = 0.15 * context.brand_weight(candidate.brand_id)
+            brand_bonus = 0.0  # Brand field removed
+            
             candidate_scores[candidate_id] = float(similarity + style_bonus + brand_bonus)
 
         return candidate_scores
@@ -111,42 +182,110 @@ class ContentBasedRecommendationEngine(BaseRecommendationEngine):
     def _build_user_profile(
         self,
         context: RecommendationContext,
-        vectorizer: TfidfVectorizer,
-        product_matrix: sp.csr_matrix,
+        embeddings: np.ndarray,
         id_to_index: dict[int, int],
-    ) -> sp.csr_matrix | None:
-        accum_vector: sp.csr_matrix | None = None
+    ) -> np.ndarray | None:
+        """Build user profile from interaction history."""
+        model = _get_sbert_model()
+        accum_vector: np.ndarray | None = None
         total_weight = 0.0
+        
         for product in context.history_products:
             if product.id is None:
                 continue
-            product_vector = self._vector_for_product(product, vectorizer, product_matrix, id_to_index)
-            if product_vector is None or product_vector.nnz == 0:
+            
+            product_vector = self._vector_for_product(product, embeddings, id_to_index)
+            if product_vector is None:
                 continue
+            
             weight = context.interaction_weight(product.id) or 1.0
-            weighted_vector = product_vector.multiply(weight)
+            weighted_vector = product_vector * weight
             accum_vector = weighted_vector if accum_vector is None else accum_vector + weighted_vector
             total_weight += weight
+        
         if accum_vector is None:
             return None
+        
         if total_weight > 0:
-            accum_vector = accum_vector.multiply(1 / total_weight)
+            accum_vector = accum_vector / total_weight
+        
         return accum_vector
 
     def _vector_for_product(
         self,
-        product,
-        vectorizer: TfidfVectorizer,
-        product_matrix: sp.csr_matrix,
+        product: Product,
+        embeddings: np.ndarray,
         id_to_index: dict[int, int],
-    ) -> sp.csr_matrix | None:
+    ) -> np.ndarray | None:
+        """Get embedding vector for a product."""
         if product.id in id_to_index:
-            return product_matrix[id_to_index[product.id]]
+            idx = id_to_index[product.id]
+            return embeddings[idx].copy()
+        
+        model = _get_sbert_model()
         document = _build_document(product)
         if not document.strip():
             return None
-        return vectorizer.transform([document])
-
+        
+        embedding = model.encode([document], show_progress_bar=False)[0]
+        embedding = embedding.astype('float32')
+        embedding = embedding / (np.linalg.norm(embedding) + 1e-9)
+        return embedding
+    
+    def _build_reason(self, product: Product, context: RecommendationContext) -> str:
+        """Build detailed reason based on user age, gender, interaction history, style, and color."""
+        parts = []
+        
+        # Gender alignment
+        user_gender = normalize_gender(getattr(context.user, "gender", "")) if hasattr(context.user, "gender") else ""
+        product_gender = normalize_gender(getattr(product, "gender", "")) if hasattr(product, "gender") else ""
+        
+        if user_gender and product_gender:
+            if product_gender == user_gender and product_gender in ("male", "female"):
+                parts.append(f"phù hợp với giới tính {user_gender} của bạn")
+            elif product_gender == "unisex":
+                parts.append("phù hợp cho mọi giới tính")
+        
+        # Age alignment
+        user_age = getattr(context.user, "age", None) if hasattr(context.user, "age") else None
+        if user_age:
+            if 18 <= user_age <= 35:
+                parts.append("phù hợp với độ tuổi trẻ của bạn")
+            elif 36 <= user_age <= 50:
+                parts.append("phù hợp với độ tuổi trung niên của bạn")
+            elif user_age > 50:
+                parts.append("phù hợp với độ tuổi của bạn")
+        
+        # User preferences from profile
+        user_preferences = getattr(context.user, "preferences", {}) or {}
+        user_style = user_preferences.get("style", "").lower()
+        product_usage = getattr(product, "usage", "").lower() if hasattr(product, "usage") else ""
+        
+        if user_style and product_usage and user_style == product_usage:
+            parts.append(f"phù hợp với phong cách {user_style} của bạn")
+        
+        # Color preferences from user preferences
+        color_preferences = user_preferences.get("colorPreferences", []) or []
+        product_color = getattr(product, "baseColour", "") if hasattr(product, "baseColour") else ""
+        
+        if product_color and color_preferences:
+            for pref_color in color_preferences:
+                if pref_color.lower() in product_color.lower() or product_color.lower() in pref_color.lower():
+                    parts.append(f"màu sắc {product_color} phù hợp với sở thích của bạn")
+                    break
+        
+        # Content similarity
+        parts.append("tương tự về nội dung với các sản phẩm bạn đã xem (Sentence-BERT)")
+        
+        # Product category matching with user history
+        product_article_type = getattr(product, "articleType", "") if hasattr(product, "articleType") else ""
+        if product_article_type and context.style_weight(product_article_type.lower()) > 0:
+            parts.append(f"bạn đã quan tâm đến {product_article_type.lower()}")
+        
+        if not parts:
+            return "gợi ý dựa trên mô hình Content-based và lịch sử tương tác của bạn"
+        
+        return "; ".join(parts)
 
 def _style_tokens(product) -> list[str]:
     tokens: list[str] = []
@@ -156,10 +295,13 @@ def _style_tokens(product) -> list[str]:
         tokens.extend(str(tag).lower() for tag in product.outfit_tags if tag)
     if getattr(product, "category_type", None):
         tokens.append(product.category_type.lower())
+    if getattr(product, "baseColour", None):
+        tokens.append(str(product.baseColour).lower())
     return tokens
 
 
-def _build_document(product) -> str:
+def _build_document(product: Product) -> str:
+    """Build text document from product attributes for Sentence-BERT."""
     tokens = []
     if getattr(product, "category_type", None):
         tokens.append(product.category_type.lower())
@@ -167,14 +309,27 @@ def _build_document(product) -> str:
         tokens.append(product.gender.lower())
     if getattr(product, "age_group", None):
         tokens.append(product.age_group.lower())
-    if getattr(product, "category", None) and getattr(product.category, "name", None):
-        tokens.append(product.category.name.lower())
+    if getattr(product, "subCategory", None):
+        tokens.append(product.subCategory.lower())
+    if getattr(product, "masterCategory", None):
+        tokens.append(product.masterCategory.lower())
+    if getattr(product, "subCategory", None):
+        tokens.append(product.subCategory.lower())
+    if getattr(product, "articleType", None):
+        tokens.append(product.articleType.lower())
+    if getattr(product, "baseColour", None):
+        tokens.append(product.baseColour.lower())
+    if getattr(product, "season", None):
+        tokens.append(product.season.lower())
+    if getattr(product, "usage", None):
+        tokens.append(product.usage.lower())
+    if getattr(product, "productDisplayName", None):
+        tokens.append(product.productDisplayName.lower())
     for tag in getattr(product, "style_tags", []) or []:
         tokens.append(str(tag).lower())
     for tag in getattr(product, "outfit_tags", []) or []:
         tokens.append(str(tag).lower())
-    if getattr(product, "brand", None) and getattr(product.brand, "name", None):
-        tokens.append(product.brand.name.lower())
+
     colors = getattr(product, "colors", None)
     if colors is not None:
         color_names = getattr(colors, "values_list", None)
@@ -183,14 +338,11 @@ def _build_document(product) -> str:
                 tokens.append(str(color_name).lower())
     return " ".join(tokens)
 
-
 engine = ContentBasedRecommendationEngine()
-
 
 @shared_task
 def train_cbf_model(force_retrain: bool = False) -> dict[str, Any]:
     return engine.train(force_retrain=force_retrain)
-
 
 def recommend_cbf(
     *,
@@ -209,4 +361,3 @@ def recommend_cbf(
     )
     payload = engine.recommend(context)
     return payload.as_dict()
-

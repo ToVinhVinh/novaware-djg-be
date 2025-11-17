@@ -48,75 +48,32 @@ class Size(models.Model):
 
 
 class Product(models.Model):
-    class GenderChoices(models.TextChoices):
-        MALE = "male", "Male"
-        FEMALE = "female", "Female"
-        UNISEX = "unisex", "Unisex"
-
-    class AgeGroupChoices(models.TextChoices):
-        KID = "kid", "Kid"
-        TEEN = "teen", "Teen"
-        ADULT = "adult", "Adult"
-
-    class CategoryTypeChoices(models.TextChoices):
-        TOPS = "tops", "Tops"
-        BOTTOMS = "bottoms", "Bottoms"
-        DRESSES = "dresses", "Dresses"
-        SHOES = "shoes", "Shoes"
-        ACCESSORIES = "accessories", "Accessories"
-
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="products")
-    brand = models.ForeignKey("brands.Brand", on_delete=models.PROTECT, related_name="products")
-    category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name="products")
-    name = models.CharField(max_length=255)
-    slug = models.SlugField(max_length=255, unique=True)
-    description = models.TextField()
+    # Các field mới từ CSV
+    gender = models.CharField(max_length=50, blank=True, null=True, db_index=True)
+    masterCategory = models.CharField(max_length=255, blank=True, null=True, db_column='master_category')
+    subCategory = models.CharField(max_length=255, blank=True, null=True, db_column='sub_category')
+    articleType = models.CharField(max_length=255, blank=True, null=True, db_column='article_type')
+    baseColour = models.CharField(max_length=100, blank=True, null=True, db_column='base_colour')
+    season = models.CharField(max_length=50, blank=True, null=True)
+    year = models.IntegerField(blank=True, null=True)
+    usage = models.CharField(max_length=100, blank=True, null=True)
+    productDisplayName = models.CharField(max_length=255, blank=True, null=True, db_column='product_display_name')
+    
+    # Các field giữ lại
     images = models.JSONField(default=list, blank=True)
     rating = models.FloatField(default=0)
-    num_reviews = models.PositiveIntegerField(default=0)
-    price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     sale = models.DecimalField(max_digits=5, decimal_places=2, default=0)
-    count_in_stock = models.PositiveIntegerField(default=0)
-    size = models.JSONField(default=dict, blank=True)
-    colors = models.ManyToManyField(Color, through="ProductColor", related_name="products", blank=True)
-    outfit_tags = models.JSONField(default=list, blank=True)
-    style_tags = models.JSONField(default=list, blank=True)
-    compatible_products = models.ManyToManyField("self", blank=True, symmetrical=False)
-    feature_vector = models.JSONField(default=list, blank=True)
-    gender = models.CharField(
-        max_length=10,
-        choices=GenderChoices.choices,
-        default=GenderChoices.UNISEX,
-        db_index=True,
-    )
-    age_group = models.CharField(
-        max_length=10,
-        choices=AgeGroupChoices.choices,
-        default=AgeGroupChoices.ADULT,
-        db_index=True,
-    )
-    category_type = models.CharField(
-        max_length=20,
-        choices=CategoryTypeChoices.choices,
-        default=CategoryTypeChoices.TOPS,
-        db_index=True,
-    )
-    amazon_asin = models.CharField(max_length=50, blank=True, null=True, db_index=True)
-    amazon_parent_asin = models.CharField(max_length=50, blank=True, null=True, db_index=True)
+    
+    # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "products"
-        ordering = ["name"]
+        ordering = ["id"]
 
     def __str__(self) -> str:
-        return self.name
-
-    def update_stock_from_variants(self) -> None:
-        total_stock = sum(variant.stock for variant in self.variants.all())
-        self.count_in_stock = total_stock
-        self.save(update_fields=["count_in_stock"])
+        return self.productDisplayName or f"Product {self.id}"
 
 
 class ProductColor(models.Model):
@@ -130,8 +87,8 @@ class ProductColor(models.Model):
 
 class ProductVariant(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="variants")
-    color = models.ForeignKey(Color, on_delete=models.CASCADE, related_name="product_variants")
-    size = models.ForeignKey(Size, on_delete=models.CASCADE, related_name="product_variants")
+    color = models.CharField(max_length=7)  # Hex color code like "#000000"
+    size = models.CharField(max_length=10)  # Size code like "m", "s"
     price = models.DecimalField(max_digits=10, decimal_places=2)
     stock = models.PositiveIntegerField(default=0)
 
@@ -140,7 +97,7 @@ class ProductVariant(models.Model):
         unique_together = ("product", "color", "size")
 
     def __str__(self) -> str:
-        return f"{self.product.name} - {self.color.name} / {self.size.code}"
+        return f"{self.product.productDisplayName or self.product.id} - {self.color} / {self.size}"
 
 
 class ProductReview(models.Model):
