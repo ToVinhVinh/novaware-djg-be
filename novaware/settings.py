@@ -37,7 +37,6 @@ INSTALLED_APPS = [
     "apps.products",
     "apps.orders",
     "apps.recommendations",
-    "apps.chat",
     "apps.brands",
 ]
 
@@ -110,24 +109,6 @@ SIMPLE_JWT = {
 }
 
 
-# AUTH_PASSWORD_VALIDATORS: Vô hiệu hóa vì không dùng hệ thống auth của Django
-# AUTH_PASSWORD_VALIDATORS = [
-#     {
-#         "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
-#     },
-#     {
-#         "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
-#         "OPTIONS": {"min_length": 8},
-#     },
-#     {
-#         "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
-#     },
-#     {
-#         "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
-#     },
-# ]
-
-
 LANGUAGE_CODE = "vi"
 TIME_ZONE = os.getenv("DJANGO_TIME_ZONE", "Asia/Ho_Chi_Minh")
 USE_I18N = True
@@ -136,7 +117,6 @@ USE_TZ = True
 
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
-# Chỉ thêm thư mục static vào STATICFILES_DIRS nếu nó tồn tại để tránh cảnh báo
 STATICFILES_DIRS = [BASE_DIR / "static"] if (BASE_DIR / "static").exists() else []
 
 MEDIA_URL = "/media/"
@@ -166,18 +146,14 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 
 
-# Channels (không kích hoạt websocket theo yêu cầu, nhưng giữ cấu hình nền để mở rộng sau)
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels.layers.InMemoryChannelLayer",
     }
 }
 
-
-# Đường dẫn tới thư mục chứa tài nguyên báo cáo tĩnh được migrate từ thư mục public/report của Node.js
 REPORT_STATIC_ROOT = BASE_DIR.parent / "public" / "report"
 
-# Logging configuration
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,

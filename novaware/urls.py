@@ -20,16 +20,12 @@ class OptionalDefaultRouter(routers.DefaultRouter):
     def extend(self, router: routers.DefaultRouter) -> None:
         for prefix, viewset, basename in router.registry:
             self.register(prefix, viewset, basename=basename)
-
-
 api_router = OptionalDefaultRouter(trailing_slash=False)
 api_router.extend(users_router)
 api_router.extend(products_router)
 api_router.extend(brands_router)
 api_router.extend(orders_router)
 api_router.extend(recommendations_router)
-
-
 
 urlpatterns = [
     path("admin/", admin.site.urls),

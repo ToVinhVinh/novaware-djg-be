@@ -465,66 +465,8 @@ class GNNRecommendationEngine(BaseRecommendationEngine):
     
     def _build_reason(self, product, context: RecommendationContext) -> str:
         """Build detailed reason based on user age, gender, interaction history, style, and color."""
-        parts = []
-        
-        # Age and gender alignment
-        user_gender = normalize_gender(getattr(context.user, "gender", "")) if hasattr(context.user, "gender") else ""
-        product_gender = normalize_gender(getattr(product, "gender", "")) if hasattr(product, "gender") else ""
-        
-        if user_gender and product_gender:
-            if product_gender == user_gender and product_gender in ("male", "female"):
-                parts.append(f"phù hợp với giới tính {user_gender} của bạn")
-            elif product_gender == "unisex":
-                parts.append("phù hợp cho mọi giới tính")
-        
-        # Age alignment
-        user_age = getattr(context.user, "age", None) if hasattr(context.user, "age") else None
-        if user_age:
-            if 18 <= user_age <= 35:
-                parts.append("phù hợp với độ tuổi trẻ của bạn")
-            elif 36 <= user_age <= 50:
-                parts.append("phù hợp với độ tuổi trung niên của bạn")
-            elif user_age > 50:
-                parts.append("phù hợp với độ tuổi của bạn")
-        
-        # User preferences from profile
-        user_preferences = getattr(context.user, "preferences", {}) or {}
-        user_style = user_preferences.get("style", "").lower()
-        product_usage = getattr(product, "usage", "").lower() if hasattr(product, "usage") else ""
-        
-        if user_style and product_usage and user_style == product_usage:
-            parts.append(f"phù hợp với phong cách {user_style} của bạn")
-        
-        # Color preferences from user preferences
-        color_preferences = user_preferences.get("colorPreferences", []) or []
-        product_color = getattr(product, "baseColour", "") if hasattr(product, "baseColour") else ""
-        
-        if product_color and color_preferences:
-            for pref_color in color_preferences:
-                if pref_color.lower() in product_color.lower() or product_color.lower() in pref_color.lower():
-                    parts.append(f"màu sắc {product_color} phù hợp với sở thích của bạn")
-                    break
-        
-        # Interaction history - style and color preferences
-        style_tokens = list(_style_tokens(product))
-        matched_styles = [token for token in style_tokens if context.style_weight(token) > 0]
-        if matched_styles:
-            parts.append(f"tương tự với sản phẩm bạn đã xem: {', '.join(matched_styles[:2])}")
-        
-        # Product category matching with user history
-        product_article_type = getattr(product, "articleType", "") if hasattr(product, "articleType") else ""
-        if product_article_type and context.style_weight(product_article_type.lower()) > 0:
-            parts.append(f"bạn đã quan tâm đến {product_article_type.lower()}")
-        
-        # Season matching
-        product_season = getattr(product, "season", "") if hasattr(product, "season") else ""
-        if product_season:
-            parts.append(f"phù hợp với mùa {product_season.lower()}")
-        
-        if not parts:
-            return "gợi ý dựa trên mô hình GNN và lịch sử tương tác của bạn"
-        
-        return "; ".join(parts)
+        from apps.recommendations.utils.english_reasons import build_english_reason_from_context
+        return build_english_reason_from_context(product, context, "gnn")
 
 
 def _style_tokens(product) -> Iterable[str]:
