@@ -137,7 +137,7 @@ class UserInteraction(me.Document):
     }
     
     user_id = fields.ObjectIdField(required=True)
-    product_id = fields.ObjectIdField(required=True)
+    product_id = fields.IntField(required=True)
     interaction_type = fields.StringField(
         choices=["view", "like", "purchase", "cart", "review"],
         required=True,

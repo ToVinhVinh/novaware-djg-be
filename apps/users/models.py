@@ -44,6 +44,27 @@ class User(AbstractUser):
     content_profile = models.JSONField(blank=True, default=dict)
     amazon_user_id = models.CharField(max_length=255, blank=True, null=True, db_index=True)
 
+    # Thêm related_name để tránh xung đột với auth.User mặc định
+    groups = models.ManyToManyField(
+        'auth.Group',
+        verbose_name='groups',
+        blank=True,
+        help_text=(
+            'The groups this user belongs to. A user will get all permissions '
+            'granted to each of their groups.'
+        ),
+        related_name="user_custom_set",  # Tên duy nhất
+        related_query_name="user",
+    )
+    user_permissions = models.ManyToManyField(
+        'auth.Permission',
+        verbose_name='user permissions',
+        blank=True,
+        help_text='Specific permissions for this user.',
+        related_name="user_custom_permissions_set",  # Tên duy nhất
+        related_query_name="user",
+    )
+
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ["username"]
 

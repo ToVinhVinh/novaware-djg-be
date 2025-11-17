@@ -25,6 +25,9 @@ def normalize_gender(gender: Optional[str]) -> Optional[str]:
     return None
 
 
+import logging
+logger = logging.getLogger(__name__)
+
 def filter_by_age_gender(
     products: List[MongoProduct],
     user: MongoUser,
@@ -52,30 +55,29 @@ def filter_by_age_gender(
     user_age = getattr(user, "age", None)
     
     filtered = []
-    
+    logger.debug(f"Filtering {len(products)} products for user {user.id} (gender: {user_gender}, age: {user_age})")
+
     for product in products:
-        # Exclude specific product IDs
         product_id = str(product.id)
         if product_id in exclude_product_ids:
+            logger.debug(f"Product {product_id} skipped: in exclude list.")
             continue
         
         # Gender filtering
         product_gender = normalize_gender(getattr(product, "gender", None))
-        
-        if user_gender and product_gender:
-            # If product is gender-specific and doesn't match user, skip
-            if product_gender in ("male", "female") and product_gender != user_gender:
+        if user_gender and product_gender and product_gender != 'unisex':
+            if product_gender != user_gender:
+                logger.debug(f"Product {product_id} filtered out: gender mismatch (user: {user_gender}, product: {product_gender}).")
                 continue
-            # Unisex products are OK for everyone
         
-        # Age filtering (if we have age group data)
-        # For now, we'll use simple logic - can be enhanced based on product.age_group field
+        # Age filtering
         if user_age:
-            # Skip kids items for adults
             product_usage = getattr(product, "usage", "")
             if product_usage and "kid" in product_usage.lower() and user_age >= 18:
+                logger.debug(f"Product {product_id} filtered out: age mismatch (user age: {user_age}, product usage: {product_usage}).")
                 continue
         
+        logger.debug(f"Product {product_id} passed filters.")
         filtered.append(product)
     
     return filtered

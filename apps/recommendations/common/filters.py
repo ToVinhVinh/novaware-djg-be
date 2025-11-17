@@ -204,27 +204,34 @@ class CandidateFilter:
             return []
         
         allowed_genders = cls._allowed_genders(gender)
+        gender_filters = cls._gender_query_values(allowed_genders)
+        allowed_gender_lower = {g.lower() for g in allowed_genders if g}
+        normalized_age_group = (age_group or "").strip().lower()
         
         try:
-            # Query MongoDB for products matching gender and age group
-            query_filters = {
-                'gender__in': [g.lower() for g in allowed_genders],
-                'age_group': age_group.lower()
-            }
+            query_filters: dict[str, Any] = {}
+            if gender_filters:
+                query_filters['gender__in'] = gender_filters
+            if normalized_age_group and cls._product_has_field("age_group"):
+                query_filters['age_group__iexact'] = normalized_age_group
             
             products = list(MongoProduct.objects(**query_filters))
             
-            # Filter out excluded IDs
             filtered_products = []
             for product in products:
                 product_id = getattr(product, 'id', None)
-                if product_id and product_id not in excluded_ids:
-                    # Double-check gender and age match
-                    product_gender = (getattr(product, "gender", "") or "").lower()
-                    product_age = (getattr(product, "age_group", "") or "").lower()
-                    
-                    if product_gender in [g.lower() for g in allowed_genders] and product_age == age_group.lower():
-                        filtered_products.append(product)
+                if not product_id or product_id in excluded_ids:
+                    continue
+                
+                product_gender = (getattr(product, "gender", "") or "").strip().lower()
+                product_age = (getattr(product, "age_group", "") or "").strip().lower()
+                
+                if product_gender and product_gender not in allowed_gender_lower:
+                    continue
+                if normalized_age_group and product_age and product_age != normalized_age_group:
+                    continue
+                
+                filtered_products.append(product)
             
             return cls._deduplicate(filtered_products)
         except Exception:
@@ -237,12 +244,13 @@ class CandidateFilter:
             return []
         
         allowed_genders = cls._allowed_genders(gender)
+        gender_filters = cls._gender_query_values(allowed_genders)
+        allowed_gender_lower = {g.lower() for g in allowed_genders if g}
         
         try:
-            # Query MongoDB for products matching gender only (relaxed age)
-            query_filters = {
-                'gender__in': [g.lower() for g in allowed_genders]
-            }
+            query_filters: dict[str, Any] = {}
+            if gender_filters:
+                query_filters['gender__in'] = gender_filters
             
             products = list(MongoProduct.objects(**query_filters))
             
@@ -250,11 +258,14 @@ class CandidateFilter:
             filtered_products = []
             for product in products:
                 product_id = getattr(product, 'id', None)
-                if product_id and product_id not in excluded_ids:
-                    product_gender = (getattr(product, "gender", "") or "").lower()
-                    
-                    if product_gender in [g.lower() for g in allowed_genders]:
-                        filtered_products.append(product)
+                if not product_id or product_id in excluded_ids:
+                    continue
+                product_gender = (getattr(product, "gender", "") or "").strip().lower()
+                
+                if product_gender and product_gender not in allowed_gender_lower:
+                    continue
+                
+                filtered_products.append(product)
             
             return cls._deduplicate(filtered_products)
         except Exception:
@@ -271,6 +282,28 @@ class CandidateFilter:
     @classmethod
     def _product_has_field(cls, field_name: str) -> bool:
         return field_name in cls._product_field_names()
+    
+    @staticmethod
+    def _gender_query_values(values: Iterable[str]) -> list[str]:
+        """Build a case-insensitive gender filter list for Mongo queries."""
+        seen: set[str] = set()
+        normalized: list[str] = []
+        for value in values:
+            if not value:
+                continue
+            variants = {
+                value,
+                value.lower(),
+                value.upper(),
+                value.title(),
+            }
+            for variant in variants:
+                if not variant:
+                    continue
+                if variant not in seen:
+                    seen.add(variant)
+                    normalized.append(variant)
+        return normalized
 
     @classmethod
     def _fetch_mongo_product(cls, product_id: str | int):

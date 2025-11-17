@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 from celery import shared_task
 
-from apps.products.models import Product
+from apps.products.mongo_models import Product
 from apps.recommendations.common import BaseRecommendationEngine, CandidateFilter
 from apps.recommendations.common.context import RecommendationContext
 from apps.recommendations.common.gender_utils import normalize_gender
@@ -56,9 +56,7 @@ class ContentBasedRecommendationEngine(BaseRecommendationEngine):
             raise ImportError("faiss-cpu is not installed. Please install it with: pip install faiss-cpu")
         
         logger.info(f"[{self.model_name}] Loading products from database...")
-        products = list(
-            Product.objects.all()
-        )
+        products = list(Product.objects())
         logger.info(f"[{self.model_name}] Loaded {len(products)} products")
         
         product_ids = [product.id for product in products if product.id is not None]

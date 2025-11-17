@@ -14,7 +14,7 @@ from .serializers import OrderSerializer
 
 class OrderViewSet(viewsets.ModelViewSet):
     serializer_class = OrderSerializer
-    permission_classes = [permissions.IsAuthenticated]
+     
     filterset_fields = ["is_paid", "is_processing", "is_outfit_purchase"]
     search_fields = ["id", "user__email"]
     ordering_fields = ["created_at", "total_price"]
@@ -39,7 +39,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             },
         )
 
-    @action(detail=True, methods=["post"], permission_classes=[permissions.IsAdminUser])
+    @action(detail=True, methods=["post"])
     def mark_delivered(self, request, pk=None):
         order = self.get_object()
         order.is_delivered = True

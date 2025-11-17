@@ -13,7 +13,7 @@ from .serializers import ChatThreadSerializer, MessageSerializer
 
 class ChatThreadViewSet(viewsets.ModelViewSet):
     serializer_class = ChatThreadSerializer
-    permission_classes = [permissions.IsAuthenticated]
+     
 
     def get_queryset(self):
         qs = ChatThread.objects.prefetch_related("messages")

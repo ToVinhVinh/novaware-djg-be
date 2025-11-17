@@ -309,21 +309,36 @@ class LightGCNRecommendationEngine:
         
         # Get top products
         top_indices = np.argsort(scores)[::-1]
-        
-        # Load candidate products
-        candidate_product_ids = [self.reverse_product_map[idx] for idx in top_indices[:500]]
-        candidate_products = list(MongoProduct.objects(id__in=[ObjectId(pid) for pid in candidate_product_ids]))
-        
-        # Create product map for quick lookup
-        product_map = {str(p.id): p for p in candidate_products}
-        
-        # Filter by age and gender
-        exclude_ids = {current_product_id}
-        filtered_products = filter_by_age_gender(candidate_products, user, exclude_ids)
-        
-        # Generate personalized recommendations
+        logger.debug(f"Top 10 raw recommendation indices: {top_indices[:10]}")
+        logger.debug(f"Top 10 raw scores: {scores[top_indices[:10]]}")
+
+        # Generate personalized recommendations (Robust version)
         personalized = []
-        for product in filtered_products[:top_k_personal]:
+        exclude_ids = {current_product_id}
+        logger.debug(f"Starting personalized recommendation generation for user {user_id}. Excluding initial product: {current_product_id}")
+
+        for idx in top_indices:
+            if len(personalized) >= top_k_personal:
+                logger.debug("Reached top_k_personal limit. Stopping personalized generation.")
+                break
+
+            product_id = self.reverse_product_map.get(idx)
+            if not product_id or product_id in exclude_ids:
+                continue
+            
+            logger.debug(f"Checking candidate product ID: {product_id} with score {scores[idx]}")
+            product = MongoProduct.objects(id=ObjectId(product_id)).first()
+            if not product:
+                logger.warning(f"Product ID {product_id} from recommendations not found in DB.")
+                continue
+
+            # Filter by age and gender for this single product
+            if not filter_by_age_gender([product], user):
+                # Detailed logging is now inside filter_by_age_gender
+                continue
+
+            # If it passes all checks, add to list
+            logger.info(f"Product {product_id} passed all filters. Adding to personalized list.")
             reason = generate_vietnamese_reason(
                 product=product,
                 user=user,
@@ -336,37 +351,53 @@ class LightGCNRecommendationEngine:
                 "score": float(scores[self.product_id_map[str(product.id)]]),
                 "reason": reason,
             })
+            exclude_ids.add(product_id) # Ensure it's not reused in outfit
+
+        if not personalized:
+            logger.warning("Personalized recommendation list is empty after filtering.")
         
-        # Generate outfit recommendations
+        # Generate outfit recommendations (Robust version)
+        outfit = {}
         current_tag = map_subcategory_to_tag(
             current_product.subCategory,
             current_product.articleType
         )
-        
         outfit_categories = get_outfit_categories(current_tag or "tops", user.gender)
-        outfit = {}
         
+        used_outfit_product_ids = {str(current_product.id)}
+        used_outfit_product_ids.update(item['product']['id'] for item in personalized)
+
         for category in outfit_categories:
-            # Find products in this category
-            category_products = [
-                p for p in filtered_products
-                if map_subcategory_to_tag(p.subCategory, p.articleType) == category
-            ]
-            
-            if category_products:
-                product = category_products[0]
+            # Directly query for the best-rated product in the category
+            outfit_candidate = MongoProduct.objects(
+                subCategory__iexact=category,
+                gender=user.gender,
+                id__nin=[ObjectId(pid) for pid in used_outfit_product_ids if ObjectId.is_valid(pid)]
+            ).order_by('-rating').first()
+
+            if outfit_candidate:
                 reason = generate_vietnamese_reason(
-                    product=product,
+                    product=outfit_candidate,
                     user=user,
                     reason_type="outfit",
                     current_product=current_product,
                 )
                 
+                # Calculate score if possible, otherwise use rating
+                score = 0.5 # Default score
+                if str(outfit_candidate.id) in self.product_id_map:
+                    score = float(scores[self.product_id_map[str(outfit_candidate.id)]])
+                else:
+                    score = float(getattr(outfit_candidate, 'rating', 0.0) / 5.0)
+
                 outfit[category] = {
-                    "product": self._serialize_product(product),
-                    "score": float(scores[self.product_id_map[str(product.id)]]),
+                    "product": self._serialize_product(outfit_candidate),
+                    "score": score,
                     "reason": reason,
                 }
+                used_outfit_product_ids.add(str(outfit_candidate.id))
+            else:
+                logger.warning(f"Could not find product for outfit category: {category}")
         
         # Generate overall reasons
         reasons = {
@@ -387,59 +418,73 @@ class LightGCNRecommendationEngine:
         top_k_personal: int,
         top_k_outfit: int,
     ) -> Dict[str, Any]:
-        """Handle cold start users (not in training data)."""
-        # Use popularity-based recommendations
-        products = list(MongoProduct.objects.limit(100))
-        
-        filtered_products = filter_by_age_gender(products, user, {str(current_product.id)})
-        
+        """Handle cold start users with a more robust popularity-based fallback."""
+        logger.info(f"Executing improved cold-start logic for user {user.id}")
+
+        # 1. Personalized recommendations: Find popular products in the same category and gender
+        personalized_candidates = list(MongoProduct.objects(
+            subCategory=current_product.subCategory,
+            gender=current_product.gender,
+            id__ne=current_product.id  # Exclude the current product
+        ).order_by('-rating').limit(top_k_personal * 2)) # Fetch more to ensure we have enough after filtering
+
+        filtered_personalized = filter_by_age_gender(personalized_candidates, user, {str(current_product.id)})
+
         personalized = []
-        for product in filtered_products[:top_k_personal]:
+        for product in filtered_personalized[:top_k_personal]:
             reason = generate_vietnamese_reason(
                 product=product,
                 user=user,
                 reason_type="personalized",
             )
+            reason = f"[Gợi ý cho người dùng mới] {reason}"
             
             personalized.append({
                 "product": self._serialize_product(product),
-                "score": 0.5,
+                "score": float(getattr(product, 'rating', 0.0) / 5.0), # Normalize score
                 "reason": reason,
             })
-        
-        # Generate outfit
+
+        # 2. Outfit recommendations: Directly query popular items for each needed category
+        outfit = {}
         current_tag = map_subcategory_to_tag(
             current_product.subCategory,
             current_product.articleType
         )
-        
         outfit_categories = get_outfit_categories(current_tag or "tops", user.gender)
-        outfit = {}
         
+        used_outfit_product_ids = {str(current_product.id)}
+        if personalized:
+            used_outfit_product_ids.update(item['product']['id'] for item in personalized)
+
         for category in outfit_categories:
-            category_products = [
-                p for p in filtered_products
-                if map_subcategory_to_tag(p.subCategory, p.articleType) == category
-            ]
-            
-            if category_products:
-                product = category_products[0]
+            # Find the best product for this category
+            outfit_candidate = MongoProduct.objects(
+                subCategory__iexact=category,  # Case-insensitive match for category
+                gender=user.gender,
+                id__nin=[ObjectId(pid) for pid in used_outfit_product_ids if ObjectId.is_valid(pid)]
+            ).order_by('-rating').first()
+
+            if outfit_candidate:
                 reason = generate_vietnamese_reason(
-                    product=product,
+                    product=outfit_candidate,
                     user=user,
                     reason_type="outfit",
                     current_product=current_product,
                 )
                 
                 outfit[category] = {
-                    "product": self._serialize_product(product),
-                    "score": 0.5,
+                    "product": self._serialize_product(outfit_candidate),
+                    "score": float(getattr(outfit_candidate, 'rating', 0.0) / 5.0),
                     "reason": reason,
                 }
-        
+                used_outfit_product_ids.add(str(outfit_candidate.id))
+            else:
+                logger.warning(f"Could not find product for outfit category: {category}")
+
         reasons = {
             "personalized": [item["reason"] for item in personalized],
-            "outfit": ["Outfit được gợi ý dựa trên sản phẩm hiện tại"]
+            "outfit": [item["reason"] for item in outfit.values() if item]
         }
         
         return {

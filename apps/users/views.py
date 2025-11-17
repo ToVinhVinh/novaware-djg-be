@@ -38,7 +38,7 @@ class IsAdminOrSelf(permissions.BasePermission):
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    permission_classes = [permissions.IsAuthenticated]
+     
     search_fields = ["email", "username"]
     ordering_fields = ["email", "date_joined"]
 
@@ -52,12 +52,9 @@ class UserViewSet(viewsets.ModelViewSet):
             return User.objects.all()
         return User.objects.filter(pk=self.request.user.pk)
 
-    def get_permissions(self):
-        if self.action in {"destroy", "list"}:
-            return [permissions.IsAdminUser()]
-        return super().get_permissions()
+    # Removed permission restrictions - all actions are now public
 
-    @action(detail=False, methods=["get"], permission_classes=[permissions.IsAuthenticated])
+    @action(detail=False, methods=["get"])
     def me(self, request):
         serializer = self.get_serializer(request.user)
         return api_success(
@@ -67,7 +64,7 @@ class UserViewSet(viewsets.ModelViewSet):
             },
         )
 
-    @action(detail=True, methods=["get", "post", "delete"], permission_classes=[IsAdminOrSelf])
+    @action(detail=True, methods=["get", "post", "delete"])
     def favorites(self, request, pk=None):
         user = self.get_object()
         if request.method == "GET":
@@ -109,7 +106,7 @@ class UserViewSet(viewsets.ModelViewSet):
             },
         )
 
-    @action(detail=True, methods=["get"], permission_classes=[IsAdminOrSelf])
+    @action(detail=True, methods=["get"])
     def check_purchase_history(self, request, pk=None):
         user = self.get_object()
         count = Order.objects.filter(user=user, is_paid=True).count()
@@ -124,7 +121,7 @@ class UserViewSet(viewsets.ModelViewSet):
             },
         )
 
-    @action(detail=True, methods=["get"], permission_classes=[IsAdminOrSelf])
+    @action(detail=True, methods=["get"])
     def check_gender(self, request, pk=None):
         user = self.get_object()
         serializer = GenderSummarySerializer({
@@ -138,7 +135,7 @@ class UserViewSet(viewsets.ModelViewSet):
             },
         )
 
-    @action(detail=True, methods=["get"], permission_classes=[IsAdminOrSelf])
+    @action(detail=True, methods=["get"])
     def check_style_preference(self, request, pk=None):
         user = self.get_object()
         style = user.preferences.get("style") if user.preferences else None
@@ -153,7 +150,7 @@ class UserViewSet(viewsets.ModelViewSet):
             },
         )
 
-    @action(detail=False, methods=["post"], permission_classes=[permissions.IsAuthenticated])
+    @action(detail=False, methods=["post"])
     def change_password(self, request):
         serializer = PasswordChangeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -171,7 +168,7 @@ class UserViewSet(viewsets.ModelViewSet):
             data=None,
         )
 
-    @action(detail=False, methods=["get"], permission_classes=[permissions.IsAdminUser])
+    @action(detail=False, methods=["get"])
     def testing(self, request):
         query_type = request.query_params.get("type")
         if query_type not in {"personalization", "outfit-suggestions"}:
@@ -201,7 +198,7 @@ class UserViewSet(viewsets.ModelViewSet):
 
 class UserInteractionViewSet(viewsets.ModelViewSet):
     serializer_class = UserInteractionSerializer
-    permission_classes = [permissions.IsAuthenticated]
+     
 
     def get_queryset(self):
         qs = UserInteraction.objects.select_related("user", "product")
@@ -215,7 +212,7 @@ class UserInteractionViewSet(viewsets.ModelViewSet):
 
 class OutfitHistoryViewSet(viewsets.ModelViewSet):
     serializer_class = OutfitHistorySerializer
-    permission_classes = [permissions.IsAuthenticated]
+     
 
     def get_queryset(self):
         qs = OutfitHistory.objects.select_related("user").prefetch_related("products")

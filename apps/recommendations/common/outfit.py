@@ -147,17 +147,15 @@ class OutfitBuilder:
         outfit_score = max(OUTFIT_SCORE_FLOOR, min(1.0, (averaged_score + completeness_ratio) / 2))
         return dict(outfit_payload), outfit_score
 
-    @staticmethod
-    def _fallback_from_database(category: str, context: RecommendationContext, used_ids: set[int]):
+    @classmethod
+    def _fallback_from_database(cls, category: str, context: RecommendationContext, used_ids: set[int]):
         """Try to get a product from database for the category with strict gender/age filtering."""
         from apps.products.models import Product
         
         try:
             excluded = used_ids | context.excluded_product_ids
-            allowed_genders = OutfitBuilder._allowed_genders(context.resolved_gender)
+            allowed_genders = cls._allowed_genders(context.resolved_gender)
             
-            # Strict filtering: must match user's gender and age group
-            # Exclude children's items for adult users
             query = Product.objects.filter(
                 gender__in=allowed_genders,
                 age_group=context.resolved_age_group,
@@ -184,8 +182,8 @@ class OutfitBuilder:
         except Exception:
             return None
 
-    @staticmethod
-    def _fallback_from_database_relaxed(category: str, context: RecommendationContext, used_ids: set[int]):
+    @classmethod
+    def _fallback_from_database_relaxed(cls, category: str, context: RecommendationContext, used_ids: set[int]):
         """Try to get a product from database with relaxed constraints."""
         from apps.products.models import Product
         
@@ -200,7 +198,7 @@ class OutfitBuilder:
                     return product
             
             # Second try: same category, relaxed gender constraints
-            allowed_genders = OutfitBuilder._allowed_genders(context.resolved_gender)
+            allowed_genders = cls._allowed_genders(context.resolved_gender)
             query = Product.objects.filter(
                 gender__in=allowed_genders,
             ).exclude(id__in=excluded)
@@ -290,8 +288,9 @@ class OutfitBuilder:
         
         return "; ".join(parts)
 
-    @staticmethod
+    @classmethod
     def _rank_for_category(
+        cls,
         category: str,
         scored_candidates: dict[int, float],
         candidate_map: dict[int, object],

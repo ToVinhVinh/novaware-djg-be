@@ -76,7 +76,6 @@ class Product(me.Document):
     meta = {
         "collection": "products",
         "indexes": [
-            "id",
             "gender",
             "masterCategory",
             "subCategory",

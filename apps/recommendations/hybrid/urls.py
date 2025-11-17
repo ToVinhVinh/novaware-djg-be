@@ -9,7 +9,7 @@ from .views import RecommendHybridView, TrainHybridView
 app_name = "recommendations-hybrid"
 
 urlpatterns = [
-    path("train/", TrainHybridView.as_view(), name="train"),
-    path("recommend/", RecommendHybridView.as_view(), name="recommend"),
+    path("train", TrainHybridView.as_view(), name="train"),
+    path("recommend", RecommendHybridView.as_view(), name="recommend"),
 ]
 

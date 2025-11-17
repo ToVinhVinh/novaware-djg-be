@@ -19,14 +19,14 @@ from .services import RecommendationService
 class OutfitViewSet(viewsets.ModelViewSet):
     queryset = Outfit.objects.prefetch_related("products")
     serializer_class = OutfitSerializer
-    permission_classes = [permissions.IsAuthenticated]
+     
     search_fields = ["name", "style", "season"]
     ordering_fields = ["created_at", "compatibility_score"]
 
 
 class RecommendationRequestViewSet(viewsets.ModelViewSet):
     serializer_class = RecommendationRequestSerializer
-    permission_classes = [permissions.IsAuthenticated]
+     
 
     def get_queryset(self):
         qs = RecommendationRequest.objects.select_related("user").prefetch_related("result__products", "logs")
@@ -38,7 +38,7 @@ class RecommendationRequestViewSet(viewsets.ModelViewSet):
         request_obj = serializer.save(user=self.request.user)
         RecommendationService.enqueue_recommendation(request_obj)
 
-    @action(detail=True, methods=["post"], permission_classes=[permissions.IsAuthenticated])
+    @action(detail=True, methods=["post"])
     def refresh(self, request, pk=None):
         request_obj = self.get_object()
         RecommendationService.enqueue_recommendation(request_obj)
@@ -54,7 +54,7 @@ class RecommendationRequestViewSet(viewsets.ModelViewSet):
 class RecommendationResultViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = RecommendationResult.objects.prefetch_related("products")
     serializer_class = RecommendationResultSerializer
-    permission_classes = [permissions.IsAuthenticated]
+     
 
     def get_queryset(self):
         qs = super().get_queryset()

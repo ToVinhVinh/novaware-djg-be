@@ -37,24 +37,7 @@ from .mongo_serializers import (
 class CategoryViewSet(viewsets.ViewSet):
     """ViewSet cho Category."""
     
-    permission_classes = [permissions.AllowAny]  # Mặc định cho phép công khai
-    authentication_classes = []  # Không yêu cầu authentication
-
-    def get_permissions(self):
-        # Các action cần authentication
-        action = getattr(self, "action", None)
-        if action in ["create", "update", "destroy", "partial_update"]:
-            return [permissions.IsAuthenticated()]
-        # Các action khác cho phép công khai
-        return [permissions.AllowAny()]
-    
-    def get_authenticators(self):
-        """Override để yêu cầu authentication cho các action cần thiết."""
-        action = getattr(self, "action", None)
-        if action in ["create", "update", "destroy", "partial_update"]:
-            return [MongoEngineJWTAuthentication()]
-        # Các action khác không cần authentication
-        return []
+     
     
     def list(self, request):
         """List all categories from unique values in Product collection."""
@@ -191,12 +174,6 @@ class CategoryViewSet(viewsets.ViewSet):
 class ColorViewSet(viewsets.ViewSet):
     """ViewSet cho Color."""
     
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_permissions(self):
-        if getattr(self, "action", None) in ["list", "retrieve"]:
-            return [permissions.AllowAny()]
-        return [permissions.IsAuthenticated()]
     
     def list(self, request):
         """List all colors."""
@@ -294,12 +271,7 @@ class ColorViewSet(viewsets.ViewSet):
 class SizeViewSet(viewsets.ViewSet):
     """ViewSet cho Size."""
     
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_permissions(self):
-        if getattr(self, "action", None) in ["list", "retrieve"]:
-            return [permissions.AllowAny()]
-        return [permissions.IsAuthenticated()]
+     
     
     def list(self, request):
         """List all sizes."""
@@ -396,25 +368,6 @@ class SizeViewSet(viewsets.ViewSet):
 class ProductViewSet(viewsets.ViewSet):
     """ViewSet cho Product."""
     
-    permission_classes = [permissions.AllowAny]  # Mặc định cho phép công khai
-    authentication_classes = []  # Không yêu cầu authentication
-
-    def get_permissions(self):
-        # Các action cần authentication
-        action = getattr(self, "action", None)
-        if action in ["create", "update", "destroy", "partial_update", "review"]:
-            return [permissions.IsAuthenticated()]
-        # Các action khác cho phép công khai
-        return [permissions.AllowAny()]
-    
-    def get_authenticators(self):
-        """Override để yêu cầu authentication cho các action cần thiết."""
-        action = getattr(self, "action", None)
-        if action in ["create", "update", "destroy", "partial_update", "review"]:
-            return [MongoEngineJWTAuthentication()]
-        # Các action khác không cần authentication
-        return []
-    
     def list(self, request):
         """List products with filtering and pagination."""
         queryset = Product.objects.all()
@@ -482,12 +435,14 @@ class ProductViewSet(viewsets.ViewSet):
                 ]}
             )
         
-        # Ordering
-        ordering = request.query_params.get("ordering", "name")
-        if ordering.startswith("-"):
-            queryset = queryset.order_by(f"-{ordering[1:]}")
+        ordering = request.query_params.get("ordering")
+        if ordering:
+            if ordering.startswith("-"):
+                queryset = queryset.order_by(f"-{ordering[1:]}")
+            else:
+                queryset = queryset.order_by(ordering)
         else:
-            queryset = queryset.order_by(ordering)
+            queryset = queryset.order_by("id")
         
         # Pagination
         page, page_size = get_pagination_params(request)
@@ -908,12 +863,7 @@ class ProductViewSet(viewsets.ViewSet):
 class ContentSectionViewSet(viewsets.ViewSet):
     """ViewSet cho ContentSection."""
     
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_permissions(self):
-        if getattr(self, "action", None) in ["list", "retrieve"]:
-            return [permissions.AllowAny()]
-        return [permissions.IsAuthenticated()]
+     
     
     def list(self, request):
         """List all content sections."""
