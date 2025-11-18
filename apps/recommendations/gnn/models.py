@@ -231,6 +231,10 @@ class GNNRecommendationEngine(BaseRecommendationEngine):
             actual_interactions = len(edge_list) // 2  # Divide by 2 because edges are undirected
             sparsity = 1.0 - (actual_interactions / total_possible) if total_possible > 0 else 1.0
             
+            # Store training parameters
+            embedding_dim = 64  # From model initialization
+            num_training_samples = actual_interactions  # Number of unique user-item interactions
+            
             # Create matrix data for display
             max_display = min(5, num_users, num_items) if num_users > 0 and num_items > 0 else 0
             similarity_matrix = np.dot(user_embeddings[:max_display], item_embeddings[:max_display].T) if max_display > 0 else np.array([])
@@ -257,6 +261,12 @@ class GNNRecommendationEngine(BaseRecommendationEngine):
                 "item_embeddings": item_embeddings.tolist(),
                 "product_frequency": dict(product_frequency),
                 "matrix_data": matrix_data,
+                # Training parameters for API response
+                "num_users": num_users,
+                "num_products": num_items,
+                "num_interactions": actual_interactions,
+                "num_training_samples": num_training_samples,
+                "embedding_dim": embedding_dim,
             }
             
         except Exception as e:
@@ -361,10 +371,21 @@ class GNNRecommendationEngine(BaseRecommendationEngine):
             "sparsity": float(sparsity),
         }
         
+        # Calculate training parameters for fallback method
+        num_interactions = len(interactions_list)
+        num_training_samples = num_interactions  # For fallback, use total interactions
+        embedding_dim = None  # Fallback doesn't use embeddings
+        
         return {
             "co_occurrence": serialized_graph,
             "product_frequency": dict(product_frequency),
             "matrix_data": matrix_data,
+            # Training parameters for API response
+            "num_users": len(user_histories),
+            "num_products": num_products,
+            "num_interactions": num_interactions,
+            "num_training_samples": num_training_samples,
+            "embedding_dim": embedding_dim,
         }
 
     def _score_candidates(

@@ -53,6 +53,38 @@ st.caption(
     "GNN / CBF / Hybrid recommendation APIs."
 )
 
+# Quick start guide
+with st.expander("📋 Hướng dẫn sử dụng (Quick Start Guide)", expanded=False):
+    st.markdown("""
+    ### 🎯 Quy trình tạo tài liệu tự động:
+    
+    **Bước 1: Kiểm tra kết nối API**
+    - Đảm bảo Django server đang chạy tại URL trong sidebar
+    - Mặc định: `http://127.0.0.1:8000/api/v1`
+    
+    **Bước 2: Train các mô hình (Section 2)**
+    - Click nút "Train GNN" → Chờ training hoàn tất
+    - Click nút "Train Content-based (CBF)" → Chờ training hoàn tất  
+    - Click nút "Train Hybrid" → Chờ training hoàn tất
+    - ✅ Sau khi train, thông số huấn luyện sẽ tự động điền vào tài liệu
+    
+    **Bước 3: Gọi API Recommend (Section 3)**
+    - Nhập User ID và Product ID (hoặc dùng giá trị mặc định)
+    - Click "Recommend GNN" → Lấy evaluation metrics
+    - Click "Recommend Content-based (CBF)" → Lấy evaluation metrics
+    - Click "Recommend Hybrid" → Lấy evaluation metrics
+    - ✅ Sau khi recommend, evaluation metrics sẽ tự động điền vào tài liệu
+    
+    **Bước 4: Xem và copy tài liệu (Section 4)**
+    - Chọn tab tương ứng (GNN, CBF, Hybrid, hoặc So sánh)
+    - Xem số liệu đã được tự động điền
+    - Copy markdown code để dán vào báo cáo
+    
+    **💡 Mẹo**: 
+    - Sử dụng section "🔍 Test API & Xem Response" để kiểm tra response của API
+    - Tất cả số liệu được tự động điền, không cần nhập thủ công
+    """)
+
 
 @st.cache_data(show_spinner=False)
 def load_csv(file_buffer: BytesIO) -> pd.DataFrame:
@@ -211,7 +243,12 @@ if "recommendation_results" not in st.session_state:
 
 
 def extract_training_metrics(result_data: Dict[str, Any], model_type: str) -> Dict[str, Any]:
-    """Extract training metrics from API response."""
+    """Extract training metrics from API response.
+    
+    This extracts metrics from /train API response which includes:
+    - Training parameters: num_users, num_products, epochs, batch_size, etc.
+    - Training metrics: may include evaluation metrics if available in artifacts
+    """
     metrics = {
         "num_users": "N/A",
         "num_products": "N/A",
@@ -235,7 +272,7 @@ def extract_training_metrics(result_data: Dict[str, Any], model_type: str) -> Di
     
     # Try to extract from different possible response structures
     if isinstance(result_data, dict):
-        # Direct metrics (evaluation metrics)
+        # Direct metrics (evaluation metrics) - may be from /train artifacts
         for key in ["mape", "rmse", "precision", "recall", "f1", "f1_score"]:
             if key in result_data:
                 value = result_data[key]
@@ -248,18 +285,31 @@ def extract_training_metrics(result_data: Dict[str, Any], model_type: str) -> Di
         # Training info nested structure
         if "training_info" in result_data:
             info = result_data["training_info"]
-            for key in ["num_users", "num_products", "num_interactions", "epochs", 
-                       "batch_size", "embed_dim", "learning_rate"]:
+            # Map API keys to metric keys
+            info_key_mapping = {
+                "embedding_dim": "embed_dim",
+            }
+            for key in ["num_users", "num_products", "num_interactions", "num_training_samples",
+                       "epochs", "batch_size", "embed_dim", "embedding_dim", "learning_rate"]:
                 if key in info:
                     value = info[key]
-                    metrics[key] = str(value) if value is not None else "N/A"
+                    target_key = info_key_mapping.get(key, key)
+                    metrics[target_key] = str(value) if value is not None else "N/A"
         
-        # Direct keys at root level
-        for key in ["num_users", "num_products", "num_interactions", "epochs", 
-                   "batch_size", "embed_dim", "learning_rate", "training_time", "time"]:
+        # Direct keys at root level (from /train API)
+        # Map API keys to metric keys
+        key_mapping = {
+            "embedding_dim": "embed_dim",  # API returns embedding_dim, we need embed_dim
+            "training_time": "time",
+        }
+        
+        for key in ["num_users", "num_products", "num_interactions", "num_training_samples",
+                   "epochs", "batch_size", "embed_dim", "embedding_dim", 
+                   "learning_rate", "training_time", "time", "test_size"]:
             if key in result_data:
                 value = result_data[key]
-                target_key = key.replace("training_time", "time")
+                # Use mapping if exists, otherwise use key as-is
+                target_key = key_mapping.get(key, key)
                 if isinstance(value, (int, float)):
                     metrics[target_key] = str(value)
                 else:
@@ -285,6 +335,47 @@ def extract_training_metrics(result_data: Dict[str, Any], model_type: str) -> Di
                     if key in metrics:
                         value = summary[key]
                         metrics[key] = str(value) if isinstance(value, (int, float)) else value
+    
+    return metrics
+
+
+def extract_recommend_metrics(result_data: Dict[str, Any], model_type: str) -> Dict[str, Any]:
+    """Extract evaluation metrics from /recommend API response.
+    
+    The /recommend API returns evaluation_metrics with:
+    - MAPE, RMSE, Precision, Recall, F1, execution_time
+    """
+    metrics = {
+        "mape": "N/A",
+        "rmse": "N/A",
+        "precision": "N/A",
+        "recall": "N/A",
+        "f1": "N/A",
+        "time": "N/A",
+    }
+    
+    if not result_data or not isinstance(result_data, dict):
+        return metrics
+    
+    # Extract from evaluation_metrics (from /recommend API)
+    if "evaluation_metrics" in result_data:
+        eval_metrics = result_data["evaluation_metrics"]
+        if isinstance(eval_metrics, dict):
+            for key in ["mape", "rmse", "precision", "recall", "f1", "f1_score"]:
+                if key in eval_metrics:
+                    value = eval_metrics[key]
+                    if isinstance(value, (int, float)):
+                        metrics[key] = str(value)
+                    else:
+                        metrics[key] = value
+            
+            # Execution time
+            if "execution_time" in eval_metrics:
+                value = eval_metrics["execution_time"]
+                metrics["time"] = str(value) if isinstance(value, (int, float)) else value
+            elif "time" in eval_metrics:
+                value = eval_metrics["time"]
+                metrics["time"] = str(value) if isinstance(value, (int, float)) else value
     
     return metrics
 
@@ -436,6 +527,65 @@ models = {
     "Hybrid": "hybrid",
 }
 
+def poll_task_status(
+    base_url: str, 
+    endpoint: str, 
+    task_id: str, 
+    max_wait_time: int = 600,
+    status_placeholder=None,
+    progress_bar=None
+) -> Dict[str, Any]:
+    """Poll task status until completion or timeout."""
+    start_time = time.time()
+    poll_interval = 2  # Poll every 2 seconds
+    last_progress = 0
+    
+    while time.time() - start_time < max_wait_time:
+        result = call_api(base_url, endpoint, payload={"task_id": task_id}, method="post")
+        
+        if not result["success"]:
+            return result
+        
+        data = result["data"]
+        status = data.get("status", "unknown")
+        
+        if status == "success":
+            # Success! Return the result with all metrics
+            return result
+        elif status == "failure":
+            return {
+                "success": False,
+                "error": data.get("error", "Training failed"),
+                "data": data,
+            }
+        elif status in ["pending", "running"]:
+            # Update progress if available
+            current_progress = data.get("progress", last_progress)
+            if current_progress > last_progress:
+                last_progress = current_progress
+                # Progress from 30% to 90% during polling
+                if progress_bar:
+                    progress_bar.progress(30 + int(current_progress * 0.6))
+                if status_placeholder:
+                    message = data.get("message", f"Training in progress... {current_progress}%")
+                    current_step = data.get("current_step", "")
+                    if current_step:
+                        message += f" - {current_step}"
+                    status_placeholder.info(message)
+            time.sleep(poll_interval)
+            continue
+        else:
+            # Unknown status, wait and retry
+            time.sleep(poll_interval)
+            continue
+    
+    return {
+        "success": False,
+        "error": f"Training timeout after {max_wait_time} seconds",
+        "data": {"status": "timeout", "task_id": task_id},
+    }
+
+
 train_cols = st.columns(len(models))
 for col, (label, slug) in zip(train_cols, models.items()):
     with col:
@@ -445,26 +595,55 @@ for col, (label, slug) in zip(train_cols, models.items()):
             status_placeholder.info("Bắt đầu gọi API train...")
             progress.progress(10)
             start_time = time.time()
+            
+            # Use sync mode to get results immediately
             with st.spinner(f"Đang huấn luyện {label}..."):
-                result = call_api(BASE_URL, f"{slug}/train")
+                # Try sync mode first (sends sync: true in payload)
+                result = call_api(BASE_URL, f"{slug}/train", payload={"sync": True}, method="post")
+                
+                # If async response (has task_id), poll for results
+                if result["success"] and isinstance(result["data"], dict):
+                    data = result["data"]
+                    if "task_id" in data and data.get("status") in ["pending", "running"]:
+                        task_id = data["task_id"]
+                        status_placeholder.info(f"Training đang chạy (task_id: {task_id[:8]}...). Đang chờ kết quả...")
+                        progress.progress(30)
+                        
+                        # Poll for completion with progress updates
+                        result = poll_task_status(
+                            BASE_URL, 
+                            f"{slug}/train", 
+                            task_id, 
+                            max_wait_time=600,
+                            status_placeholder=status_placeholder,
+                            progress_bar=progress
+                        )
+            
             elapsed_time = time.time() - start_time
             progress.progress(100)
+            
             if result["success"]:
                 status_placeholder.success(f"Train {label} hoàn tất.")
                 # Store result in session state for documentation
-                st.session_state.training_results[slug] = result["data"]
+                result_data = result["data"]
+                st.session_state.training_results[slug] = result_data
+                
                 # Add training time if not present
-                if isinstance(result["data"], dict):
-                    if "training_time" not in result["data"] and "time" not in result["data"]:
-                        result["data"]["training_time"] = f"{elapsed_time:.2f}s"
+                if isinstance(result_data, dict):
+                    if "training_time" not in result_data and "time" not in result_data:
+                        result_data["training_time"] = f"{elapsed_time:.2f}s"
+                    
                     # Auto-fill metrics to session state for input fields
-                    extracted_metrics = extract_training_metrics(result["data"], slug)
+                    extracted_metrics = extract_training_metrics(result_data, slug)
                     auto_fill_metrics_to_session_state(slug, extracted_metrics)
-                st.json(result["data"])
+                
+                st.json(result_data)
                 st.success(f"✅ Số liệu đã được tự động điền vào phần tài liệu!")
             else:
                 status_placeholder.error(f"Lỗi train {label}.")
                 st.error(result["error"])
+                if result.get("data"):
+                    st.json(result["data"])
                 if result.get("response"):
                     st.code(result["response"])
 
@@ -488,6 +667,22 @@ for col, (label, slug) in zip(recommend_cols, models.items()):
                 result = call_api(BASE_URL, f"{slug}/recommend", payload=payload)
             if result["success"]:
                 status_placeholder.success(f"Kết quả {label} sẵn sàng.")
+                # Store recommendation result
+                st.session_state.recommendation_results[slug] = result["data"]
+                
+                # Extract evaluation metrics from recommend API and update session state
+                if isinstance(result["data"], dict):
+                    eval_metrics = extract_recommend_metrics(result["data"], slug)
+                    # Update session state with evaluation metrics from recommend API
+                    for key, value in eval_metrics.items():
+                        if value != "N/A":
+                            state_key = f"{slug}_{key}"
+                            st.session_state[state_key] = value
+                            # Also update training_results if exists
+                            if st.session_state.training_results.get(slug):
+                                if isinstance(st.session_state.training_results[slug], dict):
+                                    st.session_state.training_results[slug][key] = value
+                
                 st.json(result["data"])
             else:
                 status_placeholder.error(f"Lỗi recommend {label}.")
@@ -665,6 +860,89 @@ def generate_comparison_table(gnn_metrics: Dict[str, Any], cbf_metrics: Dict[str
 
 
 st.header("4. Tài liệu mô hình (Documentation)")
+
+st.markdown("""
+**📌 Nguồn dữ liệu cho tài liệu:**
+
+- **Từ API `/train`**: Thông số huấn luyện (num_users, num_products, epochs, batch_size, embed_dim, learning_rate, etc.)
+- **Từ API `/recommend`**: Chỉ số đánh giá (MAPE, RMSE, Precision, Recall, F1, execution_time) trong `evaluation_metrics`
+
+**💡 Lưu ý**: Để có đầy đủ số liệu, bạn cần:
+1. Train mô hình qua API `/train` → Lấy thông số huấn luyện
+2. Gọi API `/recommend` → Lấy evaluation metrics
+""")
+
+# Test API section
+with st.expander("🔍 Test API & Xem Response", expanded=False):
+    st.subheader("Test API Responses")
+    
+    test_tabs = st.tabs(["Train API", "Recommend API"])
+    
+    # Tab 1: Test Train API
+    with test_tabs[0]:
+        st.markdown("### Test `/train` API Response")
+        test_train_cols = st.columns(len(models))
+        for col, (label, slug) in zip(test_train_cols, models.items()):
+            with col:
+                if st.button(f"Test {label} Train", key=f"test_train_{slug}"):
+                    with st.spinner(f"Đang gọi {label} /train API..."):
+                        result = call_api(BASE_URL, f"{slug}/train", payload={"sync": True}, method="post")
+                    
+                    if result["success"]:
+                        st.success(f"✅ {label} Train API Response:")
+                        st.json(result["data"])
+                        
+                        # Store for analysis
+                        st.session_state[f"test_train_{slug}"] = result["data"]
+                    else:
+                        st.error(f"❌ Lỗi: {result.get('error', 'Unknown error')}")
+                        if result.get("data"):
+                            st.json(result["data"])
+    
+    # Tab 2: Test Recommend API
+    with test_tabs[1]:
+        st.markdown("### Test `/recommend` API Response")
+        test_user_id = st.text_input("User ID (test)", value="690bf0f2d0c3753df0ecbdd6", key="test_user_id")
+        test_product_id = st.text_input("Product ID (test)", value="10068", key="test_product_id")
+        
+        test_recommend_cols = st.columns(len(models))
+        for col, (label, slug) in zip(test_recommend_cols, models.items()):
+            with col:
+                if st.button(f"Test {label} Recommend", key=f"test_recommend_{slug}"):
+                    payload = {"userId": test_user_id, "productId": test_product_id}
+                    with st.spinner(f"Đang gọi {label} /recommend API..."):
+                        result = call_api(BASE_URL, f"{slug}/recommend", payload=payload, method="post")
+                    
+                    if result["success"]:
+                        st.success(f"✅ {label} Recommend API Response:")
+                        data = result["data"]
+                        
+                        # Show evaluation_metrics if available
+                        if "evaluation_metrics" in data:
+                            st.markdown("**📊 Evaluation Metrics:**")
+                            st.json(data["evaluation_metrics"])
+                            st.markdown("---")
+                            st.markdown("**📦 Full Response:**")
+                        
+                        st.json(data)
+                        
+                        # Store evaluation metrics for documentation
+                        if "evaluation_metrics" in data:
+                            eval_metrics = data["evaluation_metrics"]
+                            # Update session state with evaluation metrics
+                            for key in ["mape", "rmse", "precision", "recall", "f1"]:
+                                if key in eval_metrics:
+                                    st.session_state[f"{slug}_{key}"] = str(eval_metrics[key])
+                            if "execution_time" in eval_metrics:
+                                st.session_state[f"{slug}_time"] = str(eval_metrics["execution_time"])
+                            st.success(f"✅ Đã cập nhật evaluation metrics từ {label} recommend API!")
+                    else:
+                        st.error(f"❌ Lỗi: {result.get('error', 'Unknown error')}")
+                        if result.get("data"):
+                            st.json(result["data"])
+
+st.markdown("---")
+
 # Create tabs for each model
 doc_tabs = st.tabs(["📊 GNN (LightGCN)", "📝 Content-based Filtering", "🔀 Hybrid CF+CBF", "📈 So sánh 3 mô hình"])
 
@@ -726,7 +1004,16 @@ with doc_tabs[0]:
         test_size = get_test_size()
         st.metric("Test size", test_size)
     
-    st.subheader("Chỉ số đánh giá (tự động điền từ API)")
+    st.subheader("Chỉ số đánh giá (tự động điền từ API /recommend)")
+    st.caption("💡 **Lưu ý**: Các chỉ số này lấy từ `evaluation_metrics` trong response của API `/recommend`. Vui lòng gọi API recommend để có số liệu đánh giá.")
+    
+    # Check if we have recommendation results
+    has_recommend_data = st.session_state.recommendation_results.get("gnn") is not None
+    if has_recommend_data:
+        st.info("✅ Đã có dữ liệu từ API /recommend")
+    else:
+        st.warning("⚠️ Chưa có dữ liệu từ API /recommend. Vui lòng gọi API recommend ở section 3 để lấy evaluation metrics.")
+    
     eval_col1, eval_col2, eval_col3 = st.columns(3)
     with eval_col1:
         mape = get_value("mape", str(gnn_metrics['mape']))
@@ -816,7 +1103,16 @@ with doc_tabs[1]:
         st.metric("Embedding dimension", embed_dim)
         st.metric("Test size", test_size)
     
-    st.subheader("Chỉ số đánh giá (tự động điền từ API)")
+    st.subheader("Chỉ số đánh giá (tự động điền từ API /recommend)")
+    st.caption("💡 **Lưu ý**: Các chỉ số này lấy từ `evaluation_metrics` trong response của API `/recommend`. Vui lòng gọi API recommend để có số liệu đánh giá.")
+    
+    # Check if we have recommendation results
+    has_recommend_data = st.session_state.recommendation_results.get("cbf") is not None
+    if has_recommend_data:
+        st.info("✅ Đã có dữ liệu từ API /recommend")
+    else:
+        st.warning("⚠️ Chưa có dữ liệu từ API /recommend. Vui lòng gọi API recommend ở section 3 để lấy evaluation metrics.")
+    
     eval_col1, eval_col2, eval_col3 = st.columns(3)
     with eval_col1:
         mape = get_value("mape", str(cbf_metrics['mape']))
@@ -911,7 +1207,16 @@ with doc_tabs[2]:
     test_size = get_test_size()
     st.metric("Test size", test_size)
     
-    st.subheader("Chỉ số đánh giá (tự động điền từ API)")
+    st.subheader("Chỉ số đánh giá (tự động điền từ API /recommend)")
+    st.caption("💡 **Lưu ý**: Các chỉ số này lấy từ `evaluation_metrics` trong response của API `/recommend`. Vui lòng gọi API recommend để có số liệu đánh giá.")
+    
+    # Check if we have recommendation results
+    has_recommend_data = st.session_state.recommendation_results.get("hybrid") is not None
+    if has_recommend_data:
+        st.info("✅ Đã có dữ liệu từ API /recommend")
+    else:
+        st.warning("⚠️ Chưa có dữ liệu từ API /recommend. Vui lòng gọi API recommend ở section 3 để lấy evaluation metrics.")
+    
     eval_col1, eval_col2, eval_col3 = st.columns(3)
     with eval_col1:
         mape = get_value("mape", str(hybrid_metrics['mape']))

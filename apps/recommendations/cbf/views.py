@@ -39,6 +39,24 @@ class TrainCBFView(APIView):
                 "embedding_dim": result.get("embedding_dim", 384),  # Default SBERT dimension
                 "test_size": 0.2,  # Default test split
             })
+            
+            # Try to extract from matrix_data if available in result
+            if "matrix_data" in result:
+                matrix_data = result["matrix_data"]
+                if isinstance(matrix_data, dict) and "shape" in matrix_data:
+                    shape = matrix_data["shape"]
+                    if isinstance(shape, (list, tuple)) and len(shape) >= 2:
+                        if training_data.get("num_products") is None:
+                            training_data["num_products"] = shape[0]  # CBF uses product-product matrix
+                        if training_data.get("num_users") is None and len(shape) >= 2:
+                            # For CBF, shape might be [num_products, num_products]
+                            # Try to get num_users from elsewhere
+                            pass
+        
+        # If model was loaded (already_trained), try to get info from artifacts or model file
+        if isinstance(result, dict) and result.get("status") in ["loaded", "already_trained"]:
+            # Will try to get from artifacts below
+            pass
         
         if include_artifacts:
             try:
@@ -58,6 +76,12 @@ class TrainCBFView(APIView):
                         "shape": matrix_data.get("shape") if isinstance(matrix_data, dict) else None,
                         "sparsity": matrix_data.get("sparsity") if isinstance(matrix_data, dict) else None,
                     }
+                    # Extract num_products from matrix shape if available
+                    if isinstance(matrix_data, dict) and "shape" in matrix_data:
+                        shape = matrix_data["shape"]
+                        if isinstance(shape, (list, tuple)) and len(shape) >= 1:
+                            if training_data.get("num_products") is None:
+                                training_data["num_products"] = shape[0]
                 
                 # Include training metrics if available (prioritize artifacts over result)
                 if "metrics" in artifacts:
@@ -82,10 +106,49 @@ class TrainCBFView(APIView):
                     # Extract additional info from model_info if available
                     if isinstance(model_info, dict):
                         training_data.update({
+                            "num_products": model_info.get("num_products", training_data.get("num_products")),
+                            "num_users": model_info.get("num_users", training_data.get("num_users")),
                             "embedding_dim": model_info.get("embedding_dim", training_data.get("embedding_dim", 384)),
                         })
+                
+                # Also try to get from stored training data in artifacts
+                if "training_data" in artifacts:
+                    stored_training = artifacts["training_data"]
+                    if isinstance(stored_training, dict):
+                        for key in ["num_products", "num_users", "embedding_dim"]:
+                            if key in stored_training and training_data.get(key) is None:
+                                training_data[key] = stored_training[key]
+                
+                # After loading artifacts, check if matrix_data was set and extract from it
+                if "matrix_data" in training_data and training_data["matrix_data"]:
+                    matrix_data = training_data["matrix_data"]
+                    if isinstance(matrix_data, dict) and "shape" in matrix_data:
+                        shape = matrix_data["shape"]
+                        if isinstance(shape, (list, tuple)) and len(shape) >= 1:
+                            if training_data.get("num_products") is None:
+                                training_data["num_products"] = shape[0]
+                
+                # Try to get num_users from artifacts if available
+                if training_data.get("num_users") is None:
+                    # CBF doesn't really need num_users, but try to get from artifacts
+                    if "user_ids" in artifacts:
+                        user_ids = artifacts["user_ids"]
+                        if isinstance(user_ids, list):
+                            training_data["num_users"] = len(user_ids)
+                    elif "num_users" in artifacts:
+                        training_data["num_users"] = artifacts["num_users"]
             except Exception as e:
                 logging.getLogger(__name__).warning(f"Could not load artifacts: {e}")
+        
+        # If still null, try to get from database (optional, CBF doesn't really need it)
+        if training_data.get("num_users") is None:
+            try:
+                from apps.users.mongo_models import User
+                user_count = User.objects.count()
+                if user_count > 0:
+                    training_data["num_users"] = user_count
+            except Exception:
+                pass  # It's okay if num_users is null for CBF
         
         return training_data
 

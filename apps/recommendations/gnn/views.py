@@ -33,18 +33,38 @@ class TrainGNNView(APIView):
         
         # Extract metrics directly from result for easy access
         if isinstance(result, dict):
-            # Training parameters (hardcoded in engine, but we can extract from result or defaults)
+            # Training parameters - extract from result first, use defaults only if not present
             training_data.update({
                 "num_users": result.get("num_users"),
                 "num_products": result.get("num_products"),
                 "num_interactions": result.get("num_interactions"),
                 "num_training_samples": result.get("num_training_samples"),
                 "embedding_dim": result.get("embedding_dim"),
-                "epochs": 50,  # Default from engine
-                "batch_size": 2048,  # Default from engine
-                "learning_rate": 0.001,  # Default from engine
-                "test_size": 0.2,  # Default test split
+                "epochs": result.get("epochs", 50),  # Extract from result, default 50
+                "batch_size": result.get("batch_size", 2048),  # Extract from result, default 2048
+                "learning_rate": result.get("learning_rate", 0.001),  # Extract from result, default 0.001
+                "test_size": result.get("test_size", 0.2),  # Extract from result, default 0.2
+                "training_time": result.get("training_time"),  # Extract training time if available
             })
+            
+            # Try to extract from matrix_data if available in result
+            if "matrix_data" in result:
+                matrix_data = result["matrix_data"]
+                training_data["matrix_data"] = {
+                    "shape": matrix_data.get("shape") if isinstance(matrix_data, dict) else None,
+                    "sparsity": matrix_data.get("sparsity") if isinstance(matrix_data, dict) else None,
+                }
+                if isinstance(matrix_data, dict) and "shape" in matrix_data:
+                    shape = matrix_data["shape"]
+                    if isinstance(shape, (list, tuple)) and len(shape) >= 2:
+                        if training_data.get("num_users") is None:
+                            training_data["num_users"] = shape[0]
+                        if training_data.get("num_products") is None:
+                            training_data["num_products"] = shape[1]
+            
+            # Training info from result
+            if "training_info" in result:
+                training_data["training_info"] = result["training_info"]
             
             # Training metrics from result
             if "training_metrics" in result:
@@ -56,18 +76,62 @@ class TrainGNNView(APIView):
                 stored = storage.load()
                 artifacts = stored.get("artifacts", {})
                 
-                training_data["training_info"] = {
-                    "trained_at": stored.get("trained_at") or result.get("trained_at"),
-                    "model_name": stored.get("model", "gnn"),
-                }
+                # Set training_info if not already set from result
+                if "training_info" not in training_data:
+                    training_data["training_info"] = {
+                        "trained_at": stored.get("trained_at") or result.get("trained_at"),
+                        "model_name": stored.get("model", "gnn"),
+                    }
+                else:
+                    # Merge with stored data if available
+                    if stored.get("trained_at") and not training_data["training_info"].get("trained_at"):
+                        training_data["training_info"]["trained_at"] = stored.get("trained_at")
+                    if not training_data["training_info"].get("model_name"):
+                        training_data["training_info"]["model_name"] = stored.get("model", "gnn")
                 
-                # Include matrix data if available
-                if "matrix_data" in artifacts:
+                # First, try to extract training parameters directly from artifacts (only if not already set from result)
+                # Priority: num_training_samples and embedding_dim are critical for BPR training display
+                if isinstance(artifacts, dict):
+                    # Extract all training parameters from artifacts
+                    for key in ["num_users", "num_products", "num_interactions", "num_training_samples", "embedding_dim",
+                               "epochs", "batch_size", "learning_rate", "test_size", "training_time"]:
+                        if key in artifacts and training_data.get(key) is None:
+                            training_data[key] = artifacts[key]
+                    
+                    # Special handling for num_training_samples (BPR training samples)
+                    # If still None, try to calculate from num_interactions
+                    if training_data.get("num_training_samples") is None:
+                        if training_data.get("num_interactions") is not None:
+                            training_data["num_training_samples"] = training_data["num_interactions"]
+                        elif "num_interactions" in artifacts:
+                            training_data["num_training_samples"] = artifacts["num_interactions"]
+                    
+                    # Special handling for embedding_dim - ensure it has a default if still None
+                    if training_data.get("embedding_dim") is None:
+                        # Try to infer from embeddings if available
+                        if "user_embeddings" in artifacts and isinstance(artifacts["user_embeddings"], list):
+                            if len(artifacts["user_embeddings"]) > 0:
+                                if isinstance(artifacts["user_embeddings"][0], list):
+                                    training_data["embedding_dim"] = len(artifacts["user_embeddings"][0])
+                        # Default to 64 (LightGCN default) if still None
+                        if training_data.get("embedding_dim") is None:
+                            training_data["embedding_dim"] = 64
+                
+                # Include matrix data if available (only if not already set from result)
+                if "matrix_data" in artifacts and "matrix_data" not in training_data:
                     matrix_data = artifacts["matrix_data"]
                     training_data["matrix_data"] = {
                         "shape": matrix_data.get("shape") if isinstance(matrix_data, dict) else None,
                         "sparsity": matrix_data.get("sparsity") if isinstance(matrix_data, dict) else None,
                     }
+                    # Extract num_users and num_products from matrix shape if available
+                    if isinstance(matrix_data, dict) and "shape" in matrix_data:
+                        shape = matrix_data["shape"]
+                        if isinstance(shape, (list, tuple)) and len(shape) >= 2:
+                            if training_data.get("num_users") is None:
+                                training_data["num_users"] = shape[0]
+                            if training_data.get("num_products") is None:
+                                training_data["num_products"] = shape[1]
                 
                 # Include training metrics if available (prioritize artifacts over result)
                 if "metrics" in artifacts:
@@ -89,15 +153,168 @@ class TrainGNNView(APIView):
                 if "model_info" in artifacts:
                     model_info = artifacts["model_info"]
                     training_data["model_info"] = model_info
-                    # Extract additional info from model_info if available
+                    # Extract additional info from model_info if available (only if not already set)
                     if isinstance(model_info, dict):
-                        training_data.update({
-                            "epochs": model_info.get("epochs", training_data.get("epochs", 50)),
-                            "batch_size": model_info.get("batch_size", training_data.get("batch_size", 2048)),
-                            "learning_rate": model_info.get("learning_rate", training_data.get("learning_rate", 0.001)),
-                        })
+                        for key in ["num_users", "num_products", "num_interactions", "num_training_samples",
+                                   "embedding_dim", "epochs", "batch_size", "learning_rate", "test_size", "training_time"]:
+                            if key in model_info and training_data.get(key) is None:
+                                training_data[key] = model_info[key]
+                        # Set defaults for epochs, batch_size, learning_rate if still None
+                        if training_data.get("epochs") is None:
+                            training_data["epochs"] = model_info.get("epochs", 50)
+                        if training_data.get("batch_size") is None:
+                            training_data["batch_size"] = model_info.get("batch_size", 2048)
+                        if training_data.get("learning_rate") is None:
+                            training_data["learning_rate"] = model_info.get("learning_rate", 0.001)
+                        if training_data.get("test_size") is None:
+                            training_data["test_size"] = model_info.get("test_size", 0.2)
+                
+                # Also try to get from stored training data in artifacts
+                if "training_data" in artifacts:
+                    stored_training = artifacts["training_data"]
+                    if isinstance(stored_training, dict):
+                        for key in ["num_users", "num_products", "num_interactions", "num_training_samples", 
+                                   "embedding_dim", "epochs", "batch_size", "learning_rate", "test_size", "training_time"]:
+                            if key in stored_training and training_data.get(key) is None:
+                                training_data[key] = stored_training[key]
+                
+                # After loading artifacts, check if matrix_data was set and extract from it
+                if "matrix_data" in training_data and training_data["matrix_data"]:
+                    matrix_data = training_data["matrix_data"]
+                    if isinstance(matrix_data, dict) and "shape" in matrix_data:
+                        shape = matrix_data["shape"]
+                        if isinstance(shape, (list, tuple)) and len(shape) >= 2:
+                            if training_data.get("num_users") is None:
+                                training_data["num_users"] = shape[0]
+                            if training_data.get("num_products") is None:
+                                training_data["num_products"] = shape[1]
             except Exception as e:
                 logging.getLogger(__name__).warning(f"Could not load artifacts: {e}")
+        
+        # If still missing values and model was loaded, try to calculate from artifacts or model file
+        if isinstance(result, dict) and result.get("status") in ["loaded", "already_trained"]:
+            # Check if we still have any null values that need to be filled
+            has_null_values = (
+                training_data.get("num_users") is None or 
+                training_data.get("num_products") is None or
+                training_data.get("embedding_dim") is None or
+                training_data.get("num_interactions") is None or
+                training_data.get("num_training_samples") is None
+            )
+            
+            if has_null_values:
+                # First, try to calculate from artifacts if available
+                if include_artifacts:
+                    try:
+                        storage = ArtifactStorage("gnn")
+                        stored = storage.load()
+                        artifacts = stored.get("artifacts", {})
+                        
+                        # Try to calculate num_interactions from user_ids/product_ids or edge_index
+                        if training_data.get("num_interactions") is None:
+                            # If we have user_ids and product_ids, we can estimate from matrix_data
+                            if "matrix_data" in artifacts and isinstance(artifacts["matrix_data"], dict):
+                                matrix_data = artifacts["matrix_data"]
+                                if "sparsity" in matrix_data and "shape" in matrix_data:
+                                    shape = matrix_data["shape"]
+                                    if isinstance(shape, (list, tuple)) and len(shape) >= 2:
+                                        total_possible = shape[0] * shape[1]
+                                        sparsity = matrix_data.get("sparsity", 0)
+                                        if sparsity < 1.0:
+                                            training_data["num_interactions"] = int(total_possible * (1 - sparsity))
+                            
+                            # Or try from user_embeddings/item_embeddings if available
+                            if training_data.get("num_interactions") is None:
+                                if "user_embeddings" in artifacts and "item_embeddings" in artifacts:
+                                    # Estimate from embeddings (rough estimate)
+                                    user_emb = artifacts["user_embeddings"]
+                                    item_emb = artifacts["item_embeddings"]
+                                    if isinstance(user_emb, list) and isinstance(item_emb, list):
+                                        # Rough estimate: assume some interactions exist
+                                        training_data["num_interactions"] = max(len(user_emb), len(item_emb))
+                        
+                        # Set num_training_samples to num_interactions if not set
+                        if training_data.get("num_training_samples") is None and training_data.get("num_interactions") is not None:
+                            training_data["num_training_samples"] = training_data["num_interactions"]
+                        
+                        # Set embedding_dim to default if not set and we have embeddings
+                        if training_data.get("embedding_dim") is None:
+                            if "user_embeddings" in artifacts and isinstance(artifacts["user_embeddings"], list):
+                                if len(artifacts["user_embeddings"]) > 0:
+                                    if isinstance(artifacts["user_embeddings"][0], list):
+                                        training_data["embedding_dim"] = len(artifacts["user_embeddings"][0])
+                                    elif isinstance(artifacts["user_embeddings"][0], (int, float)):
+                                        # If it's a flat list, we can't determine dim
+                                        pass
+                            
+                            # Default to 64 if still None (LightGCN default)
+                            if training_data.get("embedding_dim") is None:
+                                training_data["embedding_dim"] = 64
+                    except Exception as e:
+                        logging.getLogger(__name__).debug(f"Could not calculate from artifacts: {e}")
+                
+                # If still missing, try to load from model file
+                if (training_data.get("num_users") is None or 
+                    training_data.get("num_products") is None or
+                    training_data.get("embedding_dim") is None or
+                    training_data.get("num_interactions") is None):
+                    try:
+                        import pickle
+                        from pathlib import Path
+                        from django.conf import settings
+                        
+                        # Try to load from model file
+                        model_dir = Path(settings.BASE_DIR) / "models"
+                        model_path = model_dir / "gnn_lightgcn.pkl"
+                        
+                        if model_path.exists():
+                            with open(model_path, 'rb') as f:
+                                model_data = pickle.load(f)
+                            
+                            # Extract info from model file (only if still null)
+                            if training_data.get("num_users") is None:
+                                if "num_users" in model_data:
+                                    training_data["num_users"] = model_data["num_users"]
+                                elif "user_id_map" in model_data:
+                                    training_data["num_users"] = len(model_data["user_id_map"])
+                            
+                            if training_data.get("num_products") is None:
+                                if "num_products" in model_data:
+                                    training_data["num_products"] = model_data["num_products"]
+                                elif "product_id_map" in model_data:
+                                    training_data["num_products"] = len(model_data["product_id_map"])
+                            
+                            if training_data.get("embedding_dim") is None:
+                                if "embedding_dim" in model_data:
+                                    training_data["embedding_dim"] = model_data["embedding_dim"]
+                                elif "model" in model_data and hasattr(model_data["model"], "embedding_dim"):
+                                    training_data["embedding_dim"] = model_data["model"].embedding_dim
+                                else:
+                                    training_data["embedding_dim"] = 64  # Default
+                            
+                            # Try to calculate num_interactions from edge_index
+                            if training_data.get("num_interactions") is None:
+                                if "edge_index" in model_data:
+                                    edge_index = model_data["edge_index"]
+                                    try:
+                                        if hasattr(edge_index, 'shape'):
+                                            # PyTorch tensor or numpy array
+                                            if len(edge_index.shape) >= 2:
+                                                training_data["num_interactions"] = int(edge_index.shape[1] // 2)  # Divide by 2 for undirected
+                                            elif len(edge_index.shape) == 1:
+                                                training_data["num_interactions"] = int(edge_index.shape[0] // 2)
+                                        elif isinstance(edge_index, (list, tuple)) and len(edge_index) == 2:
+                                            # Tuple of tensors/arrays
+                                            if hasattr(edge_index[0], '__len__'):
+                                                training_data["num_interactions"] = len(edge_index[0]) // 2
+                                    except Exception:
+                                        pass
+                            
+                            # Set num_training_samples to num_interactions if not set
+                            if training_data.get("num_training_samples") is None and training_data.get("num_interactions") is not None:
+                                training_data["num_training_samples"] = training_data["num_interactions"]
+                    except Exception as e:
+                        logging.getLogger(__name__).debug(f"Could not load model file info: {e}")
         
         return training_data
 
@@ -164,6 +381,14 @@ class TrainGNNView(APIView):
                                 "shape": matrix_data.get("shape") if isinstance(matrix_data, dict) else None,
                                 "sparsity": matrix_data.get("sparsity") if isinstance(matrix_data, dict) else None,
                             }
+                            # Extract num_users and num_products from matrix shape if available
+                            if isinstance(matrix_data, dict) and "shape" in matrix_data:
+                                shape = matrix_data["shape"]
+                                if isinstance(shape, (list, tuple)) and len(shape) >= 2:
+                                    if "num_users" not in response_data or response_data["num_users"] is None:
+                                        response_data["num_users"] = shape[0]
+                                    if "num_products" not in response_data or response_data["num_products"] is None:
+                                        response_data["num_products"] = shape[1]
                     except Exception as e:
                         response_data["result"] = result
                         response_data["warning"] = f"Could not load full artifacts: {e}"

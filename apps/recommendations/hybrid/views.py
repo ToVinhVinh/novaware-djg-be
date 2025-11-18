@@ -42,6 +42,22 @@ class TrainHybridView(APIView):
                 "embedding_dim": result.get("embedding_dim", 64),  # Default from GNN
                 "test_size": 0.2,  # Default test split
             })
+            
+            # Try to extract from matrix_data if available in result
+            if "matrix_data" in result:
+                matrix_data = result["matrix_data"]
+                if isinstance(matrix_data, dict) and "shape" in matrix_data:
+                    shape = matrix_data["shape"]
+                    if isinstance(shape, (list, tuple)) and len(shape) >= 2:
+                        if training_data.get("num_users") is None:
+                            training_data["num_users"] = shape[0]
+                        if training_data.get("num_products") is None:
+                            training_data["num_products"] = shape[1]
+        
+        # If model was loaded (already_trained), try to get info from artifacts
+        if isinstance(result, dict) and result.get("status") in ["loaded", "already_trained"]:
+            # Will try to get from artifacts below
+            pass
         
         if include_artifacts:
             try:
@@ -61,6 +77,14 @@ class TrainHybridView(APIView):
                         "shape": matrix_data.get("shape") if isinstance(matrix_data, dict) else None,
                         "sparsity": matrix_data.get("sparsity") if isinstance(matrix_data, dict) else None,
                     }
+                    # Extract num_users and num_products from matrix shape if available
+                    if isinstance(matrix_data, dict) and "shape" in matrix_data:
+                        shape = matrix_data["shape"]
+                        if isinstance(shape, (list, tuple)) and len(shape) >= 2:
+                            if training_data.get("num_users") is None:
+                                training_data["num_users"] = shape[0]
+                            if training_data.get("num_products") is None:
+                                training_data["num_products"] = shape[1]
                 
                 # Include training metrics if available (prioritize artifacts over result)
                 if "metrics" in artifacts:
@@ -85,14 +109,56 @@ class TrainHybridView(APIView):
                     # Extract additional info from model_info if available
                     if isinstance(model_info, dict):
                         training_data.update({
+                            "num_users": model_info.get("num_users", training_data.get("num_users")),
+                            "num_products": model_info.get("num_products", training_data.get("num_products")),
+                            "num_interactions": model_info.get("num_interactions", training_data.get("num_interactions")),
                             "embedding_dim": model_info.get("embedding_dim", training_data.get("embedding_dim", 64)),
                         })
+                
+                # Also try to get from stored training data in artifacts
+                if "training_data" in artifacts:
+                    stored_training = artifacts["training_data"]
+                    if isinstance(stored_training, dict):
+                        for key in ["num_users", "num_products", "num_interactions", "embedding_dim"]:
+                            if key in stored_training and training_data.get(key) is None:
+                                training_data[key] = stored_training[key]
+                
+                # After loading artifacts, check if matrix_data was set and extract from it
+                if "matrix_data" in training_data and training_data["matrix_data"]:
+                    matrix_data = training_data["matrix_data"]
+                    if isinstance(matrix_data, dict) and "shape" in matrix_data:
+                        shape = matrix_data["shape"]
+                        if isinstance(shape, (list, tuple)) and len(shape) >= 2:
+                            if training_data.get("num_users") is None:
+                                training_data["num_users"] = shape[0]
+                            if training_data.get("num_products") is None:
+                                training_data["num_products"] = shape[1]
+                
+                # Try to get num_interactions from artifacts
+                if training_data.get("num_interactions") is None:
+                    if "num_interactions" in artifacts:
+                        training_data["num_interactions"] = artifacts["num_interactions"]
+                    elif "gnn_artifacts" in artifacts:
+                        # Try to get from GNN component
+                        gnn_artifacts = artifacts["gnn_artifacts"]
+                        if isinstance(gnn_artifacts, dict) and "num_interactions" in gnn_artifacts:
+                            training_data["num_interactions"] = gnn_artifacts["num_interactions"]
                 
                 # Include alpha if available
                 if "alpha" in artifacts:
                     training_data["alpha"] = artifacts["alpha"]
             except Exception as e:
                 logger.warning(f"Could not load artifacts: {e}")
+        
+        # If still null, try to get from database
+        if training_data.get("num_interactions") is None:
+            try:
+                from apps.users.mongo_models import UserInteraction
+                interaction_count = UserInteraction.objects.count()
+                if interaction_count > 0:
+                    training_data["num_interactions"] = interaction_count
+            except Exception:
+                pass
         
         return training_data
 
