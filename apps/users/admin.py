@@ -1,4 +1,4 @@
-"""Đăng ký admin cho ứng dụng người dùng."""
+"""Admin registration for user application."""
 
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
@@ -10,7 +10,7 @@ from .models import OutfitHistory, PasswordResetAudit, User, UserInteraction
 class UserAdmin(BaseUserAdmin):
     fieldsets = BaseUserAdmin.fieldsets + (
         (
-            "Thông tin mở rộng",
+            "Extended Information",
             {
                 "fields": (
                     "height",
@@ -25,7 +25,7 @@ class UserAdmin(BaseUserAdmin):
             },
         ),
         (
-            "Reset mật khẩu",
+            "Password Reset",
             {
                 "fields": (
                     "reset_password_token",

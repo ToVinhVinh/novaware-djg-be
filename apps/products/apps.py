@@ -1,4 +1,4 @@
-"""Cấu hình ứng dụng sản phẩm."""
+"""Product application configuration."""
 
 from django.apps import AppConfig
 
@@ -6,5 +6,5 @@ from django.apps import AppConfig
 class ProductsConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "apps.products"
-    verbose_name = "Sản phẩm"
+    verbose_name = "Products"
 

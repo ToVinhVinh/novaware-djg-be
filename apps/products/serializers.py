@@ -1,4 +1,4 @@
-"""Serializer cho module sản phẩm."""
+"""Serializer for product module."""
 
 from __future__ import annotations
 

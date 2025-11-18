@@ -1,4 +1,4 @@
-"""Model thương hiệu được migrate từ Mongoose."""
+"""Brand model migrated from Mongoose."""
 
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ class Brand(models.Model):
     class Meta:
         db_table = "brands"
         ordering = ["name"]
-        verbose_name = "Thương hiệu"
-        verbose_name_plural = "Thương hiệu"
+        verbose_name = "Brand"
+        verbose_name_plural = "Brands"
 
     def __str__(self) -> str:
         return self.name

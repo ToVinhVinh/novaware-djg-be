@@ -1,4 +1,4 @@
-"""Cấu hình ứng dụng đơn hàng."""
+"""Order application configuration."""
 
 from django.apps import AppConfig
 
@@ -6,5 +6,5 @@ from django.apps import AppConfig
 class OrdersConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "apps.orders"
-    verbose_name = "Đơn hàng"
+    verbose_name = "Orders"
 

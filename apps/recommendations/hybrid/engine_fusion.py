@@ -274,7 +274,7 @@ class HybridRecommendationEngine:
         # Generate overall reasons
         reasons = {
             "personalized": [item["reason"] for item in personalized],
-            "outfit": [f"Phối hợp hoàn hảo với {current_product.articleType or 'sản phẩm hiện tại'} (Hybrid: {alpha:.0%} GNN + {1-alpha:.0%} CBF)"]
+            "outfit": [f"Perfect combination with {current_product.articleType or 'current product'} (Hybrid: {alpha:.0%} GNN + {1-alpha:.0%} CBF)"]
         }
         
         return {

@@ -1,4 +1,4 @@
-"""Các model sản phẩm migrate từ MongoDB."""
+"""Product models migrated from MongoDB."""
 
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ class Category(models.Model):
     class Meta:
         db_table = "categories"
         ordering = ["name"]
-        verbose_name = "Danh mục"
-        verbose_name_plural = "Danh mục"
+        verbose_name = "Category"
+        verbose_name_plural = "Categories"
 
     def __str__(self) -> str:
         return self.name
@@ -48,7 +48,7 @@ class Size(models.Model):
 
 
 class Product(models.Model):
-    # Các field mới từ CSV
+    # New fields from CSV
     gender = models.CharField(max_length=50, blank=True, null=True, db_index=True)
     masterCategory = models.CharField(max_length=255, blank=True, null=True, db_column='master_category')
     subCategory = models.CharField(max_length=255, blank=True, null=True, db_column='sub_category')
@@ -59,7 +59,7 @@ class Product(models.Model):
     usage = models.CharField(max_length=100, blank=True, null=True)
     productDisplayName = models.CharField(max_length=255, blank=True, null=True, db_column='product_display_name')
     
-    # Các field giữ lại
+    # Retained fields
     images = models.JSONField(default=list, blank=True)
     rating = models.FloatField(default=0)
     sale = models.DecimalField(max_digits=5, decimal_places=2, default=0)

@@ -1,4 +1,4 @@
-"""Service layer cho hệ thống gợi ý sử dụng MongoEngine."""
+"""Service layer for recommendation system using MongoEngine."""
 
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ class CFRecommender(BaseRecommender):
 
     def recommend(self, context: RecommendationContext, top_k: int = 10) -> list[int]:
         if not self.model:
-            raise RuntimeError("Model chưa được train")
+            raise RuntimeError("Model has not been trained")
         predictions = self.model.predict(context.product_matrix[:1], verbose=0)[0]
         top_indices = predictions.argsort()[-top_k:][::-1]
         return top_indices.tolist()
@@ -80,7 +80,7 @@ class RecommendationService:
         try:
             user = User.objects.get(id=request_obj.user_id)
         except User.DoesNotExist:
-            logger.warning("User %s không tồn tại", request_obj.user_id)
+            logger.warning("User %s does not exist", request_obj.user_id)
             user = None
         
         # Get all products
@@ -131,13 +131,13 @@ def run_recommendation_task(request_id: str) -> None:
     try:
         request_obj = RecommendationRequest.objects.get(id=ObjectId(request_id))
     except (RecommendationRequest.DoesNotExist, Exception) as e:
-        logger.warning("RecommendationRequest %s không tồn tại: %s", request_id, str(e))
+        logger.warning("RecommendationRequest %s does not exist: %s", request_id, str(e))
         return
 
     # Create log
     RecommendationLog.objects.create(
         request_id=request_obj.id,
-        message="Bắt đầu xử lý recommender"
+        message="Starting recommender processing"
     )
 
     # Run recommendation
@@ -162,6 +162,6 @@ def run_recommendation_task(request_id: str) -> None:
     # Create log
     RecommendationLog.objects.create(
         request_id=request_obj.id,
-        message="Hoàn tất xử lý recommender"
+        message="Completed recommender processing"
     )
 

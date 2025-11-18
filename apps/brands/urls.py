@@ -1,4 +1,4 @@
-"""Định nghĩa router cho API thương hiệu."""
+"""Router definition for brand API."""
 
 from rest_framework import routers
 

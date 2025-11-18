@@ -1,4 +1,4 @@
-"""ViewSets cho hệ thống gợi ý."""
+"""ViewSets for recommendation system."""
 
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ class RecommendationRequestViewSet(viewsets.ModelViewSet):
         request_obj = self.get_object()
         RecommendationService.enqueue_recommendation(request_obj)
         return api_success(
-            "Yêu cầu đã được đưa vào hàng xử lý.",
+            "Request has been queued for processing.",
             {
                 "request": RecommendationRequestSerializer(request_obj).data,
             },

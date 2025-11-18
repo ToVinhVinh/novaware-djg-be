@@ -1,4 +1,4 @@
-"""ViewSets cho module sản phẩm sử dụng MongoEngine."""
+"""ViewSets for product module using MongoEngine."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ from .mongo_serializers import (
 
 
 class CategoryViewSet(viewsets.ViewSet):
-    """ViewSet cho Category."""
+    """ViewSet for Category."""
     
      
     
@@ -107,7 +107,7 @@ class CategoryViewSet(viewsets.ViewSet):
             category = Category.objects.get(id=ObjectId(pk))
         except (Category.DoesNotExist, Exception):
             return api_error(
-                "Category không tồn tại.",
+                "Category does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -139,7 +139,7 @@ class CategoryViewSet(viewsets.ViewSet):
             category = Category.objects.get(id=ObjectId(pk))
         except (Category.DoesNotExist, Exception):
             return api_error(
-                "Category không tồn tại.",
+                "Category does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -165,14 +165,14 @@ class CategoryViewSet(viewsets.ViewSet):
             )
         except (Category.DoesNotExist, Exception):
             return api_error(
-                "Category không tồn tại.",
+                "Category does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
 
 
 class ColorViewSet(viewsets.ViewSet):
-    """ViewSet cho Color."""
+    """ViewSet for Color."""
     
     
     def list(self, request):
@@ -201,7 +201,7 @@ class ColorViewSet(viewsets.ViewSet):
             color = Color.objects.get(id=ObjectId(pk))
         except (Color.DoesNotExist, Exception):
             return api_error(
-                "Color không tồn tại.",
+                "Color does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -234,7 +234,7 @@ class ColorViewSet(viewsets.ViewSet):
             color = Color.objects.get(id=ObjectId(pk))
         except (Color.DoesNotExist, Exception):
             return api_error(
-                "Color không tồn tại.",
+                "Color does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -262,14 +262,14 @@ class ColorViewSet(viewsets.ViewSet):
             )
         except (Color.DoesNotExist, Exception):
             return api_error(
-                "Color không tồn tại.",
+                "Color does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
 
 
 class SizeViewSet(viewsets.ViewSet):
-    """ViewSet cho Size."""
+    """ViewSet for Size."""
     
      
     
@@ -298,7 +298,7 @@ class SizeViewSet(viewsets.ViewSet):
             size = Size.objects.get(id=ObjectId(pk))
         except (Size.DoesNotExist, Exception):
             return api_error(
-                "Size không tồn tại.",
+                "Size does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -331,7 +331,7 @@ class SizeViewSet(viewsets.ViewSet):
             size = Size.objects.get(id=ObjectId(pk))
         except (Size.DoesNotExist, Exception):
             return api_error(
-                "Size không tồn tại.",
+                "Size does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -359,14 +359,14 @@ class SizeViewSet(viewsets.ViewSet):
             )
         except (Size.DoesNotExist, Exception):
             return api_error(
-                "Size không tồn tại.",
+                "Size does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
 
 
 class ProductViewSet(viewsets.ViewSet):
-    """ViewSet cho Product."""
+    """ViewSet for Product."""
     
     def list(self, request):
         """List products with filtering and pagination."""
@@ -519,7 +519,7 @@ class ProductViewSet(viewsets.ViewSet):
                 product = Product.objects.get(id=ObjectId(pk))
         except (Product.DoesNotExist, Exception):
             return api_error(
-                "Product không tồn tại.",
+                "Product does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -565,7 +565,7 @@ class ProductViewSet(viewsets.ViewSet):
                 product = Product.objects.get(id=ObjectId(pk))
         except (Product.DoesNotExist, Exception):
             return api_error(
-                "Product không tồn tại.",
+                "Product does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -603,7 +603,7 @@ class ProductViewSet(viewsets.ViewSet):
             )
         except (Product.DoesNotExist, Exception):
             return api_error(
-                "Product không tồn tại.",
+                "Product does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -657,7 +657,7 @@ class ProductViewSet(viewsets.ViewSet):
                 product = Product.objects.get(id=ObjectId(pk))
         except (Product.DoesNotExist, Exception):
             return api_error(
-                "Product không tồn tại.",
+                "Product does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -689,7 +689,7 @@ class ProductViewSet(viewsets.ViewSet):
         
         review_serializer = ProductReviewSerializer(review)
         return api_success(
-            "Đánh giá đã được cập nhật",
+            "Review has been updated",
             {
                 "review": review_serializer.data,
                 "created": created,
@@ -709,7 +709,7 @@ class ProductViewSet(viewsets.ViewSet):
                 product = Product.objects.get(id=ObjectId(pk))
         except (Product.DoesNotExist, Exception):
             return api_error(
-                "Product không tồn tại.",
+                "Product does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -889,7 +889,7 @@ class ProductViewSet(viewsets.ViewSet):
 
 
 class ContentSectionViewSet(viewsets.ViewSet):
-    """ViewSet cho ContentSection."""
+    """ViewSet for ContentSection."""
     
      
     
@@ -918,7 +918,7 @@ class ContentSectionViewSet(viewsets.ViewSet):
             section = ContentSection.objects.get(id=ObjectId(pk))
         except (ContentSection.DoesNotExist, Exception):
             return api_error(
-                "ContentSection không tồn tại.",
+                "ContentSection does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -950,7 +950,7 @@ class ContentSectionViewSet(viewsets.ViewSet):
             section = ContentSection.objects.get(id=ObjectId(pk))
         except (ContentSection.DoesNotExist, Exception):
             return api_error(
-                "ContentSection không tồn tại.",
+                "ContentSection does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -976,7 +976,7 @@ class ContentSectionViewSet(viewsets.ViewSet):
             )
         except (ContentSection.DoesNotExist, Exception):
             return api_error(
-                "ContentSection không tồn tại.",
+                "ContentSection does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )

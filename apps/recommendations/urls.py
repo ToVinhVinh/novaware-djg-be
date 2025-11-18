@@ -1,4 +1,4 @@
-"""Router cho hệ thống gợi ý."""
+"""Router for recommendation system."""
 
 from rest_framework import routers
 

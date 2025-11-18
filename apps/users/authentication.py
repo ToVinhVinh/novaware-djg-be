@@ -1,4 +1,4 @@
-"""Custom authentication backend cho MongoEngine User."""
+"""Custom authentication backend for MongoEngine User."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from .mongo_models import User
 
 
 class MongoEngineJWTAuthentication(JWTAuthentication):
-    """JWT Authentication backend cho MongoEngine User model."""
+    """JWT Authentication backend for MongoEngine User model."""
     
     def authenticate(self, request: Request) -> Optional[Tuple[User, dict]]:
         """
@@ -55,21 +55,21 @@ class MongoEngineJWTAuthentication(JWTAuthentication):
         try:
             user_id = validated_token["user_id"]
         except KeyError:
-            raise InvalidToken("Token không chứa user_id")
+            raise InvalidToken("Token does not contain user_id")
         
         try:
             user = User.objects.get(id=user_id)
         except User.DoesNotExist:
-            raise exceptions.AuthenticationFailed("User không tồn tại")
+            raise exceptions.AuthenticationFailed("User does not exist")
         
         if not user.is_active:
-            raise exceptions.AuthenticationFailed("User đã bị vô hiệu hóa")
+            raise exceptions.AuthenticationFailed("User has been disabled")
         
         return user
 
 
 class MongoEngineTokenObtainPairSerializer:
-    """Custom serializer cho JWT token với MongoEngine User."""
+    """Custom serializer for JWT token with MongoEngine User."""
     
     username_field = "email"
     
@@ -85,18 +85,18 @@ class MongoEngineTokenObtainPairSerializer:
         password = attrs.get("password")
         
         if not email or not password:
-            raise exceptions.ValidationError("Email và mật khẩu là bắt buộc.")
+            raise exceptions.ValidationError("Email and password are required.")
         
         try:
             user = User.objects.get(email=email)
         except User.DoesNotExist:
-            raise exceptions.AuthenticationFailed("Email hoặc mật khẩu không chính xác.")
+            raise exceptions.AuthenticationFailed("Email or password is incorrect.")
         
         if not user.check_password(password):
-            raise exceptions.AuthenticationFailed("Email hoặc mật khẩu không chính xác.")
+            raise exceptions.AuthenticationFailed("Email or password is incorrect.")
         
         if not user.is_active:
-            raise exceptions.AuthenticationFailed("Tài khoản đã bị vô hiệu hóa.")
+            raise exceptions.AuthenticationFailed("Account has been disabled.")
         
         self.user = user
         refresh = self.get_token(user)
@@ -107,7 +107,7 @@ class MongoEngineTokenObtainPairSerializer:
         }
     
     def get_token(self, user):
-        """Tạo JWT token cho user."""
+        """Create JWT token for user."""
         from rest_framework_simplejwt.settings import api_settings
         from rest_framework_simplejwt.tokens import RefreshToken
         
@@ -120,7 +120,7 @@ class MongoEngineTokenObtainPairSerializer:
 
 
 class MongoEngineTokenObtainPairView:
-    """Custom view cho JWT token với MongoEngine User."""
+    """Custom view for JWT token with MongoEngine User."""
     
     serializer_class = MongoEngineTokenObtainPairSerializer
     

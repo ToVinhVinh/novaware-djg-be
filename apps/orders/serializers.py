@@ -1,4 +1,4 @@
-"""Serializer cho đơn hàng."""
+"""Serializer for orders."""
 
 from __future__ import annotations
 

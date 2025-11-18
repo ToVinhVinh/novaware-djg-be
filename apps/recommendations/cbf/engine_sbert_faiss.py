@@ -348,7 +348,7 @@ class ContentBasedRecommendationEngine:
         # Generate overall reasons
         reasons = {
             "personalized": [item["reason"] for item in personalized],
-            "outfit": [f"Phối hợp hoàn hảo với {current_product.articleType or 'sản phẩm hiện tại'}"]
+            "outfit": [f"Perfect combination with {current_product.articleType or 'current product'}"]
         }
         
         return {

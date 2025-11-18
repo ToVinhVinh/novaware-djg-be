@@ -1,4 +1,4 @@
-"""Định nghĩa các tuyến API chính cho dự án Novaware Django."""
+"""Main API route definitions for Novaware Django project."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from apps.brands.urls import router as brands_router
 from apps.recommendations.urls import router as recommendations_router
 
 class OptionalDefaultRouter(routers.DefaultRouter):
-    """Router ghép nhiều Router khác nhau mà không trùng prefix."""
+    """Router combines multiple routers without overlapping prefixes."""
 
     def extend(self, router: routers.DefaultRouter) -> None:
         for prefix, viewset, basename in router.registry:

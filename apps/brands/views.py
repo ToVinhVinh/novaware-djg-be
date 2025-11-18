@@ -1,4 +1,4 @@
-"""ViewSets cho thương hiệu."""
+"""ViewSets for brands."""
 
 from rest_framework import permissions, viewsets
 

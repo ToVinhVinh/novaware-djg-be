@@ -1,4 +1,4 @@
-"""Serializers cho MongoEngine User models."""
+"""Serializers for MongoEngine User models."""
 
 from __future__ import annotations
 
@@ -163,7 +163,7 @@ class RegisterSerializer(serializers.Serializer):
     def validate_password(self, value):
         """Validate password."""
         if len(value) < 8:
-            raise serializers.ValidationError("Mật khẩu phải có ít nhất 8 ký tự.")
+            raise serializers.ValidationError("Password must be at least 8 characters.")
         return value
 
 
@@ -194,7 +194,7 @@ class PasswordChangeSerializer(serializers.Serializer):
     def validate_new_password(self, value):
         """Validate password."""
         if len(value) < 8:
-            raise serializers.ValidationError("Mật khẩu phải có ít nhất 8 ký tự.")
+            raise serializers.ValidationError("Password must be at least 8 characters.")
         return value
 
 
@@ -209,7 +209,7 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
     def validate_new_password(self, value):
         """Validate password."""
         if len(value) < 8:
-            raise serializers.ValidationError("Mật khẩu phải có ít nhất 8 ký tự.")
+            raise serializers.ValidationError("Password must be at least 8 characters.")
         return value
 
 

@@ -1,4 +1,4 @@
-"""Cấu hình Django cơ bản cho dự án Novaware."""
+"""Basic Django configuration for Novaware project."""
 
 from __future__ import annotations
 

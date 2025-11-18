@@ -1,4 +1,4 @@
-"""Models sử dụng mongoengine cho MongoDB."""
+"""Models using mongoengine for MongoDB."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from mongoengine import fields
 
 
 class User(me.Document):
-    """Model người dùng sử dụng mongoengine."""
+    """User model using mongoengine."""
     
     meta = {
         "collection": "users",
@@ -18,7 +18,6 @@ class User(me.Document):
         "strict": False,
     }
     
-    # Thông tin cơ bản
     name = fields.StringField(required=True, db_field="name")
     email = fields.EmailField(required=True, unique=True, db_field="email")
     password = fields.StringField(required=False, db_field="password")
@@ -28,7 +27,6 @@ class User(me.Document):
     is_admin = fields.BooleanField(default=False, required=True, db_field="isAdmin")
     is_active = fields.BooleanField(default=True, required=True, db_field="isActive")
     
-    # Thông tin cá nhân
     height = fields.FloatField(null=True, db_field="height")
     weight = fields.FloatField(null=True, db_field="weight")
     gender = fields.StringField(
@@ -48,13 +46,13 @@ class User(me.Document):
     reset_password_expire = fields.DateTimeField(null=True, db_field="resetPasswordExpire")
     unhashed_reset_password_token = fields.StringField(null=True, db_field="unhashedResetPasswordToken")
     
-    # Favorites (sẽ là list ObjectId reference đến Product)
+    # Favorites (will be list of ObjectId references to Product)
     favorites = fields.ListField(fields.ObjectIdField(), default=list, db_field="favorites")
     
     # Preferences
     preferences = fields.DictField(default=dict, db_field="preferences")
     
-    # Hệ thống gợi ý
+    # Recommendation system
     user_embedding = fields.ListField(fields.FloatField(), default=list, db_field="userEmbedding")
     content_profile = fields.DictField(default=dict, db_field="contentProfile")
     interaction_history = fields.ListField(fields.DynamicField(), default=list, db_field="interactionHistory")
@@ -69,7 +67,7 @@ class User(me.Document):
     updated_at = fields.DateTimeField(default=datetime.utcnow, db_field="updatedAt")
     
     def save(self, *args, **kwargs):
-        """Override save để tự động cập nhật updated_at."""
+        """Override save to automatically update updated_at."""
         self.updated_at = datetime.utcnow()
         if not self.username and self.email:
             base_username = self.email.split("@", 1)[0].replace(".", "_")
@@ -88,7 +86,7 @@ class User(me.Document):
         return super().save(*args, **kwargs)
     
     def check_password(self, raw_password: str) -> bool:
-        """Kiểm tra mật khẩu (cần implement hash checking)."""
+        """Check password (need to implement hash checking)."""
         # TODO: Implement bcrypt checking
         import bcrypt
         if not self.password:
@@ -96,14 +94,14 @@ class User(me.Document):
         return bcrypt.checkpw(raw_password.encode("utf-8"), self.password.encode("utf-8"))
     
     def set_password(self, raw_password: str) -> None:
-        """Hash và lưu mật khẩu."""
+        """Hash and save password."""
         import bcrypt
         salt = bcrypt.gensalt()
         hashed = bcrypt.hashpw(raw_password.encode("utf-8"), salt)
         self.password = hashed.decode("utf-8")
     
     def set_reset_password_token(self, token: str, expiry_minutes: int = 10) -> None:
-        """Thiết lập token reset mật khẩu."""
+        """Set password reset token."""
         from datetime import timedelta
         self.reset_password_token = token
         self.reset_password_expire = datetime.utcnow() + timedelta(minutes=expiry_minutes)
@@ -111,7 +109,7 @@ class User(me.Document):
         self.save()
     
     def clear_reset_password_token(self) -> None:
-        """Xóa token reset mật khẩu."""
+        """Clear password reset token."""
         self.reset_password_token = None
         self.reset_password_expire = None
         self.unhashed_reset_password_token = None
@@ -119,17 +117,17 @@ class User(me.Document):
     
     @property
     def is_staff(self) -> bool:
-        """Tương thích với Django admin."""
+        """Compatible with Django admin."""
         return self.is_admin
     
     @property
     def is_superuser(self) -> bool:
-        """Tương thích với Django admin."""
+        """Compatible with Django admin."""
         return self.is_admin
 
 
 class UserInteraction(me.Document):
-    """Lịch sử tương tác người dùng."""
+    """User interaction history."""
     
     meta = {
         "collection": "user_interactions",
@@ -147,7 +145,7 @@ class UserInteraction(me.Document):
 
 
 class OutfitHistory(me.Document):
-    """Lịch sử outfit."""
+    """Outfit history."""
     
     meta = {
         "collection": "outfit_history",
@@ -165,7 +163,7 @@ class OutfitHistory(me.Document):
 
 
 class PasswordResetAudit(me.Document):
-    """Audit log cho password reset."""
+    """Audit log for password reset."""
     
     meta = {
         "collection": "password_reset_audit",

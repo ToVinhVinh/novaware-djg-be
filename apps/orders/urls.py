@@ -1,4 +1,4 @@
-"""Router cho API đơn hàng."""
+"""Router for order API."""
 
 from rest_framework import routers
 

@@ -1,4 +1,4 @@
-"""Serializers cho MongoEngine Recommendation models."""
+"""Serializers for MongoEngine Recommendation models."""
 
 from __future__ import annotations
 

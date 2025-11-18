@@ -1,15 +1,15 @@
-"""Gói cấu hình chính cho dự án Novaware Django."""
+"""Main configuration package for Novaware Django project."""
 
 from .celery import app as celery_app
 from .mongodb import connect_mongodb
 
-# Khởi tạo kết nối MongoDB khi Django khởi động
+# Initialize MongoDB connection when Django starts
 try:
     connect_mongodb()
 except Exception:
-    # Nếu không kết nối được MongoDB, chỉ log warning
+    # If MongoDB connection fails, just log warning
     import warnings
-    warnings.warn("Không thể kết nối MongoDB. Một số tính năng có thể không hoạt động.")
+    warnings.warn("Cannot connect to MongoDB. Some features may not work.")
 
 __all__ = ("celery_app",)
 

@@ -1,4 +1,4 @@
-"""Router cho người dùng."""
+"""Router for users."""
 
 from rest_framework import routers
 

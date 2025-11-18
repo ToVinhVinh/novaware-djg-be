@@ -1,4 +1,4 @@
-"""WSGI config cho Novaware."""
+"""WSGI config for Novaware."""
 
 import os
 

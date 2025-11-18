@@ -1,4 +1,4 @@
-"""Serializer cho người dùng."""
+"""Serializer for users."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Serializers cho MongoEngine Product models."""
+"""Serializers for MongoEngine Product models."""
 
 from __future__ import annotations
 
@@ -190,7 +190,7 @@ class ProductSerializer(serializers.Serializer):
     @staticmethod
     @lru_cache(maxsize=1)
     def _brand_catalog() -> List[Dict[str, object]]:
-        """Cache toàn bộ brand để reuse khi mapping dữ liệu."""
+        """Cache all brands for reuse when mapping data."""
         try:
             brands = Brand.objects.only("id", "name").order_by("name")
         except Exception:
@@ -214,7 +214,7 @@ class ProductSerializer(serializers.Serializer):
     @staticmethod
     @lru_cache(maxsize=1)
     def _category_catalog() -> Dict[str, Dict[str, object]]:
-        """Cache category theo slug/name để map nhanh."""
+        """Cache category by slug/name for fast mapping."""
         try:
             categories = Category.objects.only("id", "name")
         except Exception:
@@ -239,7 +239,7 @@ class ProductSerializer(serializers.Serializer):
     @staticmethod
     @lru_cache(maxsize=1)
     def _default_color_entries() -> List[Dict[str, object]]:
-        """Lấy danh sách màu mặc định (fallback)."""
+        """Get default color list (fallback)."""
         try:
             colors = list(Color.objects.only("id", "name", "hex_code").order_by("name")[:6])
         except Exception:
@@ -262,7 +262,7 @@ class ProductSerializer(serializers.Serializer):
     @staticmethod
     @lru_cache(maxsize=1)
     def _size_catalog() -> Dict[str, Dict[str, object]]:
-        """Cache size theo code để build variants fallback."""
+        """Cache size by code to build variants fallback."""
         try:
             sizes = Size.objects.only("id", "name", "code")
         except Exception:
@@ -284,7 +284,7 @@ class ProductSerializer(serializers.Serializer):
     @staticmethod
     @lru_cache(maxsize=16)
     def _category_product_pool(category_type: str) -> List[str]:
-        """Danh sách product id theo category để làm compatible fallback."""
+        """Product id list by category for compatible fallback."""
         if not category_type:
             return []
         try:
@@ -295,7 +295,7 @@ class ProductSerializer(serializers.Serializer):
 
     @staticmethod
     def _pseudo_object_id(seed: str) -> str:
-        """Sinh ObjectId giả định từ seed để đảm bảo tính ổn định."""
+        """Generate fake ObjectId from seed to ensure stability."""
         normalized = (seed or "novaware-fallback").encode("utf-8")
         digest = hashlib.md5(normalized).hexdigest()[:24]
         try:
@@ -386,7 +386,7 @@ class ProductSerializer(serializers.Serializer):
             return default
 
     def to_representation(self, instance):
-        """Convert MongoEngine document to dict - đọc trực tiếp từ MongoDB document."""
+        """Convert MongoEngine document to dict - read directly from MongoDB document."""
         
         # Get raw MongoDB document directly from collection (not from MongoEngine instance)
         # because MongoEngine model may not have all fields defined

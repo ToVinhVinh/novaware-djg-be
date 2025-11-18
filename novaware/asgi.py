@@ -1,4 +1,4 @@
-"""ASGI config cho Novaware."""
+"""ASGI config for Novaware."""
 
 import os
 

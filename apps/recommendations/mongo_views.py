@@ -1,4 +1,4 @@
-"""ViewSets cho hệ thống gợi ý sử dụng MongoEngine."""
+"""ViewSets for recommendation system using MongoEngine."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from .mongo_services import RecommendationService
 
 
 class OutfitViewSet(viewsets.ViewSet):
-    """ViewSet cho Outfit."""
+    """ViewSet for Outfit."""
     
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
@@ -73,7 +73,7 @@ class OutfitViewSet(viewsets.ViewSet):
             outfit = Outfit.objects.get(id=ObjectId(pk))
         except (Outfit.DoesNotExist, Exception):
             return api_error(
-                "Outfit không tồn tại.",
+                "Outfit does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -105,7 +105,7 @@ class OutfitViewSet(viewsets.ViewSet):
             outfit = Outfit.objects.get(id=ObjectId(pk))
         except (Outfit.DoesNotExist, Exception):
             return api_error(
-                "Outfit không tồn tại.",
+                "Outfit does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -131,14 +131,14 @@ class OutfitViewSet(viewsets.ViewSet):
             )
         except (Outfit.DoesNotExist, Exception):
             return api_error(
-                "Outfit không tồn tại.",
+                "Outfit does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
 
 
 class RecommendationRequestViewSet(viewsets.ViewSet):
-    """ViewSet cho RecommendationRequest."""
+    """ViewSet for RecommendationRequest."""
     
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
@@ -170,7 +170,7 @@ class RecommendationRequestViewSet(viewsets.ViewSet):
             request_obj = RecommendationRequest.objects.get(id=ObjectId(pk))
         except (RecommendationRequest.DoesNotExist, Exception):
             return api_error(
-                "RecommendationRequest không tồn tại.",
+                "RecommendationRequest does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -195,7 +195,7 @@ class RecommendationRequestViewSet(viewsets.ViewSet):
                 validated_data["user_id"] = str(request.user.id)
             else:
                 return api_error(
-                    "user_id là bắt buộc khi không đăng nhập.",
+                    "user_id is required when not logged in.",
                     data=None,
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
@@ -217,7 +217,7 @@ class RecommendationRequestViewSet(viewsets.ViewSet):
             request_obj = RecommendationRequest.objects.get(id=ObjectId(pk))
         except (RecommendationRequest.DoesNotExist, Exception):
             return api_error(
-                "RecommendationRequest không tồn tại.",
+                "RecommendationRequest does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -239,7 +239,7 @@ class RecommendationRequestViewSet(viewsets.ViewSet):
             request_obj = RecommendationRequest.objects.get(id=ObjectId(pk))
         except (RecommendationRequest.DoesNotExist, Exception):
             return api_error(
-                "RecommendationRequest không tồn tại.",
+                "RecommendationRequest does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -257,7 +257,7 @@ class RecommendationRequestViewSet(viewsets.ViewSet):
             request_obj = RecommendationRequest.objects.get(id=ObjectId(pk))
         except (RecommendationRequest.DoesNotExist, Exception):
             return api_error(
-                "RecommendationRequest không tồn tại.",
+                "RecommendationRequest does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -265,7 +265,7 @@ class RecommendationRequestViewSet(viewsets.ViewSet):
         RecommendationService.enqueue_recommendation(request_obj)
         response_serializer = RecommendationRequestSerializer(request_obj)
         return api_success(
-            "Yêu cầu đã được đưa vào hàng xử lý.",
+            "Request has been queued for processing.",
             {
                 "request": response_serializer.data,
             },
@@ -274,7 +274,7 @@ class RecommendationRequestViewSet(viewsets.ViewSet):
 
 
 class RecommendationResultViewSet(viewsets.ViewSet):
-    """ViewSet cho RecommendationResult (read-only)."""
+    """ViewSet for RecommendationResult (read-only)."""
     
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
@@ -306,7 +306,7 @@ class RecommendationResultViewSet(viewsets.ViewSet):
             result = RecommendationResult.objects.get(id=ObjectId(pk))
         except (RecommendationResult.DoesNotExist, Exception):
             return api_error(
-                "RecommendationResult không tồn tại.",
+                "RecommendationResult does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )

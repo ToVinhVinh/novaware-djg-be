@@ -1,4 +1,4 @@
-"""Cấu hình Celery cho nền tảng Novaware."""
+"""Celery configuration for Novaware platform."""
 
 from __future__ import annotations
 

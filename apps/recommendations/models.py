@@ -1,4 +1,4 @@
-"""Model cho hệ thống gợi ý và outfit."""
+"""Model for recommendation system and outfit."""
 
 from __future__ import annotations
 

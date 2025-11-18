@@ -87,9 +87,9 @@ class Command(BaseCommand):
 
         except Exception as e:
             self.stdout.write(
-                self.style.WARNING(f"❌ Lỗi khi kết nối MongoDB: {e}")
+                self.style.WARNING(f"❌ Error connecting to MongoDB: {e}")
             )
-            self.stdout.write("   (Có thể MongoDB chưa được cấu hình hoặc không có dữ liệu)")
+            self.stdout.write("   (MongoDB may not be configured or has no data)")
 
         # Tổng kết
         self.stdout.write("\n" + "=" * 60)

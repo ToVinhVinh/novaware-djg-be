@@ -25,127 +25,266 @@ class OutfitBuilder:
         scored_candidates: dict[int, float],
         top_k: int,
     ) -> tuple[dict[str, OutfitRecommendation], float]:
-        # Use subCategory and articleType from Product model
-        current_sub_category = (getattr(context.current_product, "subCategory", "") or "").lower()
-        current_article_type = (getattr(context.current_product, "articleType", "") or "").lower()
+        """Build complete outfits based on user age/gender with required categories."""
         
-        required_categories = []
+        # Generate multiple complete outfits based on top_k_outfit
+        outfits = []
         
-        # Map based on actual category hierarchy from API
-        topwear_articles = ["jackets", "shirts", "sweaters", "sweatshirts", "tops", "tshirts", "tunics"]
-        bottomwear_articles = ["capris", "jeans", "shorts", "skirts", "track pants", "tracksuits", "trousers"]
-        dress_articles = ["dresses"]
-        footwear_articles = ["flip flops", "sandals", "sports sandals", "casual shoes", "flats", "formal shoes", "heels", "sports shoes"]
-        accessories_articles = ["backpacks", "handbags", "belts", "caps", "watches"]
+        for outfit_idx in range(context.top_k_outfit):
+            outfit = cls._build_single_outfit(context, scored_candidates, outfit_idx)
+            if outfit:
+                outfits.append(outfit)
         
-        if current_sub_category == "topwear" or current_article_type.lower() in topwear_articles:
-            required_categories = ["bottomwear", "footwear", "accessories"]
-        elif current_sub_category == "bottomwear" or current_article_type.lower() in bottomwear_articles:
-            required_categories = ["topwear", "footwear", "accessories"]
-        elif current_sub_category == "dress" or current_article_type.lower() in dress_articles:
-            # Only suggest shoes and accessories for dresses
-            required_categories = ["footwear", "accessories"]
-        elif current_sub_category in ["shoes", "sandal", "flip flops"] or current_article_type.lower() in footwear_articles:
-            required_categories = ["topwear", "bottomwear", "accessories"]
-        elif current_sub_category in ["bags", "belts", "headwear", "watches"] or current_article_type.lower() in accessories_articles:
-            required_categories = ["topwear", "bottomwear", "footwear"]
-        else:
-            # Default fallback
-            required_categories = ["topwear", "bottomwear", "footwear", "accessories"]
-        
-        if not required_categories:
+        # Return outfits as a list structure
+        if not outfits:
             return {}, 0.0
+        
+        # Calculate average completeness score
+        total_score = sum(outfit.get('completeness_score', 0.0) for outfit in outfits)
+        avg_score = total_score / len(outfits) if outfits else 0.0
+        
+        # Convert to expected format - return as numbered outfits
+        outfit_payload = {}
+        for i, outfit in enumerate(outfits):
+            outfit_payload[f"outfit_{i+1}"] = outfit
+        
+        return outfit_payload, avg_score
 
-        candidate_map = context.candidate_map
-        remaining_ids = set(candidate_map.keys())
-        used_ids: set[int] = set()
-
-        outfit_payload: dict[str, OutfitRecommendation] = {}
-        category_scores: list[float] = []
-
-        # Don't include the current product in outfit recommendations
-        # Outfit should complement the current product, not include it
-
-        # First pass: try to find products matching each category
-        for category in required_categories:
-            product_found = False
-            
-            # Step 1: Try to find in candidate pool matching category
-            ranked = cls._rank_for_category(
-                category=category,
-                scored_candidates=scored_candidates,
-                candidate_map=candidate_map,
-                remaining_ids=remaining_ids,
+    @classmethod
+    def _build_single_outfit(cls, context: RecommendationContext, scored_candidates: dict[int, float], outfit_index: int) -> dict:
+        """Build a single complete outfit with required categories."""
+        
+        # Determine user's product gender category based on age and gender
+        user_product_gender = cls._get_user_product_gender(context.user)
+        
+        # Required categories for a complete outfit
+        required_categories = {
+            "accessories": cls._get_accessories_subcategory(),
+            "apparel_bottomwear": "Bottomwear", 
+            "apparel_topwear": "Topwear",
+            "footwear": cls._get_footwear_subcategory()
+        }
+        
+        # Optional categories based on user gender
+        if hasattr(context.user, 'gender') and normalize_gender(context.user.gender) == 'female':
+            # For female users, dress is optional
+            required_categories["apparel_dress"] = "Dress"
+        
+        # For female users, innerwear is optional
+        if hasattr(context.user, 'gender') and normalize_gender(context.user.gender) == 'female':
+            required_categories["apparel_innerwear"] = "Innerwear"
+        
+        outfit_items = {}
+        used_product_ids = set()
+        
+        # Add current product ID to exclusion list
+        if context.current_product and hasattr(context.current_product, 'id'):
+            used_product_ids.add(context.current_product.id)
+        
+        # Build each category
+        for category_key, subcategory in required_categories.items():
+            product = cls._find_product_for_category(
+                subcategory=subcategory,
+                user_product_gender=user_product_gender,
                 context=context,
+                used_product_ids=used_product_ids,
+                scored_candidates=scored_candidates,
+                outfit_index=outfit_index
             )
-            if ranked:
-                # Take only the top item for each category
-                product_id, score = ranked[0]
-                product = candidate_map.get(product_id)
-                if product and product_id not in used_ids:
-                    reason = cls._build_reason(product, context, category)
-                    outfit_payload[category] = OutfitRecommendation(category, product, score, reason, context=context)
-                    remaining_ids.discard(product_id)
-                    used_ids.add(product_id)
-                    category_scores.append(score)
-                    product_found = True
             
-            if not product_found:
-                # Step 2: Try to find from database matching category
-                fallback_product = cls._fallback_from_database(category, context, used_ids)
-                if fallback_product:
-                    fallback_id = fallback_product.id
-                    if fallback_id and fallback_id not in used_ids:
-                        fallback_score = scored_candidates.get(fallback_id, 0.0)
-                        reason = cls._build_reason(fallback_product, context, category, is_fallback=True)
-                        outfit_payload[category] = OutfitRecommendation(category, fallback_product, fallback_score, reason, context=context)
-                        used_ids.add(fallback_id)
-                        category_scores.append(fallback_score)
-                        product_found = True
-            
-            if not product_found:
-                # Step 3: Try to find matching category in candidate pool
-                # Only use products that match the category (case-insensitive comparison)
-                for product_id in list(remaining_ids):
-                    if product_id in used_ids:
-                        continue
-                    product = candidate_map.get(product_id)
-                    if product:
-                        if cls._product_matches_category(product, category):
-                            score = scored_candidates.get(product_id, 0.0)
-                            reason = cls._build_reason(product, context, category, is_fallback=False)
-                            outfit_payload[category] = OutfitRecommendation(category, product, score, reason, context=context)
-                            remaining_ids.discard(product_id)
-                            used_ids.add(product_id)
-                            category_scores.append(score)
-                            product_found = True
-                            break
+            if product:
+                score = scored_candidates.get(product.id, 0.0) if hasattr(product, 'id') else 0.0
+                reason = cls._build_outfit_reason(product, context, subcategory)
                 
-            if not product_found:
-                relaxed_product = cls._fallback_from_database_relaxed(category, context, used_ids)
-                if relaxed_product:
-                    relaxed_id = relaxed_product.id
-                    if relaxed_id and relaxed_id not in used_ids:
-                        relaxed_score = scored_candidates.get(relaxed_id, 0.0)
-                        reason = cls._build_reason(relaxed_product, context, category, is_fallback=True)
-                        outfit_payload[category] = OutfitRecommendation(category, relaxed_product, relaxed_score, reason, context=context)
-                        used_ids.add(relaxed_id)
-                        category_scores.append(relaxed_score)
-                        product_found = True
+                outfit_items[category_key] = OutfitRecommendation(
+                    category_key, product, score, reason, context=context
+                )
+                
+                if hasattr(product, 'id'):
+                    used_product_ids.add(product.id)
+        
+        # Check outfit completeness - must have at least accessories, bottomwear, topwear, footwear
+        required_core = ["accessories", "apparel_bottomwear", "apparel_topwear", "footwear"]
+        core_items = sum(1 for key in required_core if key in outfit_items)
+        
+        if core_items < len(required_core):
+            # Incomplete outfit, skip
+            return None
+        
+        # Calculate completeness score
+        completeness_score = len(outfit_items) / len(required_categories)
+        
+        return {
+            "items": outfit_items,
+            "completeness_score": completeness_score
+        }
+
+    @classmethod
+    def _get_user_product_gender(cls, user) -> str:
+        """Map user age and gender to product gender categories."""
+        if not hasattr(user, 'age') or not hasattr(user, 'gender'):
+            return "Unisex"
+        
+        user_gender = normalize_gender(user.gender)
+        age = user.age
+        
+        if user_gender == 'male':
+            if age <= 12:
+                return "Boys"
+            else:
+                return "Men"
+        elif user_gender == 'female':
+            if age <= 12:
+                return "Girls"  
+            else:
+                return "Women"
+        else:
+            return "Unisex"
+
+    @classmethod
+    def _get_accessories_subcategory(cls) -> str:
+        """Randomly select one accessories subcategory."""
+        import random
+        accessories_options = ["Bags", "Belts", "Headwear", "Watches"]
+        return random.choice(accessories_options)
+
+    @classmethod
+    def _get_footwear_subcategory(cls) -> str:
+        """Randomly select one footwear subcategory."""
+        import random
+        footwear_options = ["Shoes", "Sandal", "Flip Flops"]
+        return random.choice(footwear_options)
+
+    @classmethod
+    def _find_product_for_category(cls, subcategory: str, user_product_gender: str, context: RecommendationContext, 
+                                 used_product_ids: set, scored_candidates: dict, outfit_index: int):
+        """Find a product matching the category requirements."""
+        
+        # Import here to avoid circular imports
+        try:
+            from apps.products.mongo_models import Product as MongoProduct
+        except ImportError:
+            return None
+        
+        # Build query filters
+        query_filters = {
+            'subCategory': subcategory,
+            'gender': user_product_gender
+        }
+        
+        # Exclude already used products
+        if used_product_ids:
+            # Convert to ObjectId if needed
+            exclude_ids = []
+            for pid in used_product_ids:
+                try:
+                    if hasattr(pid, '__str__'):
+                        exclude_ids.append(pid)
+                except:
+                    pass
+            if exclude_ids:
+                query_filters['id__nin'] = exclude_ids
+        
+        # Get appropriate article types based on subcategory and user gender
+        article_types = cls._get_article_types_for_category(subcategory, normalize_gender(getattr(context.user, 'gender', '')))
+        if article_types:
+            query_filters['articleType__in'] = article_types
+        
+        try:
+            # Query products matching criteria
+            products = list(MongoProduct.objects(**query_filters).limit(10))
             
-            # If still no product found, log warning but continue
-            if not product_found:
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.warning(f"Could not find product for outfit category: {category}")
+            if not products:
+                # Fallback: try with Unisex gender
+                query_filters['gender'] = 'Unisex'
+                products = list(MongoProduct.objects(**query_filters).limit(10))
+            
+            if not products:
+                # Second fallback: remove gender filter entirely
+                del query_filters['gender']
+                products = list(MongoProduct.objects(**query_filters).limit(10))
+            
+            if products:
+                # Sort by score if available, otherwise by rating
+                def get_sort_score(product):
+                    if hasattr(product, 'id') and product.id in scored_candidates:
+                        return scored_candidates[product.id]
+                    return getattr(product, 'rating', 0.0) / 5.0
+                
+                products.sort(key=get_sort_score, reverse=True)
+                
+                # Return different product for different outfit indices to create variety
+                index = min(outfit_index, len(products) - 1)
+                return products[index]
+            
+            return None
+            
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Error finding product for category {subcategory}: {e}")
+            return None
 
-        if not outfit_payload:
-            return {}, 0.0
+    @classmethod
+    def _get_article_types_for_category(cls, subcategory: str, user_gender: str) -> list:
+        """Get appropriate article types based on subcategory and user gender."""
+        
+        # Article type mappings based on the provided category data
+        category_mappings = {
+            "Bags": ["Backpacks", "Handbags"],
+            "Belts": ["Belts"],
+            "Headwear": ["Caps"],
+            "Watches": ["Watches"],
+            "Bottomwear": ["Capris", "Jeans", "Shorts", "Skirts", "Track Pants", "Tracksuits", "Trousers"],
+            "Dress": ["Dresses"],
+            "Innerwear": ["Bra"],
+            "Topwear": ["Jackets", "Shirts", "Sweaters", "Sweatshirts", "Tops", "Tshirts", "Tunics"],
+            "Flip Flops": ["Flip Flops"],
+            "Sandal": ["Sandals", "Sports Sandals"],
+            "Shoes": ["Casual Shoes", "Flats", "Formal Shoes", "Heels", "Sandals", "Sports Shoes"]
+        }
+        
+        article_types = category_mappings.get(subcategory, [])
+        
+        # Filter by gender appropriateness
+        if user_gender == 'male':
+            # Remove typically female items
+            filtered = [item for item in article_types if item not in ["Skirts", "Dresses", "Bra", "Heels", "Flats"]]
+            return filtered if filtered else article_types
+        elif user_gender == 'female':
+            # All items are appropriate for female users
+            return article_types
+        else:
+            # For unisex, remove gender-specific items
+            filtered = [item for item in article_types if item not in ["Skirts", "Dresses", "Bra", "Heels"]]
+            return filtered if filtered else article_types
 
-        completeness_ratio = len(outfit_payload) / len(required_categories)
-        averaged_score = sum(category_scores) / len(category_scores) if category_scores else OUTFIT_SCORE_FLOOR
-        outfit_score = max(OUTFIT_SCORE_FLOOR, min(1.0, (averaged_score + completeness_ratio) / 2))
-        return dict(outfit_payload), outfit_score
+    @classmethod
+    def _build_outfit_reason(cls, product, context: RecommendationContext, category: str) -> str:
+        """Build reason for outfit recommendation."""
+        parts = []
+        
+        # Age and gender alignment
+        user_gender = normalize_gender(getattr(context.user, "gender", "")) if hasattr(context.user, "gender") else ""
+        product_gender = normalize_gender(getattr(product, "gender", "")) if hasattr(product, "gender") else ""
+        
+        if user_gender and product_gender:
+            if product_gender.lower() == user_gender:
+                parts.append(f"Suitable for your {user_gender} gender")
+            elif product_gender.lower() == "unisex":
+                parts.append("Suitable for all genders")
+        
+        # Category completion
+        parts.append(f"Complete the outfit with {category.lower()}")
+        
+        # Style matching
+        if hasattr(product, "baseColour") and product.baseColour:
+            parts.append(f"Color {product.baseColour.lower()} harmonizes")
+        
+        if not parts:
+            parts.append("Suitable to complete the outfit")
+        
+        return "; ".join(parts)
 
     @classmethod
     def _fallback_from_database(cls, category: str, context: RecommendationContext, used_ids: set[int]):
@@ -235,9 +374,9 @@ class OutfitBuilder:
         
         if user_gender and product_gender:
             if product_gender == user_gender and product_gender in ("male", "female"):
-                parts.append(f"phù hợp với giới tính {user_gender} của bạn")
+                parts.append(f"Suitable for your {user_gender} gender")
             elif product_gender == "unisex":
-                parts.append("phù hợp cho mọi giới tính")
+                parts.append("Suitable for all genders")
         
         # Age group
         user_age = getattr(context.user, "age", None) if hasattr(context.user, "age") else None
@@ -252,19 +391,19 @@ class OutfitBuilder:
                 user_age_group = "adult"
             
             if product_age_group == user_age_group:
-                parts.append(f"phù hợp với độ tuổi {user_age_group} của bạn")
+                parts.append(f"Suitable for your {user_age_group} age")
         
         # Style matching
         tags = _extract_style_tokens(product)
         matched = [token for token in tags if context.style_weight(token) > 0]
         if matched:
-            parts.append(f"có phong cách tương tự: {', '.join(matched[:3])}")
+            parts.append(f"Has similar style: {', '.join(matched[:3])}")
         
         # Color preferences
         if hasattr(product, "baseColour") and product.baseColour:
             color = product.baseColour.lower()
             if context.style_weight(color) > 0:
-                parts.append(f"màu sắc {color} phù hợp với sở thích của bạn")
+                parts.append(f"Color {color} suitable for your preference")
         
         # Brand preference
         # Brand field removed from Product model
@@ -275,16 +414,16 @@ class OutfitBuilder:
         
         if category != current_sub_category and category != current_article_type:
             if current_sub_category:
-                parts.append(f"bổ sung cho {current_sub_category} bạn đang xem")
+                parts.append(f"Add for {current_sub_category} you are viewing")
             elif current_article_type:
-                parts.append(f"bổ sung cho {current_article_type} bạn đang xem")
+                parts.append(f"Add for {current_article_type} you are viewing")
         
         if not parts:
-            parts.append("phù hợp để hoàn thiện bộ trang phục")
+            parts.append("Suitable to complete the outfit")
         
         # Add fallback indicator if needed
         if is_fallback:
-            parts.append("(gợi ý bổ sung)")
+            parts.append("(Suggestion to add)")
         
         return "; ".join(parts)
 

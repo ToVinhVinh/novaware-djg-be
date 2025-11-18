@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Entrypoint cho các lệnh quản trị Django."""
+"""Entrypoint for Django management commands."""
 
 import os
 import sys
@@ -11,7 +11,7 @@ def main() -> None:
         from django.core.management import execute_from_command_line
     except ImportError as exc:
         raise ImportError(
-            "Không thể import Django. Đảm bảo rằng môi trường ảo và requirements đã được cài đặt."
+            "Cannot import Django. Ensure that the virtual environment and requirements are installed."
         ) from exc
     execute_from_command_line(sys.argv)
 

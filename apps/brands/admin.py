@@ -1,4 +1,4 @@
-"""Đăng ký admin cho thương hiệu."""
+"""Admin registration for brands."""
 
 from django.contrib import admin
 

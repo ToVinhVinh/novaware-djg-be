@@ -1,4 +1,4 @@
-"""Cấu hình kết nối MongoDB với mongoengine."""
+"""MongoDB connection configuration with mongoengine."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from django.conf import settings
 
 
 def connect_mongodb() -> None:
-    """Khởi tạo kết nối MongoDB với mongoengine."""
+    """Initialize MongoDB connection with mongoengine."""
     mongo_uri = getattr(settings, "MONGO_URI", "mongodb://localhost:27017/novaware")
     db_name = getattr(settings, "MONGODB_DB_NAME", "novaware")
     
@@ -19,8 +19,8 @@ def connect_mongodb() -> None:
             host=mongo_uri,
             alias="default",
         )
-        print(f"✅ Đã kết nối MongoDB: {db_name}")
+        print(f"✅ Connected to MongoDB: {db_name}")
     except Exception as e:
-        print(f"⚠️ Lỗi kết nối MongoDB: {e}")
+        print(f"⚠️ MongoDB connection error: {e}")
         raise
 

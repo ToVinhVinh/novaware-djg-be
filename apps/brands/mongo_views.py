@@ -1,4 +1,4 @@
-"""ViewSets cho thương hiệu sử dụng MongoEngine."""
+"""ViewSets for brands using MongoEngine."""
 
 from __future__ import annotations
 
@@ -14,25 +14,22 @@ from .mongo_serializers import BrandSerializer
 
 
 class BrandViewSet(viewsets.ViewSet):
-    """ViewSet cho Brand."""
+    """ViewSet for Brand."""
     
-    permission_classes = [permissions.AllowAny]  # Mặc định cho phép công khai
-    authentication_classes = []  # Không yêu cầu authentication
+    permission_classes = [permissions.AllowAny]  
+    authentication_classes = []  
 
     def get_permissions(self):
-        # Các action cần authentication
         action = getattr(self, "action", None)
         if action in ["create", "update", "destroy", "partial_update"]:
             return [permissions.IsAuthenticated()]
-        # Các action khác cho phép công khai
         return [permissions.AllowAny()]
     
     def get_authenticators(self):
-        """Override để yêu cầu authentication cho các action cần thiết."""
+        """Override to require authentication for necessary actions."""
         action = getattr(self, "action", None)
         if action in ["create", "update", "destroy", "partial_update"]:
             return [MongoEngineJWTAuthentication()]
-        # Các action khác không cần authentication
         return []
     
     def list(self, request):
@@ -60,7 +57,7 @@ class BrandViewSet(viewsets.ViewSet):
             brand = Brand.objects.get(id=ObjectId(pk))
         except (Brand.DoesNotExist, Exception):
             return api_error(
-                "Brand không tồn tại.",
+                "Brand does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -92,7 +89,7 @@ class BrandViewSet(viewsets.ViewSet):
             brand = Brand.objects.get(id=ObjectId(pk))
         except (Brand.DoesNotExist, Exception):
             return api_error(
-                "Brand không tồn tại.",
+                "Brand does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -118,7 +115,7 @@ class BrandViewSet(viewsets.ViewSet):
             )
         except (Brand.DoesNotExist, Exception):
             return api_error(
-                "Brand không tồn tại.",
+                "Brand does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )

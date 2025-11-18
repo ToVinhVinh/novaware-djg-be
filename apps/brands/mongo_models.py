@@ -1,4 +1,4 @@
-"""Model thương hiệu sử dụng mongoengine cho MongoDB."""
+"""Brand model using mongoengine for MongoDB."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from mongoengine import fields
 
 
 class Brand(me.Document):
-    """Model thương hiệu."""
+    """Brand model."""
     
     meta = {
         "collection": "brands",
@@ -22,7 +22,7 @@ class Brand(me.Document):
     updated_at = fields.DateTimeField(default=datetime.utcnow)
     
     def save(self, *args, **kwargs):
-        """Override save để tự động cập nhật updated_at."""
+        """Override save to automatically update updated_at."""
         self.updated_at = datetime.utcnow()
         return super().save(*args, **kwargs)
     

@@ -1,4 +1,4 @@
-"""Models sản phẩm sử dụng mongoengine cho MongoDB."""
+"""Product models using mongoengine for MongoDB."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from mongoengine import fields
 
 
 class Category(me.Document):
-    """Model danh mục sản phẩm."""
+    """Product category model."""
     
     meta = {
         "collection": "categories",
@@ -23,7 +23,7 @@ class Category(me.Document):
     updated_at = fields.DateTimeField(default=datetime.utcnow)
     
     def save(self, *args, **kwargs):
-        """Override save để tự động cập nhật updated_at."""
+        """Override save to automatically update updated_at."""
         self.updated_at = datetime.utcnow()
         return super().save(*args, **kwargs)
     
@@ -32,7 +32,7 @@ class Category(me.Document):
 
 
 class Color(me.Document):
-    """Model màu sắc."""
+    """Color model."""
     
     meta = {
         "collection": "colors",
@@ -48,7 +48,7 @@ class Color(me.Document):
 
 
 class Size(me.Document):
-    """Model kích thước."""
+    """Size model."""
     
     meta = {
         "collection": "sizes",
@@ -62,7 +62,7 @@ class Size(me.Document):
     updated_at = fields.DateTimeField(default=datetime.utcnow)
     
     def save(self, *args, **kwargs):
-        """Override save để tự động cập nhật updated_at."""
+        """Override save to automatically update updated_at."""
         self.updated_at = datetime.utcnow()
         return super().save(*args, **kwargs)
     
@@ -71,7 +71,7 @@ class Size(me.Document):
 
 
 class Product(me.Document):
-    """Model sản phẩm."""
+    """Product model."""
     
     meta = {
         "collection": "products",
@@ -86,7 +86,7 @@ class Product(me.Document):
         "strict": False,
     }
     
-    # Các field từ CSV
+    # Fields from CSV
     id = fields.IntField(primary_key=True)
     gender = fields.StringField(max_length=50)
     masterCategory = fields.StringField(max_length=255)
@@ -126,7 +126,7 @@ class Product(me.Document):
     updated_at = fields.DateTimeField(default=datetime.utcnow)
     
     def save(self, *args, **kwargs):
-        """Override save để tự động cập nhật updated_at."""
+        """Override save to automatically update updated_at."""
         self.updated_at = datetime.utcnow()
         return super().save(*args, **kwargs)
     
@@ -145,7 +145,7 @@ class Product(me.Document):
 
 
 class ProductVariant(me.Document):
-    """Model biến thể sản phẩm (màu + kích thước)."""
+    """Product variant model (color + size)."""
     
     meta = {
         "collection": "product_variants",
@@ -164,7 +164,7 @@ class ProductVariant(me.Document):
 
 
 class ProductReview(me.Document):
-    """Model đánh giá sản phẩm."""
+    """Product review model."""
     
     meta = {
         "collection": "product_reviews",
@@ -181,7 +181,7 @@ class ProductReview(me.Document):
     updated_at = fields.DateTimeField(default=datetime.utcnow)
     
     def save(self, *args, **kwargs):
-        """Override save để tự động cập nhật updated_at."""
+        """Override save to automatically update updated_at."""
         self.updated_at = datetime.utcnow()
         return super().save(*args, **kwargs)
     
@@ -190,7 +190,7 @@ class ProductReview(me.Document):
 
 
 class ContentSection(me.Document):
-    """Model section nội dung."""
+    """Content section model."""
     
     meta = {
         "collection": "content_sections",
@@ -210,7 +210,7 @@ class ContentSection(me.Document):
     updated_at = fields.DateTimeField(default=datetime.utcnow)
     
     def save(self, *args, **kwargs):
-        """Override save để tự động cập nhật updated_at."""
+        """Override save to automatically update updated_at."""
         self.updated_at = datetime.utcnow()
         return super().save(*args, **kwargs)
     

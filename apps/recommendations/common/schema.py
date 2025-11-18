@@ -242,7 +242,7 @@ class PersonalizedRecommendation:
 @dataclass(slots=True)
 class OutfitRecommendation:
     category: str
-    product: Product
+    product: MongoProduct  # Changed to MongoProduct for consistency
     score: float
     reason: str = ""
     context: Any = None  # Optional context for MongoDB ID mapping
@@ -261,17 +261,30 @@ class OutfitRecommendation:
 @dataclass(slots=True)
 class RecommendationPayload:
     personalized: List[PersonalizedRecommendation]
-    outfit: Dict[str, OutfitRecommendation | List[OutfitRecommendation]]
+    outfit: Dict[str, Any]  # Changed to handle new outfit structure
     outfit_complete_score: float
 
     def as_dict(self) -> dict[str, Any]:
         outfit_dict = {}
         for category, entry in self.outfit.items():
-            if isinstance(entry, list):
+            if isinstance(entry, dict) and "items" in entry:
+                # New outfit structure with multiple outfits
+                outfit_items = {}
+                for item_key, outfit_rec in entry["items"].items():
+                    if hasattr(outfit_rec, 'as_dict'):
+                        outfit_items[item_key] = outfit_rec.as_dict()
+                    else:
+                        outfit_items[item_key] = outfit_rec
+                outfit_dict[category] = outfit_items
+            elif isinstance(entry, list):
                 # Take the first item if it's a list (for backward compatibility)
                 outfit_dict[category] = entry[0].as_dict() if entry else {}
-            else:
+            elif hasattr(entry, 'as_dict'):
+                # Single OutfitRecommendation object
                 outfit_dict[category] = entry.as_dict()
+            else:
+                # Raw dict or other structure
+                outfit_dict[category] = entry
         return {
             "personalized": [item.as_dict() for item in self.personalized],
             "outfit": outfit_dict,

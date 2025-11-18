@@ -1,4 +1,4 @@
-"""Các model người dùng được chuyển đổi từ Mongoose sang Django ORM."""
+"""User models converted from Mongoose to Django ORM."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ class User(AbstractUser):
         max_length=150,
         unique=True,
         blank=True,
-        help_text="Tên hiển thị duy nhất (tạo tự động nếu không cung cấp).",
+        help_text="Unique display name (auto-generated if not provided).",
     )
     email = models.EmailField("email address", unique=True)
     height = models.FloatField(null=True, blank=True)
@@ -44,7 +44,7 @@ class User(AbstractUser):
     content_profile = models.JSONField(blank=True, default=dict)
     amazon_user_id = models.CharField(max_length=255, blank=True, null=True, db_index=True)
 
-    # Thêm related_name để tránh xung đột với auth.User mặc định
+    # Add related_name to avoid conflicts with default auth.User
     groups = models.ManyToManyField(
         'auth.Group',
         verbose_name='groups',
@@ -53,7 +53,7 @@ class User(AbstractUser):
             'The groups this user belongs to. A user will get all permissions '
             'granted to each of their groups.'
         ),
-        related_name="user_custom_set",  # Tên duy nhất
+        related_name="user_custom_set",  # Unique name
         related_query_name="user",
     )
     user_permissions = models.ManyToManyField(
@@ -61,7 +61,7 @@ class User(AbstractUser):
         verbose_name='user permissions',
         blank=True,
         help_text='Specific permissions for this user.',
-        related_name="user_custom_permissions_set",  # Tên duy nhất
+        related_name="user_custom_permissions_set",  # Unique name
         related_query_name="user",
     )
 
@@ -72,8 +72,8 @@ class User(AbstractUser):
 
     class Meta:
         db_table = "users"
-        verbose_name = "Người dùng"
-        verbose_name_plural = "Người dùng"
+        verbose_name = "User"
+        verbose_name_plural = "Users"
 
     def save(self, *args, **kwargs):
         if not self.username:
@@ -131,8 +131,8 @@ class UserInteraction(models.Model):
 
     class Meta:
         db_table = "user_interactions"
-        verbose_name = "Tương tác người dùng"
-        verbose_name_plural = "Tương tác người dùng"
+        verbose_name = "User Interaction"
+        verbose_name_plural = "User Interactions"
         ordering = ["-timestamp"]
 
 

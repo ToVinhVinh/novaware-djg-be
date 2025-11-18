@@ -1,5 +1,5 @@
 """
-Script tự động chạy training GNN với tất cả products
+Automated script to run GNN training with all products
 """
 import os
 import sys
@@ -16,16 +16,16 @@ BASE_URL = "http://localhost:8000"
 MODEL = "gnn"
 
 print("=" * 70)
-print("TỰ ĐỘNG CHẠY TRAINING GNN VỚI TẤT CẢ PRODUCTS")
+print("AUTOMATED GNN TRAINING WITH ALL PRODUCTS")
 print("=" * 70)
 
-# Bước 1: Bắt đầu training
-print(f"\n🚀 Bắt đầu training {MODEL.upper()}...")
+# Step 1: Start training
+print(f"\n🚀 Starting {MODEL.upper()} training...")
 url = f"{BASE_URL}/api/v1/{MODEL}/train"
 
 payload = {
     "force_retrain": True,
-    "sync": False  # Chạy async để có thể theo dõi progress
+    "sync": False  # Run async to monitor progress
 }
 
 try:
@@ -42,18 +42,18 @@ try:
     if "task_id" in data:
         task_id = data["task_id"]
         print(f"\n📋 Task ID: {task_id}")
-        print(f"\n⏳ Đang đợi training hoàn thành...")
-        print(f"   (Kiểm tra mỗi 3 giây)\n")
+        print(f"\n⏳ Waiting for training to complete...")
+        print(f"   (Checking every 3 seconds)\n")
         
-        # Bước 2: Polling status
+        # Step 2: Polling status
         start_time = time.time()
-        max_wait = 600  # 10 phút
+        max_wait = 600  # 10 minutes
         check_interval = 3
         
         while True:
             elapsed = time.time() - start_time
             if elapsed > max_wait:
-                print(f"\n⏰ Timeout sau {max_wait} giây")
+                print(f"\n⏰ Timeout after {max_wait} seconds")
                 break
             
             # Check status
@@ -67,11 +67,11 @@ try:
             print(f"[{elapsed:.1f}s] Status: {status.upper()} | Progress: {progress}% | {message}")
             
             if status == "success":
-                print(f"\n✅ Training hoàn thành sau {elapsed:.1f} giây!")
-                print("\n📊 Kết quả:")
+                print(f"\n✅ Training completed after {elapsed:.1f} seconds!")
+                print("\n📊 Results:")
                 print(json.dumps(status_data, indent=2, ensure_ascii=False))
                 
-                # Kiểm tra matrix_data
+                # Check matrix_data
                 if "matrix_data" in status_data:
                     matrix = status_data["matrix_data"]
                     print(f"\n📈 Matrix Data:")
@@ -80,24 +80,24 @@ try:
                 
                 break
             elif status == "failure":
-                print(f"\n❌ Training thất bại!")
+                print(f"\n❌ Training failed!")
                 print(f"   Error: {status_data.get('error', 'Unknown error')}")
                 break
             elif status == "not_found":
-                print(f"\n❌ Task không tìm thấy!")
+                print(f"\n❌ Task not found!")
                 break
             
             time.sleep(check_interval)
     else:
-        print("\n⚠️  Không có task_id trong response")
-        print("   (Có thể training đã chạy sync mode)")
+        print("\n⚠️  No task_id in response")
+        print("   (Training may have run in sync mode)")
 
 except requests.exceptions.RequestException as e:
-    print(f"\n❌ Lỗi khi gọi API: {e}")
+    print(f"\n❌ Error calling API: {e}")
     if hasattr(e, 'response') and e.response is not None:
         print(f"   Response: {e.response.text}")
 except Exception as e:
-    print(f"\n❌ Lỗi: {e}")
+    print(f"\n❌ Error: {e}")
     import traceback
     traceback.print_exc()
 

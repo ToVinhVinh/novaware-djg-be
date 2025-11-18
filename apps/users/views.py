@@ -1,4 +1,4 @@
-"""ViewSets và endpoints người dùng."""
+"""ViewSets and user endpoints."""
 
 from __future__ import annotations
 
@@ -90,7 +90,7 @@ class UserViewSet(viewsets.ModelViewSet):
         if request.method == "POST":
             user.favorites.add(product)
             return api_success(
-                "Đã thêm sản phẩm vào yêu thích.",
+                "Product added to favorites.",
                 {
                     "product": ProductSerializer(product).data,
                     "favoritesCount": user.favorites.count(),
@@ -99,7 +99,7 @@ class UserViewSet(viewsets.ModelViewSet):
             )
         user.favorites.remove(product)
         return api_success(
-            "Đã xóa sản phẩm khỏi yêu thích.",
+            "Product removed from favorites.",
             {
                 "product": ProductSerializer(product).data,
                 "favoritesCount": user.favorites.count(),
@@ -157,14 +157,14 @@ class UserViewSet(viewsets.ModelViewSet):
         user = request.user
         if not user.check_password(serializer.validated_data["old_password"]):
             return api_error(
-                "Mật khẩu cũ không chính xác.",
+                "Old password is incorrect.",
                 data=None,
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
         user.set_password(serializer.validated_data["new_password"])
         user.save(update_fields=["password"])
         return api_success(
-            "Đổi mật khẩu thành công.",
+            "Password changed successfully.",
             data=None,
         )
 
@@ -173,7 +173,7 @@ class UserViewSet(viewsets.ModelViewSet):
         query_type = request.query_params.get("type")
         if query_type not in {"personalization", "outfit-suggestions"}:
             return api_error(
-                "Tham số type không hợp lệ.",
+                "Invalid type parameter.",
                 data=None,
                 status_code=status.HTTP_400_BAD_REQUEST,
             )

@@ -1,4 +1,4 @@
-"""ViewSets cho module sản phẩm."""
+"""ViewSets for product module."""
 
 from __future__ import annotations
 
@@ -107,7 +107,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         product.rating = stats["avg"] or 0
         product.save(update_fields=["rating"])
         return api_success(
-            "Đánh giá đã được cập nhật",
+            "Review has been updated",
             {
                 "product": ProductSerializer(product).data,
             },

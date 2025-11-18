@@ -1,4 +1,4 @@
-"""Serializers cho MongoEngine Brand models."""
+"""Serializers for MongoEngine Brand models."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""ViewSets cho quản lý đơn hàng."""
+"""ViewSets for order management."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         order = self.get_object()
         order.mark_paid()
         return api_success(
-            "Đơn hàng đã được đánh dấu thanh toán.",
+            "Order has been marked as paid.",
             {
                 "order": OrderSerializer(order).data,
             },
@@ -46,7 +46,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         order.delivered_at = timezone.now()
         order.save(update_fields=["is_delivered", "delivered_at"])
         return api_success(
-            "Đơn hàng đã giao.",
+            "Order has been delivered.",
             {
                 "order": OrderSerializer(order).data,
             },
@@ -58,7 +58,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         order.is_cancelled = True
         order.save(update_fields=["is_cancelled"])
         return api_success(
-            "Đơn hàng đã bị hủy.",
+            "Order has been cancelled.",
             {
                 "order": OrderSerializer(order).data,
             },

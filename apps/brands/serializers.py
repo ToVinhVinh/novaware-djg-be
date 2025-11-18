@@ -1,4 +1,4 @@
-"""Serializer cho thương hiệu."""
+"""Serializer for brands."""
 
 from rest_framework import serializers
 

@@ -1,4 +1,4 @@
-"""Service layer cho hệ thống gợi ý sử dụng TensorFlow/PyTorch."""
+"""Service layer for recommendation system using TensorFlow/PyTorch."""
 
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ class CFRecommender(BaseRecommender):
 
     def recommend(self, context: RecommendationContext, top_k: int = 10) -> list[int]:
         if not self.model:
-            raise RuntimeError("Model chưa được train")
+            raise RuntimeError("Model has not been trained")
         predictions = self.model.predict(context.product_matrix[:1], verbose=0)[0]
         top_indices = predictions.argsort()[-top_k:][::-1]
         return top_indices.tolist()
@@ -97,10 +97,10 @@ def run_recommendation_task(request_id: int) -> None:
     try:
         request_obj = RecommendationRequest.objects.get(pk=request_id)
     except RecommendationRequest.DoesNotExist:
-        logger.warning("RecommendationRequest %s không tồn tại", request_id)
+        logger.warning("RecommendationRequest %s does not exist", request_id)
         return
 
-    RecommendationLog.objects.create(request=request_obj, message="Bắt đầu xử lý recommender")
+    RecommendationLog.objects.create(request=request_obj, message="Starting recommender processing")
 
     products = RecommendationService.run(request_obj)
 
@@ -111,5 +111,5 @@ def run_recommendation_task(request_id: int) -> None:
         )
         result.products.set(products)
 
-    RecommendationLog.objects.create(request=request_obj, message="Hoàn tất xử lý recommender")
+    RecommendationLog.objects.create(request=request_obj, message="Completed recommender processing")
 

@@ -1,4 +1,4 @@
-"""Đăng ký admin cho hệ thống gợi ý."""
+"""Admin registration for recommendation system."""
 
 from django.contrib import admin
 

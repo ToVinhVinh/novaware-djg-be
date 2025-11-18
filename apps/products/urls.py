@@ -1,4 +1,4 @@
-"""Router cho module sản phẩm."""
+"""Router for product module."""
 
 from rest_framework import routers
 

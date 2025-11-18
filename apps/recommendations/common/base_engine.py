@@ -85,10 +85,10 @@ class BaseRecommendationEngine(ABC):
         tags = _extract_style_tokens(product)
         matched = [token for token in tags if context.style_weight(token) > 0]
         if matched:
-            return f"Tương tự sở thích của bạn ({', '.join(matched[:3])})"
+            return f"Similar to your favorite ({', '.join(matched[:3])})"
         # Brand field removed from Product model
-            return "Phù hợp thương hiệu bạn yêu thích"
-        return "Gợi ý dựa trên lịch sử tương tác của bạn"
+            return "Suitable for your favorite brand"
+        return "Suggestions based on your interaction history"
 
     @abstractmethod
     def _train_impl(self) -> dict[str, Any]:

@@ -1,4 +1,4 @@
-"""Serializer cho hệ thống gợi ý."""
+"""Serializer for recommendation system."""
 
 from __future__ import annotations
 

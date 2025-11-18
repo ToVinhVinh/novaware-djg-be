@@ -1,4 +1,4 @@
-"""Models hệ thống gợi ý sử dụng mongoengine cho MongoDB."""
+"""Recommendation system models using mongoengine for MongoDB."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ class Outfit(me.Document):
     updated_at = fields.DateTimeField(default=datetime.utcnow)
     
     def save(self, *args, **kwargs):
-        """Override save để tự động cập nhật updated_at."""
+        """Override save to automatically update updated_at."""
         self.updated_at = datetime.utcnow()
         return super().save(*args, **kwargs)
     
@@ -37,7 +37,7 @@ class Outfit(me.Document):
 
 
 class RecommendationRequest(me.Document):
-    """Model yêu cầu gợi ý."""
+    """Recommendation request model."""
     
     ALGORITHM_CHOICES = ["cf", "cb", "gnn", "hybrid"]
     
@@ -56,7 +56,7 @@ class RecommendationRequest(me.Document):
 
 
 class RecommendationResult(me.Document):
-    """Model kết quả gợi ý."""
+    """Recommendation result model."""
     
     meta = {
         "collection": "recommendation_results",
@@ -73,7 +73,7 @@ class RecommendationResult(me.Document):
 
 
 class RecommendationLog(me.Document):
-    """Model log gợi ý."""
+    """Recommendation log model."""
     
     meta = {
         "collection": "recommendation_logs",

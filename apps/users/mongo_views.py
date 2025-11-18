@@ -1,4 +1,4 @@
-"""ViewSets và endpoints người dùng sử dụng MongoEngine."""
+"""ViewSets and user endpoints using MongoEngine."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ class IsAdminOrSelf(permissions.BasePermission):
 
 
 class UserViewSet(viewsets.ViewSet):
-    """ViewSet cho User."""
+    """ViewSet for User."""
     
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
@@ -77,7 +77,7 @@ class UserViewSet(viewsets.ViewSet):
             user = User.objects.get(id=ObjectId(pk))
         except (User.DoesNotExist, Exception):
             return api_error(
-                "User không tồn tại.",
+                "User does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -96,7 +96,7 @@ class UserViewSet(viewsets.ViewSet):
             user = User.objects.get(id=ObjectId(pk))
         except (User.DoesNotExist, Exception):
             return api_error(
-                "User không tồn tại.",
+                "User does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -123,7 +123,7 @@ class UserViewSet(viewsets.ViewSet):
             )
         except (User.DoesNotExist, Exception):
             return api_error(
-                "User không tồn tại.",
+                "User does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -133,7 +133,7 @@ class UserViewSet(viewsets.ViewSet):
         """Get current user."""
         if not request.user or not hasattr(request.user, 'id') or not request.user.is_authenticated:
             return api_error(
-                "Yêu cầu đăng nhập.",
+                "Login required.",
                 data=None,
                 status_code=status.HTTP_401_UNAUTHORIZED,
             )
@@ -152,7 +152,7 @@ class UserViewSet(viewsets.ViewSet):
             user = User.objects.get(id=ObjectId(pk))
         except (User.DoesNotExist, Exception):
             return api_error(
-                "User không tồn tại.",
+                "User does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -178,7 +178,7 @@ class UserViewSet(viewsets.ViewSet):
         product_id = request.data.get("product") or request.query_params.get("product")
         if not product_id:
             return api_error(
-                "Product ID là bắt buộc.",
+                "Product ID is required.",
                 data=None,
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
@@ -187,7 +187,7 @@ class UserViewSet(viewsets.ViewSet):
             product = Product.objects.get(id=ObjectId(product_id))
         except (Product.DoesNotExist, Exception):
             return api_error(
-                "Product không tồn tại.",
+                "Product does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -199,7 +199,7 @@ class UserViewSet(viewsets.ViewSet):
                 user.favorites.append(product_id_obj)
                 user.save()
             return api_success(
-                "Đã thêm sản phẩm vào yêu thích.",
+                "Product added to favorites.",
                 {
                     "product": ProductSerializer(product).data,
                     "favoritesCount": len(user.favorites),
@@ -211,7 +211,7 @@ class UserViewSet(viewsets.ViewSet):
                 user.favorites.remove(product_id_obj)
                 user.save()
             return api_success(
-                "Đã xóa sản phẩm khỏi yêu thích.",
+                "Product removed from favorites.",
                 {
                     "product": ProductSerializer(product).data,
                     "favoritesCount": len(user.favorites),
@@ -225,7 +225,7 @@ class UserViewSet(viewsets.ViewSet):
             user = User.objects.get(id=ObjectId(pk))
         except (User.DoesNotExist, Exception):
             return api_error(
-                "User không tồn tại.",
+                "User does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -249,7 +249,7 @@ class UserViewSet(viewsets.ViewSet):
             user = User.objects.get(id=ObjectId(pk))
         except (User.DoesNotExist, Exception):
             return api_error(
-                "User không tồn tại.",
+                "User does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -272,7 +272,7 @@ class UserViewSet(viewsets.ViewSet):
             user = User.objects.get(id=ObjectId(pk))
         except (User.DoesNotExist, Exception):
             return api_error(
-                "User không tồn tại.",
+                "User does not exist.",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
@@ -294,7 +294,7 @@ class UserViewSet(viewsets.ViewSet):
         """Change user password."""
         if not request.user or not hasattr(request.user, 'id') or not request.user.is_authenticated:
             return api_error(
-                "Yêu cầu đăng nhập.",
+                "Login required.",
                 data=None,
                 status_code=status.HTTP_401_UNAUTHORIZED,
             )
@@ -304,7 +304,7 @@ class UserViewSet(viewsets.ViewSet):
         
         if not user.check_password(serializer.validated_data["old_password"]):
             return api_error(
-                "Mật khẩu cũ không chính xác.",
+                "Old password is incorrect.",
                 data=None,
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
@@ -312,7 +312,7 @@ class UserViewSet(viewsets.ViewSet):
         user.set_password(serializer.validated_data["new_password"])
         user.save()
         return api_success(
-            "Đổi mật khẩu thành công.",
+            "Password changed successfully.",
             data=None,
         )
     
@@ -322,7 +322,7 @@ class UserViewSet(viewsets.ViewSet):
         query_type = request.query_params.get("type")
         if query_type not in {"personalization", "outfit-suggestions"}:
             return api_error(
-                "Tham số type không hợp lệ.",
+                "Invalid type parameter.",
                 data=None,
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
@@ -360,7 +360,7 @@ class UserViewSet(viewsets.ViewSet):
 
 
 class UserInteractionViewSet(viewsets.ViewSet):
-    """ViewSet cho UserInteraction."""
+    """ViewSet for UserInteraction."""
     
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
@@ -398,7 +398,7 @@ class UserInteractionViewSet(viewsets.ViewSet):
                 validated_data["user_id"] = str(request.user.id)
             else:
                 return api_error(
-                    "user_id là bắt buộc khi không đăng nhập.",
+                    "user_id is required when not logged in.",
                     data=None,
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
@@ -415,7 +415,7 @@ class UserInteractionViewSet(viewsets.ViewSet):
 
 
 class OutfitHistoryViewSet(viewsets.ViewSet):
-    """ViewSet cho OutfitHistory."""
+    """ViewSet for OutfitHistory."""
     
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
@@ -453,7 +453,7 @@ class OutfitHistoryViewSet(viewsets.ViewSet):
                 validated_data["user_id"] = str(request.user.id)
             else:
                 return api_error(
-                    "user_id là bắt buộc khi không đăng nhập.",
+                    "user_id is required when not logged in.",
                     data=None,
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )

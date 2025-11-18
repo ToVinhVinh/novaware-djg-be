@@ -1,2 +1,2 @@
-"""Namespace cho các ứng dụng con của Novaware."""
+"""Namespace for Novaware sub-applications."""
 

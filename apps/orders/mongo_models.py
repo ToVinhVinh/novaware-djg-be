@@ -1,4 +1,4 @@
-"""Models đơn hàng sử dụng mongoengine cho MongoDB."""
+"""Order models using mongoengine for MongoDB."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from mongoengine import fields
 
 
 class ShippingAddress(me.EmbeddedDocument):
-    """Địa chỉ giao hàng (embedded trong Order)."""
+    """Shipping address (embedded in Order)."""
     
     address = fields.StringField(required=True, max_length=255)
     city = fields.StringField(required=True, max_length=100)
@@ -23,7 +23,7 @@ class ShippingAddress(me.EmbeddedDocument):
 
 
 class OrderItem(me.EmbeddedDocument):
-    """Item trong đơn hàng (embedded trong Order)."""
+    """Order item (embedded in Order)."""
     
     product_id = fields.ObjectIdField(required=True)
     name = fields.StringField(required=True, max_length=255)
@@ -35,7 +35,7 @@ class OrderItem(me.EmbeddedDocument):
 
 
 class Order(me.Document):
-    """Model đơn hàng."""
+    """Order model."""
     
     meta = {
         "collection": "orders",
@@ -69,12 +69,12 @@ class Order(me.Document):
     updated_at = fields.DateTimeField(default=datetime.utcnow)
     
     def save(self, *args, **kwargs):
-        """Override save để tự động cập nhật updated_at."""
+        """Override save to automatically update updated_at."""
         self.updated_at = datetime.utcnow()
         return super().save(*args, **kwargs)
     
     def mark_paid(self, timestamp: Optional[datetime] = None) -> None:
-        """Đánh dấu đơn hàng đã thanh toán."""
+        """Mark order as paid."""
         self.is_paid = True
         self.paid_at = timestamp or datetime.utcnow()
         self.save()

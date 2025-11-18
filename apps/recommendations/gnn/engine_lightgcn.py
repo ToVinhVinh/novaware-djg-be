@@ -402,7 +402,7 @@ class LightGCNRecommendationEngine:
         # Generate overall reasons
         reasons = {
             "personalized": [item["reason"] for item in personalized],
-            "outfit": [f"Phối hợp hoàn hảo với {current_product.articleType or 'sản phẩm hiện tại'}"]
+            "outfit": [f"Perfect combination with {current_product.articleType or 'current product'}"]
         }
         
         return {
@@ -437,7 +437,7 @@ class LightGCNRecommendationEngine:
                 user=user,
                 reason_type="personalized",
             )
-            reason = f"[Gợi ý cho người dùng mới] {reason}"
+            reason = f"[Recommendation for new user] {reason}"
             
             personalized.append({
                 "product": self._serialize_product(product),
