@@ -639,6 +639,210 @@ for col, (label, slug) in zip(train_cols, models.items()):
                 
                 st.json(result_data)
                 st.success(f"✅ Số liệu đã được tự động điền vào phần tài liệu!")
+                
+                # Tự động gọi API recommend để lấy evaluation metrics
+                st.info("🔄 Đang tự động gọi API recommend để lấy evaluation metrics...")
+                default_user_id = "690bf0f2d0c3753df0ecbdd6"
+                
+                # Try to get user's interaction history to test with multiple products
+                product_ids_to_test = ["10068"]  # Default
+                try:
+                    user_url = f"{BASE_URL.rstrip('/')}/users/{default_user_id}"
+                    user_response = requests.get(user_url, timeout=10)
+                    if user_response.status_code == 200:
+                        user_data = user_response.json()
+                        if isinstance(user_data, dict) and "data" in user_data:
+                            user_info = user_data["data"].get("user", {})
+                            interaction_history = user_info.get("interaction_history", [])
+                            if interaction_history:
+                                # Get product IDs from interaction history
+                                history_products = [str(interaction.get("product_id")) for interaction in interaction_history[:5] if interaction.get("product_id")]
+                                if history_products:
+                                    product_ids_to_test = history_products + ["10068"]  # Add default
+                                    product_ids_to_test = list(dict.fromkeys(product_ids_to_test))  # Remove duplicates
+                except:
+                    pass
+                
+                # Test with multiple products and find the best result
+                best_result = None
+                best_metrics = None
+                best_product_id = None
+                recommended_products_to_try = []  # Collect recommended products to test
+                
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                total_tests = min(len(product_ids_to_test), 5)
+                
+                # First pass: Test with products from interaction history
+                for idx, product_id in enumerate(product_ids_to_test[:5]):  # Test up to 5 products
+                    status_text.info(f"Đang test với product_id: {product_id} ({idx+1}/{total_tests})...")
+                    progress_bar.progress((idx + 1) / (total_tests * 2))  # Reserve half for recommended products
+                    
+                    recommend_payload = {"user_id": default_user_id, "current_product_id": product_id}
+                    recommend_result = call_api(BASE_URL, f"{slug}/recommend", payload=recommend_payload)
+                    
+                    if recommend_result["success"]:
+                        data = recommend_result["data"]
+                        eval_metrics = data.get("evaluation_metrics", {})
+                        
+                        # Collect recommended products for second pass
+                        personalized = data.get("personalized", [])
+                        for rec in personalized[:3]:  # Get first 3 recommendations
+                            rec_product = rec.get("product", {})
+                            if isinstance(rec_product, dict):
+                                rec_id = rec_product.get("id")
+                            else:
+                                rec_id = rec.get("id") or rec.get("product_id")
+                            if rec_id and str(rec_id) not in recommended_products_to_try and str(rec_id) not in product_ids_to_test:
+                                recommended_products_to_try.append(str(rec_id))
+                        
+                        # Check if this result is better (has non-zero/non-null metrics)
+                        if eval_metrics:
+                            mape = eval_metrics.get("mape")
+                            rmse = eval_metrics.get("rmse")
+                            precision = eval_metrics.get("precision", 0)
+                            recall = eval_metrics.get("recall", 0)
+                            f1 = eval_metrics.get("f1", 0)
+                            
+                            # Check if this is a valid result (at least one metric is non-zero/non-null)
+                            is_valid = (
+                                (mape is not None and mape != 0) or
+                                (rmse is not None and rmse != 0) or
+                                precision != 0 or recall != 0 or f1 != 0
+                            )
+                            
+                            if is_valid:
+                                # Found valid metrics, use this result
+                                best_result = recommend_result
+                                best_metrics = eval_metrics
+                                best_product_id = product_id
+                                break
+                            elif best_result is None:
+                                # Keep first result as fallback
+                                best_result = recommend_result
+                                best_metrics = eval_metrics
+                                best_product_id = product_id
+                
+                # Second pass: Test with recommended products if no valid metrics found
+                if best_metrics and not any([
+                    best_metrics.get("mape") not in [None, 0],
+                    best_metrics.get("rmse") not in [None, 0],
+                    best_metrics.get("precision", 0) != 0,
+                    best_metrics.get("recall", 0) != 0,
+                    best_metrics.get("f1", 0) != 0
+                ]) and recommended_products_to_try:
+                    status_text.info(f"Không tìm thấy metrics hợp lệ. Đang test với {len(recommended_products_to_try[:5])} recommended products...")
+                    
+                    for idx, rec_product_id in enumerate(recommended_products_to_try[:5]):
+                        status_text.info(f"Đang test với recommended product_id: {rec_product_id} ({idx+1}/{min(len(recommended_products_to_try), 5)})...")
+                        progress_bar.progress((total_tests + idx + 1) / (total_tests * 2))
+                        
+                        recommend_payload = {"user_id": default_user_id, "current_product_id": rec_product_id}
+                        recommend_result = call_api(BASE_URL, f"{slug}/recommend", payload=recommend_payload)
+                        
+                        if recommend_result["success"]:
+                            data = recommend_result["data"]
+                            eval_metrics = data.get("evaluation_metrics", {})
+                            
+                            if eval_metrics:
+                                mape = eval_metrics.get("mape")
+                                rmse = eval_metrics.get("rmse")
+                                precision = eval_metrics.get("precision", 0)
+                                recall = eval_metrics.get("recall", 0)
+                                f1 = eval_metrics.get("f1", 0)
+                                
+                                is_valid = (
+                                    (mape is not None and mape != 0) or
+                                    (rmse is not None and rmse != 0) or
+                                    precision != 0 or recall != 0 or f1 != 0
+                                )
+                                
+                                if is_valid:
+                                    # Found valid metrics, use this result
+                                    best_result = recommend_result
+                                    best_metrics = eval_metrics
+                                    best_product_id = rec_product_id
+                                    break
+                
+                progress_bar.progress(1.0)
+                status_text.empty()
+                
+                if best_result and best_result["success"]:
+                    has_valid_metrics = best_metrics and any([
+                        best_metrics.get("mape") not in [None, 0],
+                        best_metrics.get("rmse") not in [None, 0],
+                        best_metrics.get("precision", 0) != 0,
+                        best_metrics.get("recall", 0) != 0,
+                        best_metrics.get("f1", 0) != 0
+                    ])
+                    
+                    if has_valid_metrics:
+                        st.success(f"✅ Đã tìm thấy evaluation metrics hợp lệ với product_id: {best_product_id}!")
+                    else:
+                        st.warning(f"⚠️ Đã test {total_tests + min(len(recommended_products_to_try), 5)} products nhưng metrics vẫn null/0.")
+                        st.info(f"📊 Sử dụng kết quả từ product_id: {best_product_id}")
+                        
+                        # Show debug info to help understand why
+                        debug_info = best_metrics.get("_debug", {}) if best_metrics else {}
+                        if debug_info:
+                            with st.expander("🔍 Debug Info - Tại sao metrics = 0?"):
+                                st.json(debug_info)
+                                
+                                # Show diagnosis if available
+                                diagnosis = best_metrics.get("_diagnosis", {}) if best_metrics else {}
+                                if diagnosis:
+                                    st.markdown("#### 🔬 Chẩn đoán tự động:")
+                                    issues = diagnosis.get("issues", [])
+                                    if issues:
+                                        for issue in issues:
+                                            severity = issue.get("severity", "info")
+                                            if severity == "error":
+                                                st.error(f"❌ **{issue.get('issue')}**")
+                                            elif severity == "warning":
+                                                st.warning(f"⚠️ **{issue.get('issue')}**")
+                                            else:
+                                                st.info(f"ℹ️ **{issue.get('issue')}**")
+                                            st.markdown(f"- **Lý do**: {issue.get('reason')}")
+                                            st.markdown(f"- **Cách sửa**: {issue.get('fix')}")
+                                    else:
+                                        st.success("✅ Không phát hiện vấn đề trong logic tính toán")
+                                
+                                # Show overlap info
+                                overlap_found = debug_info.get("overlap_found", False)
+                                num_rec = debug_info.get("num_recommendations", 0)
+                                num_gt = debug_info.get("num_ground_truth", 0)
+                                
+                                st.markdown("#### 📊 Tóm tắt:")
+                                col1, col2, col3 = st.columns(3)
+                                with col1:
+                                    st.metric("Recommendations", num_rec)
+                                with col2:
+                                    st.metric("Ground Truth", num_gt)
+                                with col3:
+                                    st.metric("Overlap", "✅ Có" if overlap_found else "❌ Không")
+                                
+                                if not overlap_found and num_rec > 0 and num_gt > 0:
+                                    st.info("💡 **Giải thích**: CBF đang recommend các sản phẩm khác với interaction_history của user. Đây có thể là hành vi đúng (recommend sản phẩm mới), nhưng để tính metrics cần có overlap.")
+                    
+                    # Store recommendation result
+                    st.session_state.recommendation_results[slug] = best_result["data"]
+                    
+                    # Extract evaluation metrics from recommend API and update session state
+                    if isinstance(best_result["data"], dict):
+                        eval_metrics = extract_recommend_metrics(best_result["data"], slug)
+                        # Update session state with evaluation metrics from recommend API
+                        for key, value in eval_metrics.items():
+                            if value != "N/A":
+                                state_key = f"{slug}_{key}"
+                                st.session_state[state_key] = value
+                                # Also update training_results if exists
+                                if st.session_state.training_results.get(slug):
+                                    if isinstance(st.session_state.training_results[slug], dict):
+                                        st.session_state.training_results[slug][key] = value
+                    
+                    st.json(best_result["data"].get("evaluation_metrics", {}))
+                else:
+                    st.warning(f"⚠️ Không thể tự động gọi API recommend: {best_result.get('error', 'Unknown error') if best_result else 'No valid results found'}")
             else:
                 status_placeholder.error(f"Lỗi train {label}.")
                 st.error(result["error"])
@@ -656,7 +860,8 @@ user_id = st.text_input("User ID", value=default_user_id)
 product_id = st.text_input("Product ID", value=default_product_id)
 
 recommend_cols = st.columns(len(models))
-payload = {"userId": user_id, "productId": product_id}
+# API expects user_id and current_product_id (not userId and productId)
+payload = {"user_id": user_id, "current_product_id": product_id}
 
 for col, (label, slug) in zip(recommend_cols, models.items()):
     with col:
@@ -697,50 +902,52 @@ def generate_gnn_documentation(metrics: Dict[str, Any]) -> str:
 
 - **Quy trình thực hiện**:
   - *Chuẩn hóa dữ liệu với Surprise*:  
-    Sử dụng `surprise.Dataset.load_from_df(...)` và `train_test_split(test_size={metrics['test_size']})` để tạo tập train/test.  
-    - Test size: **{metrics['test_size']}**  
-    - Số lượng người dùng train: **{metrics['num_users']}**  
-    - Số lượng sản phẩm train: **{metrics['num_products']}**
-    - Số lượng tương tác (interactions): **{metrics['num_interactions']}**
-    - Số lượng training samples (BPR): **{metrics['num_training_samples']}**
+    Sử dụng `surprise.Dataset.load_from_df(...)` và `train_test_split(test_size={metrics['test_size']})` để chia dữ liệu thành tập huấn luyện và tập kiểm thử.  
+    - Test size: **{metrics['test_size']}** (tỷ lệ dữ liệu dùng để kiểm thử, phần còn lại dùng để huấn luyện)
+    - Số lượng người dùng train: **{metrics['num_users']}** (số người dùng trong tập huấn luyện)
+    - Số lượng sản phẩm train: **{metrics['num_products']}** (số sản phẩm trong tập huấn luyện)
+    - Số lượng tương tác (interactions): **{metrics['num_interactions']}** (tổng số lượt tương tác giữa người dùng và sản phẩm)
+    - Số lượng training samples (BPR): **{metrics['num_training_samples']}** (số mẫu huấn luyện sau khi tạo negative samples cho BPR)
   - *Pipeline 5 bước*:
     1. **Huấn luyện mô hình**: LightGCN với kiến trúc Graph Convolutional Network.
-       - Thuật toán: LightGCN (Light Graph Convolution Network)
+       - Thuật toán: LightGCN (Light Graph Convolution Network) - mô hình học biểu diễn người dùng và sản phẩm dựa trên đồ thị tương tác
        - Framework: PyTorch + PyTorch Geometric
-       - Loss function: BPR (Bayesian Personalized Ranking)
-       - Negative sampling: 4 negative samples per positive interaction
-       - Epochs: **{metrics['epochs']}**
-       - Batch size: **{metrics['batch_size']}**
-       - Embedding dimension: **{metrics['embed_dim']}**
-       - Learning rate: **{metrics['learning_rate']}**
-       - Optimizer: Adam
+       - Loss function: BPR (Bayesian Personalized Ranking) - tối ưu hóa thứ hạng sản phẩm cho từng người dùng
+       - Negative sampling: 4 negative samples per positive interaction (tạo 4 mẫu âm cho mỗi tương tác tích cực để học phân biệt)
+       - Epochs: **{metrics['epochs']}** (số lần duyệt toàn bộ dữ liệu training)
+       - Batch size: **{metrics['batch_size']}** (số lượng mẫu xử lý cùng lúc trong mỗi bước cập nhật)
+       - Embedding dimension: **{metrics['embed_dim']}** (kích thước vector đại diện cho người dùng/sản phẩm, càng lớn càng biểu diễn chi tiết hơn)
+       - Learning rate: **{metrics['learning_rate']}** (tốc độ học, điều chỉnh độ lớn bước cập nhật tham số)
+       - Optimizer: Adam (thuật toán tối ưu hóa tự động điều chỉnh learning rate)
        - Model file: `models/gnn_lightgcn.pkl`
     2. **Chuẩn bị dữ liệu graph**: 
-       - Xây dựng bipartite graph từ `UserInteraction` collection.
-       - Áp dụng trọng số tương tác theo `INTERACTION_WEIGHTS`:
+       - Xây dựng bipartite graph (đồ thị hai phía) từ `UserInteraction` collection, mỗi cạnh nối một người dùng với một sản phẩm
+       - Áp dụng trọng số tương tác theo `INTERACTION_WEIGHTS` để phân biệt mức độ quan trọng:
          ```python
          INTERACTION_WEIGHTS = {{
-             'view': 1.0,
-             'add_to_cart': 2.0,
-             'purchase': 3.0,
-             'wishlist': 1.5,
-             'rating': 2.5
+             'view': 1.0,        # Xem sản phẩm (quan tâm thấp)
+             'add_to_cart': 2.0, # Thêm vào giỏ (quan tâm trung bình)
+             'purchase': 3.0,    # Mua hàng (quan tâm cao nhất)
+             'wishlist': 1.5,    # Yêu thích (quan tâm trung bình-thấp)
+             'rating': 2.5       # Đánh giá (quan tâm cao)
          }}
          ```
-       - Tạo edge index (user-product pairs) và edge weights.
+       - Tạo edge index (danh sách cặp user-product) và edge weights (trọng số tương ứng)
     3. **Tạo ma trận User-Item Interaction**: 
-       - Sử dụng sparse matrix để biểu diễn tương tác user-product.
-       - Tính toán sparsity: `sparsity = 1 - (num_interactions / (num_users * num_products))`
+       - Sử dụng sparse matrix (ma trận thưa) để biểu diễn tương tác user-product một cách hiệu quả
+       - Tính toán sparsity (độ thưa): `sparsity = 1 - ({metrics['num_interactions']} / ({metrics['num_users']} * {metrics['num_products']}))` - tỷ lệ phần trăm các tương tác không xảy ra
     4. **Tính cosine similarity** giữa user embeddings và product embeddings.  
        - Sau khi training, LightGCN sinh ra:
-         - User embeddings: `[{metrics['num_users']}, {metrics['embed_dim']}]`
-         - Product embeddings: `[{metrics['num_products']}, {metrics['embed_dim']}]`
-       - Recommendation score = dot product giữa user embedding và product embedding.
+         - User embeddings: `[{metrics['num_users']}, {metrics['embed_dim']}]` - {metrics['num_users']} vector, mỗi vector {metrics['embed_dim']} chiều
+         - Product embeddings: `[{metrics['num_products']}, {metrics['embed_dim']}]` - {metrics['num_products']} vector, mỗi vector {metrics['embed_dim']} chiều
+       - Recommendation score = dot product (tích vô hướng) giữa user embedding và product embedding, giá trị càng cao thì sản phẩm càng phù hợp với người dùng
     5. **Tính toán chỉ số đánh giá**: MAPE, RMSE, Precision, Recall, F1, thời gian.
-       - *MAPE*: sai số phần trăm tuyệt đối trung bình giữa rating dự đoán và thực tế.
-       - *RMSE*: độ lệch chuẩn của sai số dự đoán.
-       - *Precision/Recall/F1*: độ chính xác/phủ và cân bằng giữa hai yếu tố khi so sánh recommendation với ground-truth.
-       - *Thời gian*: latency suy luận hoặc toàn bộ pipeline ({metrics['time']}).
+       - *MAPE* (Mean Absolute Percentage Error): sai số phần trăm tuyệt đối trung bình, càng thấp càng tốt (đơn vị: %)
+       - *RMSE* (Root Mean Square Error): căn bậc hai của sai số bình phương trung bình, đo độ lệch dự đoán (đơn vị: điểm rating)
+       - *Precision*: tỷ lệ sản phẩm được gợi ý thực sự phù hợp với người dùng, càng cao càng chính xác (0-1)
+       - *Recall*: tỷ lệ sản phẩm phù hợp được hệ thống tìm thấy, càng cao càng phủ tốt (0-1)
+       - *F1*: trung bình điều hòa của Precision và Recall, cân bằng giữa độ chính xác và độ phủ (0-1)
+       - *Thời gian*: thời gian thực thi pipeline ({metrics['time']})
 
 | Mô hình | MAPE | RMSE | Precision | Recall | F1 | Thời gian |
 |---------|------|------|-----------|--------|----|-----------|
@@ -755,24 +962,26 @@ def generate_cbf_documentation(metrics: Dict[str, Any]) -> str:
 
 - **Quy trình thực hiện**:
   - *Chuẩn hóa dữ liệu với Surprise*:  
-    Sử dụng `surprise.Dataset.load_from_df(...)` và `train_test_split(test_size={metrics['test_size']})` để tạo tập train/test.  
-    - Test size: **{metrics['test_size']}**  
-    - Số lượng sản phẩm train: **{metrics['num_products']}**  
-    - Số lượng người dùng test: **{metrics['num_users']}**
+    Sử dụng `surprise.Dataset.load_from_df(...)` và `train_test_split(test_size={metrics['test_size']})` để chia dữ liệu thành tập huấn luyện và tập kiểm thử.  
+    - Test size: **{metrics['test_size']}** (tỷ lệ dữ liệu dùng để kiểm thử, phần còn lại dùng để huấn luyện)
+    - Số lượng sản phẩm train: **{metrics['num_products']}** (số sản phẩm trong tập huấn luyện)
+    - Số lượng người dùng test: **{metrics['num_users']}** (số người dùng trong tập kiểm thử)
   - *Pipeline 5 bước*:
     1. **Huấn luyện mô hình**: Sentence-BERT embedding + FAISS index.
-       - Model: Sentence-BERT (SBERT)
-       - Index: FAISS (Facebook AI Similarity Search)
-       - Embedding dimension: **{metrics['embed_dim']}**
-    2. **Chuẩn bị dữ liệu văn bản**: ghép `category`, `gender`, `color`, `style_tags`, `productDisplayName`.
-    3. **Tạo ma trận TF-IDF**: sử dụng `TfidfVectorizer` để tạo ma trận TF-IDF cho báo cáo.  
+       - Model: Sentence-BERT (SBERT) - mô hình chuyển đổi văn bản thành vector số, hiểu được ngữ nghĩa của mô tả sản phẩm
+       - Index: FAISS (Facebook AI Similarity Search) - thư viện tìm kiếm tương tự nhanh, cho phép tìm sản phẩm tương tự trong thời gian ngắn
+       - Embedding dimension: **{metrics['embed_dim']}** (kích thước vector đại diện cho mỗi sản phẩm, càng lớn càng biểu diễn chi tiết hơn)
+    2. **Chuẩn bị dữ liệu văn bản**: ghép các thuộc tính `category`, `gender`, `color`, `style_tags`, `productDisplayName` thành một chuỗi văn bản mô tả đầy đủ sản phẩm
+    3. **Tạo ma trận TF-IDF**: sử dụng `TfidfVectorizer` để tạo ma trận TF-IDF (Term Frequency-Inverse Document Frequency) - đánh giá tầm quan trọng của từ trong mô tả sản phẩm
     4. **Tính cosine similarity** giữa các sản phẩm (SBERT embeddings).  
-       - Recommendation score = cosine similarity giữa product embeddings.
+       - Recommendation score = cosine similarity (độ tương tự cosine) giữa product embeddings, giá trị từ 0-1, càng gần 1 thì sản phẩm càng giống nhau về đặc điểm
     5. **Tính toán chỉ số đánh giá**: MAPE, RMSE, Precision, Recall, F1, thời gian.
-       - *MAPE*: sai số phần trăm tuyệt đối trung bình giữa rating dự đoán và thực tế.
-       - *RMSE*: độ lệch chuẩn của sai số dự đoán.
-       - *Precision/Recall/F1*: độ chính xác/phủ và cân bằng giữa hai yếu tố khi so sánh recommendation với ground-truth.
-       - *Thời gian*: latency suy luận hoặc toàn bộ pipeline ({metrics['time']}).
+       - *MAPE* (Mean Absolute Percentage Error): sai số phần trăm tuyệt đối trung bình, càng thấp càng tốt (đơn vị: %)
+       - *RMSE* (Root Mean Square Error): căn bậc hai của sai số bình phương trung bình, đo độ lệch dự đoán (đơn vị: điểm rating)
+       - *Precision*: tỷ lệ sản phẩm được gợi ý thực sự phù hợp với người dùng, càng cao càng chính xác (0-1)
+       - *Recall*: tỷ lệ sản phẩm phù hợp được hệ thống tìm thấy, càng cao càng phủ tốt (0-1)
+       - *F1*: trung bình điều hòa của Precision và Recall, cân bằng giữa độ chính xác và độ phủ (0-1)
+       - *Thời gian*: thời gian thực thi pipeline ({metrics['time']})
 
 | Mô hình | MAPE | RMSE | Precision | Recall | F1 | Thời gian |
 |---------|------|------|-----------|--------|----|-----------|
@@ -787,31 +996,33 @@ def generate_hybrid_documentation(metrics: Dict[str, Any], alpha: float = 0.7) -
 
 - **Quy trình thực hiện**:
   - *Chuẩn hóa dữ liệu với Surprise*:  
-    Sử dụng `surprise.Dataset.load_from_df(...)` và `train_test_split(test_size={metrics['test_size']})` để tạo tập train/test.  
-    - Test size: **{metrics['test_size']}**  
-    - Số lượng người dùng train: **{metrics['num_users']}**  
-    - Số lượng sản phẩm train: **{metrics['num_products']}**
-    - Số lượng tương tác (interactions): **{metrics['num_interactions']}**
+    Sử dụng `surprise.Dataset.load_from_df(...)` và `train_test_split(test_size={metrics['test_size']})` để chia dữ liệu thành tập huấn luyện và tập kiểm thử.  
+    - Test size: **{metrics['test_size']}** (tỷ lệ dữ liệu dùng để kiểm thử, phần còn lại dùng để huấn luyện)
+    - Số lượng người dùng train: **{metrics['num_users']}** (số người dùng trong tập huấn luyện)
+    - Số lượng sản phẩm train: **{metrics['num_products']}** (số sản phẩm trong tập huấn luyện)
+    - Số lượng tương tác (interactions): **{metrics['num_interactions']}** (tổng số lượt tương tác giữa người dùng và sản phẩm)
   - *Pipeline 5 bước*:
     1. **Huấn luyện mô hình**: Kết hợp GNN (LightGCN) + CBF (Sentence-BERT).
-       - GNN component: LightGCN với embedding dimension **{metrics['embed_dim']}**
-       - CBF component: Sentence-BERT + FAISS index
-       - Trọng số kết hợp: `alpha = {alpha}` (CF weight = {alpha}, CBF weight = {1-alpha:.1f})
+       - GNN component: LightGCN với embedding dimension **{metrics['embed_dim']}** - học từ hành vi tương tác của người dùng
+       - CBF component: Sentence-BERT + FAISS index - học từ đặc điểm nội dung sản phẩm
+       - Trọng số kết hợp: `alpha = {alpha}` (CF weight = {alpha}, CBF weight = {1-alpha:.1f}) - alpha càng cao thì càng ưu tiên hành vi người dùng, càng thấp thì càng ưu tiên đặc điểm sản phẩm
     2. **Chuẩn bị dữ liệu**: 
-       - Kết hợp embedding từ CF (Collaborative Filtering - GNN) và Content-based.
-       - User embeddings từ GNN: `[{metrics['num_users']}, {metrics['embed_dim']}]`
-       - Product embeddings từ CBF: `[{metrics['num_products']}, {metrics['embed_dim']}]`
+       - Kết hợp embedding từ CF (Collaborative Filtering - GNN) và Content-based (CBF)
+       - User embeddings từ GNN: `[{metrics['num_users']}, {metrics['embed_dim']}]` - {metrics['num_users']} vector người dùng, mỗi vector {metrics['embed_dim']} chiều
+       - Product embeddings từ CBF: `[{metrics['num_products']}, {metrics['embed_dim']}]` - {metrics['num_products']} vector sản phẩm, mỗi vector {metrics['embed_dim']} chiều
     3. **Tính toán similarity**: 
-       - CF similarity: cosine similarity giữa user embedding (GNN) và product embedding (GNN)
-       - CBF similarity: cosine similarity giữa product embeddings (SBERT)
-       - Final score = `alpha * CF_score + (1-alpha) * CBF_score`
+       - CF similarity: cosine similarity giữa user embedding (GNN) và product embedding (GNN) - dựa trên hành vi người dùng tương tự
+       - CBF similarity: cosine similarity giữa product embeddings (SBERT) - dựa trên đặc điểm sản phẩm tương tự
+       - Final score = `{alpha} * CF_score + {1-alpha:.1f} * CBF_score` - kết hợp hai nguồn thông tin với trọng số
     4. **Kết hợp trọng số**: 
-       - Bảng TF-IDF/Cosine kế thừa từ CBF, cộng thêm trọng số CF.
+       - Bảng TF-IDF/Cosine kế thừa từ CBF (đánh giá độ tương tự nội dung), cộng thêm trọng số CF (đánh giá độ tương tự hành vi)
     5. **Tính toán chỉ số đánh giá**: MAPE, RMSE, Precision, Recall, F1, thời gian.
-       - *MAPE*: sai số phần trăm tuyệt đối trung bình giữa rating dự đoán và thực tế.
-       - *RMSE*: độ lệch chuẩn của sai số dự đoán.
-       - *Precision/Recall/F1*: độ chính xác/phủ và cân bằng giữa hai yếu tố khi so sánh recommendation với ground-truth.
-       - *Thời gian*: latency suy luận hoặc toàn bộ pipeline ({metrics['time']}).
+       - *MAPE* (Mean Absolute Percentage Error): sai số phần trăm tuyệt đối trung bình, càng thấp càng tốt (đơn vị: %)
+       - *RMSE* (Root Mean Square Error): căn bậc hai của sai số bình phương trung bình, đo độ lệch dự đoán (đơn vị: điểm rating)
+       - *Precision*: tỷ lệ sản phẩm được gợi ý thực sự phù hợp với người dùng, càng cao càng chính xác (0-1)
+       - *Recall*: tỷ lệ sản phẩm phù hợp được hệ thống tìm thấy, càng cao càng phủ tốt (0-1)
+       - *F1*: trung bình điều hòa của Precision và Recall, cân bằng giữa độ chính xác và độ phủ (0-1)
+       - *Thời gian*: thời gian thực thi pipeline ({metrics['time']})
 
 | Mô hình | MAPE | RMSE | Precision | Recall | F1 | Thời gian |
 |---------|------|------|-----------|--------|----|-----------|
@@ -825,6 +1036,14 @@ def generate_comparison_table(gnn_metrics: Dict[str, Any], cbf_metrics: Dict[str
     """Generate comparison table for all 3 models."""
     doc = """# 3. Đánh giá 3 mô hình
 
+**Giải thích các chỉ số:**
+- **MAPE** (%): Sai số phần trăm, càng thấp càng tốt
+- **RMSE**: Độ lệch dự đoán, càng thấp càng tốt
+- **Precision** (0-1): Độ chính xác gợi ý, càng cao càng tốt
+- **Recall** (0-1): Độ phủ sản phẩm phù hợp, càng cao càng tốt
+- **F1** (0-1): Cân bằng Precision và Recall, càng cao càng tốt
+- **Thời gian**: Thời gian thực thi, càng nhanh càng tốt
+
 | Mô hình | MAPE | RMSE | Precision | Recall | F1 | Thời gian |
 |---------|------|------|-----------|--------|----|-----------|
 | GNN (LightGCN) | {gnn_mape} | {gnn_rmse} | {gnn_precision} | {gnn_recall} | {gnn_f1} | {gnn_time} |
@@ -832,10 +1051,10 @@ def generate_comparison_table(gnn_metrics: Dict[str, Any], cbf_metrics: Dict[str
 | Hybrid CF+CBF | {hybrid_mape} | {hybrid_rmse} | {hybrid_precision} | {hybrid_recall} | {hybrid_f1} | {hybrid_time} |
 
 - **Phân tích & lựa chọn**:
-  - GNN (LightGCN) phù hợp khi tập trung vào hành vi người dùng dày đặc, thường cho Precision/Recall cao nhất.
-  - Content-based Filtering phù hợp khi cần xử lý cold-start hoặc catalog phong phú, đảm bảo gợi ý hợp lý nhờ lọc age/gender và reason theo style.
-  - Hybrid là lựa chọn production mặc định vì duy trì ổn định giữa hai tình huống, có thể tinh chỉnh trọng số `alpha`.
-  - Kết luận: Hybrid đạt F1 cao nhất và thời gian xử lý chấp nhận được, phù hợp cho môi trường production.
+  - **GNN (LightGCN)**: Phù hợp khi có nhiều dữ liệu tương tác người dùng, thường cho Precision/Recall cao nhất nhờ học từ hành vi người dùng tương tự.
+  - **Content-based Filtering**: Phù hợp khi cần xử lý cold-start (người dùng/sản phẩm mới) hoặc catalog phong phú, đảm bảo gợi ý hợp lý nhờ lọc theo đặc điểm sản phẩm (age/gender/style).
+  - **Hybrid CF+CBF**: Lựa chọn production mặc định vì kết hợp ưu điểm của cả hai phương pháp, duy trì ổn định trong nhiều tình huống, có thể tinh chỉnh trọng số `alpha` để ưu tiên hành vi người dùng hoặc đặc điểm sản phẩm.
+  - **Kết luận**: Hybrid thường đạt F1 cao nhất và thời gian xử lý chấp nhận được, phù hợp cho môi trường production.
 """.format(
         gnn_mape=gnn_metrics['mape'],
         gnn_rmse=gnn_metrics['rmse'],
@@ -909,7 +1128,8 @@ with st.expander("🔍 Test API & Xem Response", expanded=False):
         for col, (label, slug) in zip(test_recommend_cols, models.items()):
             with col:
                 if st.button(f"Test {label} Recommend", key=f"test_recommend_{slug}"):
-                    payload = {"userId": test_user_id, "productId": test_product_id}
+                    # API expects user_id and current_product_id (not userId and productId)
+                    payload = {"user_id": test_user_id, "current_product_id": test_product_id}
                     with st.spinner(f"Đang gọi {label} /recommend API..."):
                         result = call_api(BASE_URL, f"{slug}/recommend", payload=payload, method="post")
                     

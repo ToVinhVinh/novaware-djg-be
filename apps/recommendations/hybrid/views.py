@@ -361,6 +361,42 @@ class RecommendHybridView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         
+        # Get ground truth: products that user has interacted with (excluding current product)
+        ground_truth = []
+        try:
+            from apps.users.models import UserInteraction
+            # Try both string and integer user_id
+            try:
+                user_interactions = UserInteraction.objects.filter(
+                    user_id=user_id
+                ).exclude(
+                    product_id=product_id
+                ).select_related('product').order_by('-timestamp')[:50]
+            except (ValueError, TypeError):
+                try:
+                    user_id_int = int(user_id)
+                    user_interactions = UserInteraction.objects.filter(
+                        user_id=user_id_int
+                    ).exclude(
+                        product_id=product_id
+                    ).select_related('product').order_by('-timestamp')[:50]
+                except (ValueError, TypeError):
+                    user_interactions = UserInteraction.objects.none()
+            
+            for interaction in user_interactions:
+                item = {"id": str(interaction.product_id)}
+                if interaction.rating is not None:
+                    item["rating"] = float(interaction.rating)
+                ground_truth.append(item)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Could not fetch ground truth for user {user_id}: {e}")
+            ground_truth = []
+        
+        if not ground_truth:
+            ground_truth = None
+        
         # Measure execution time
         start_time = time.time()
         try:
@@ -378,7 +414,7 @@ class RecommendHybridView(APIView):
             personalized_recommendations = payload.get("personalized", [])
             metrics = calculate_evaluation_metrics(
                 recommendations=personalized_recommendations,
-                ground_truth=None,
+                ground_truth=ground_truth,
                 execution_time=execution_time,
             )
             metrics["model"] = "hybrid"
@@ -402,17 +438,168 @@ class RecommendHybridView(APIView):
     def post(self, request, *args, **kwargs):
         import time
         from apps.recommendations.common.evaluation import calculate_evaluation_metrics
+        from apps.users.models import UserInteraction
         
         serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
         alpha = serializer.validated_data.get("alpha")
         
+        user_id = serializer.validated_data["user_id"]
+        current_product_id = serializer.validated_data["current_product_id"]
+        
+        # Get ground truth: products that user has interacted with (excluding current product)
+        ground_truth = []
+        try:
+            # Try both string and integer user_id
+            try:
+                user_interactions = UserInteraction.objects.filter(
+                    user_id=user_id
+                ).exclude(
+                    product_id=current_product_id
+                ).select_related('product').order_by('-timestamp')[:50]
+            except (ValueError, TypeError):
+                try:
+                    user_id_int = int(user_id)
+                    user_interactions = UserInteraction.objects.filter(
+                        user_id=user_id_int
+                    ).exclude(
+                        product_id=current_product_id
+                    ).select_related('product').order_by('-timestamp')[:50]
+                except (ValueError, TypeError):
+                    user_interactions = UserInteraction.objects.none()
+            
+            for interaction in user_interactions:
+                item = {"id": str(interaction.product_id)}
+                if interaction.rating is not None:
+                    item["rating"] = float(interaction.rating)
+                ground_truth.append(item)
+            
+            # If still no ground truth, try to get from user's interaction_history
+            if not ground_truth:
+                try:
+                    from apps.users.mongo_models import User as MongoUser
+                    from bson import ObjectId
+                    
+                    # Try to get user by ID
+                    try:
+                        user_obj_id = ObjectId(user_id) if len(user_id) == 24 else user_id
+                    except:
+                        user_obj_id = user_id
+                    
+                    mongo_user = MongoUser.objects(id=user_obj_id).first()
+                    if mongo_user and hasattr(mongo_user, 'interaction_history') and mongo_user.interaction_history:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.info(f"Using interaction_history from user profile for user {user_id}")
+                        
+                        # Convert interaction_history to ground_truth format
+                        for interaction in mongo_user.interaction_history:
+                            # Skip current product
+                            if str(interaction.get('product_id')) == str(current_product_id):
+                                continue
+                            
+                            item = {"id": str(interaction.get('product_id'))}
+                            
+                            # Try to get rating if available (might be in rating field or inferred from interaction_type)
+                            rating = interaction.get('rating')
+                            if rating is not None:
+                                item["rating"] = float(rating)
+                            else:
+                                # Infer rating from interaction_type if no explicit rating
+                                interaction_type = interaction.get('interaction_type', '').lower()
+                                if interaction_type == 'purchase':
+                                    item["rating"] = 5.0
+                                elif interaction_type == 'like':
+                                    item["rating"] = 4.0
+                                elif interaction_type == 'cart':
+                                    item["rating"] = 3.0
+                                elif interaction_type == 'view':
+                                    item["rating"] = 2.0
+                            
+                            ground_truth.append(item)
+                            
+                            # Limit to 50 most recent
+                            if len(ground_truth) >= 50:
+                                break
+                except Exception as e:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"Could not fetch interaction_history from user profile: {e}")
+                
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Could not fetch ground truth for user {user_id}: {e}")
+            ground_truth = []
+        
+        # If still no ground truth, try to get from user's interaction_history (fallback)
+        if not ground_truth:
+            try:
+                from apps.users.mongo_models import User as MongoUser
+                from bson import ObjectId
+                
+                # Try to get user by ID
+                try:
+                    user_obj_id = ObjectId(user_id) if len(user_id) == 24 else user_id
+                except:
+                    user_obj_id = user_id
+                
+                mongo_user = MongoUser.objects(id=user_obj_id).first()
+                if mongo_user and hasattr(mongo_user, 'interaction_history') and mongo_user.interaction_history:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.info(f"Using interaction_history from user profile for user {user_id}")
+                    
+                    # Convert interaction_history to ground_truth format
+                    for interaction in mongo_user.interaction_history:
+                        # Skip current product
+                        if str(interaction.get('product_id')) == str(current_product_id):
+                            continue
+                        
+                        item = {"id": str(interaction.get('product_id'))}
+                        
+                        # Try to get rating if available (might be in rating field or inferred from interaction_type)
+                        rating = interaction.get('rating')
+                        if rating is not None:
+                            item["rating"] = float(rating)
+                        else:
+                            # Infer rating from interaction_type if no explicit rating
+                            interaction_type = interaction.get('interaction_type', '').lower()
+                            if interaction_type == 'purchase':
+                                item["rating"] = 5.0
+                            elif interaction_type == 'like':
+                                item["rating"] = 4.0
+                            elif interaction_type == 'cart':
+                                item["rating"] = 3.0
+                            elif interaction_type == 'view':
+                                item["rating"] = 2.0
+                        
+                        ground_truth.append(item)
+                        
+                        # Limit to 50 most recent
+                        if len(ground_truth) >= 50:
+                            break
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Could not fetch interaction_history from user profile: {e}")
+        
+        if not ground_truth:
+            ground_truth = None
+        else:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(
+                f"Found {len(ground_truth)} ground truth items for user {user_id}, "
+                f"product {current_product_id}"
+            )
+        
         # Measure execution time
         start_time = time.time()
         try:
             payload = recommend_hybrid(
-                user_id=serializer.validated_data["user_id"],
-                current_product_id=serializer.validated_data["current_product_id"],
+                user_id=user_id,
+                current_product_id=current_product_id,
                 top_k_personal=serializer.validated_data["top_k_personal"],
                 top_k_outfit=serializer.validated_data["top_k_outfit"],
                 alpha=alpha,
@@ -424,7 +611,7 @@ class RecommendHybridView(APIView):
             personalized_recommendations = payload.get("personalized", [])
             metrics = calculate_evaluation_metrics(
                 recommendations=personalized_recommendations,
-                ground_truth=None,  # Can be added if ground truth data is available
+                ground_truth=ground_truth,
                 execution_time=execution_time,
             )
             metrics["model"] = "hybrid"

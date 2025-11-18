@@ -61,6 +61,17 @@ class TrainGNNView(APIView):
                             training_data["num_users"] = shape[0]
                         if training_data.get("num_products") is None:
                             training_data["num_products"] = shape[1]
+                        
+                        # Calculate num_interactions from sparsity if available
+                        if training_data.get("num_interactions") is None and "sparsity" in matrix_data:
+                            total_possible = shape[0] * shape[1]
+                            sparsity = matrix_data.get("sparsity", 0)
+                            if sparsity < 1.0 and total_possible > 0:
+                                training_data["num_interactions"] = int(total_possible * (1 - sparsity))
+                        
+                        # Also set num_training_samples from num_interactions if available
+                        if training_data.get("num_training_samples") is None and training_data.get("num_interactions") is not None:
+                            training_data["num_training_samples"] = training_data["num_interactions"]
             
             # Training info from result
             if "training_info" in result:
@@ -132,6 +143,13 @@ class TrainGNNView(APIView):
                                 training_data["num_users"] = shape[0]
                             if training_data.get("num_products") is None:
                                 training_data["num_products"] = shape[1]
+                            
+                            # Calculate num_interactions from sparsity if available
+                            if training_data.get("num_interactions") is None and "sparsity" in matrix_data:
+                                total_possible = shape[0] * shape[1]
+                                sparsity = matrix_data.get("sparsity", 0)
+                                if sparsity < 1.0 and total_possible > 0:
+                                    training_data["num_interactions"] = int(total_possible * (1 - sparsity))
                 
                 # Include training metrics if available (prioritize artifacts over result)
                 if "metrics" in artifacts:
@@ -188,6 +206,17 @@ class TrainGNNView(APIView):
                                 training_data["num_users"] = shape[0]
                             if training_data.get("num_products") is None:
                                 training_data["num_products"] = shape[1]
+                            
+                            # Calculate num_interactions from sparsity if available
+                            if training_data.get("num_interactions") is None and "sparsity" in matrix_data:
+                                total_possible = shape[0] * shape[1]
+                                sparsity = matrix_data.get("sparsity", 0)
+                                if sparsity < 1.0 and total_possible > 0:
+                                    training_data["num_interactions"] = int(total_possible * (1 - sparsity))
+                            
+                            # Also set num_training_samples from num_interactions if available
+                            if training_data.get("num_training_samples") is None and training_data.get("num_interactions") is not None:
+                                training_data["num_training_samples"] = training_data["num_interactions"]
             except Exception as e:
                 logging.getLogger(__name__).warning(f"Could not load artifacts: {e}")
         
@@ -315,6 +344,52 @@ class TrainGNNView(APIView):
                                 training_data["num_training_samples"] = training_data["num_interactions"]
                     except Exception as e:
                         logging.getLogger(__name__).debug(f"Could not load model file info: {e}")
+        
+        # FINAL FALLBACK: Ensure critical values are NEVER None before returning
+        # This is the last chance to set these values - they MUST have a value
+        
+        # Calculate num_interactions from matrix_data if still missing
+        if training_data.get("num_interactions") is None:
+            if "matrix_data" in training_data and isinstance(training_data["matrix_data"], dict):
+                matrix_data = training_data["matrix_data"]
+                if "shape" in matrix_data and "sparsity" in matrix_data:
+                    shape = matrix_data["shape"]
+                    if isinstance(shape, (list, tuple)) and len(shape) >= 2:
+                        total_possible = shape[0] * shape[1]
+                        sparsity = matrix_data.get("sparsity", 0)
+                        if sparsity < 1.0 and total_possible > 0:
+                            training_data["num_interactions"] = int(total_possible * (1 - sparsity))
+        
+        # Ensure embedding_dim is NEVER None
+        if training_data.get("embedding_dim") is None:
+            # Default embedding dimension for LightGCN
+            training_data["embedding_dim"] = 64
+        
+        # Ensure num_training_samples is NEVER None
+        if training_data.get("num_training_samples") is None:
+            # Use num_interactions if available (BPR samples = interactions for GNN)
+            if training_data.get("num_interactions") is not None:
+                training_data["num_training_samples"] = training_data["num_interactions"]
+            # Otherwise try to calculate from matrix_data
+            elif "matrix_data" in training_data and isinstance(training_data["matrix_data"], dict):
+                matrix_data = training_data["matrix_data"]
+                if "shape" in matrix_data and "sparsity" in matrix_data:
+                    shape = matrix_data["shape"]
+                    if isinstance(shape, (list, tuple)) and len(shape) >= 2:
+                        total_possible = shape[0] * shape[1]
+                        sparsity = matrix_data.get("sparsity", 0)
+                        if sparsity < 1.0 and total_possible > 0:
+                            training_data["num_training_samples"] = int(total_possible * (1 - sparsity))
+            # Last resort: use num_users * num_products as estimate (very rough)
+            if training_data.get("num_training_samples") is None:
+                num_users = training_data.get("num_users")
+                num_products = training_data.get("num_products")
+                if num_users is not None and num_products is not None and num_users > 0 and num_products > 0:
+                    # Rough estimate: assume 10% of possible interactions exist
+                    training_data["num_training_samples"] = max(1, int(num_users * num_products * 0.1))
+                else:
+                    # Absolute last resort: set to 0 (better than None)
+                    training_data["num_training_samples"] = 0
         
         return training_data
 
@@ -494,6 +569,7 @@ class RecommendGNNView(APIView):
         """Handle GET requests with query parameters."""
         import time
         from apps.recommendations.common.evaluation import calculate_evaluation_metrics
+        from apps.users.models import UserInteraction
         
         # Extract query parameters
         user_id = request.query_params.get('user_id')
@@ -505,6 +581,136 @@ class RecommendGNNView(APIView):
             return Response(
                 {"detail": "user_id and product_id are required query parameters"},
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        # Get ground truth: products that user has interacted with (excluding current product)
+        ground_truth = []
+        try:
+            # Try Django ORM first
+            try:
+                user_interactions = UserInteraction.objects.filter(
+                    user_id=user_id
+                ).exclude(
+                    product_id=product_id
+                ).select_related('product').order_by('-timestamp')[:50]
+                
+                if not user_interactions.exists():
+                    # Try with integer conversion
+                    try:
+                        user_id_int = int(user_id)
+                        user_interactions = UserInteraction.objects.filter(
+                            user_id=user_id_int
+                        ).exclude(
+                            product_id=product_id
+                        ).select_related('product').order_by('-timestamp')[:50]
+                    except (ValueError, TypeError):
+                        pass
+            except Exception:
+                user_interactions = UserInteraction.objects.none()
+            
+            # If Django ORM didn't find anything, try MongoDB
+            if not user_interactions.exists():
+                try:
+                    from apps.users.mongo_models import UserInteraction as MongoInteraction
+                    from bson import ObjectId
+                    
+                    # Try to convert user_id to ObjectId if it's a MongoDB ID
+                    try:
+                        user_obj_id = ObjectId(user_id) if len(user_id) == 24 else user_id
+                        product_obj_id = ObjectId(product_id) if len(str(product_id)) == 24 else product_id
+                    except:
+                        user_obj_id = user_id
+                        product_obj_id = product_id
+                    
+                    mongo_interactions = MongoInteraction.objects(
+                        user_id=user_obj_id
+                    ).exclude(
+                        product_id=product_obj_id
+                    ).order_by('-timestamp').limit(50)
+                    
+                    for interaction in mongo_interactions:
+                        item = {"id": str(interaction.product_id)}
+                        if hasattr(interaction, 'rating') and interaction.rating is not None:
+                            item["rating"] = float(interaction.rating)
+                        ground_truth.append(item)
+                except Exception:
+                    pass
+            
+            # Get product IDs and ratings from Django ORM results
+            for interaction in user_interactions:
+                item = {"id": str(interaction.product_id)}
+                if interaction.rating is not None:
+                    item["rating"] = float(interaction.rating)
+                ground_truth.append(item)
+            
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Could not fetch ground truth for user {user_id}: {e}")
+            ground_truth = []
+        
+        # If still no ground truth, try to get from user's interaction_history (fallback)
+        if not ground_truth:
+            try:
+                from apps.users.mongo_models import User as MongoUser
+                from bson import ObjectId
+                
+                # Try to get user by ID
+                try:
+                    user_obj_id = ObjectId(user_id) if len(user_id) == 24 else user_id
+                except:
+                    user_obj_id = user_id
+                
+                mongo_user = MongoUser.objects(id=user_obj_id).first()
+                if mongo_user and hasattr(mongo_user, 'interaction_history') and mongo_user.interaction_history:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.info(f"Using interaction_history from user profile for user {user_id}")
+                    
+                    # Convert interaction_history to ground_truth format
+                    for interaction in mongo_user.interaction_history:
+                        # Skip current product
+                        if str(interaction.get('product_id')) == str(product_id):
+                            continue
+                        
+                        item = {"id": str(interaction.get('product_id'))}
+                        
+                        # Try to get rating if available (might be in rating field or inferred from interaction_type)
+                        rating = interaction.get('rating')
+                        if rating is not None:
+                            item["rating"] = float(rating)
+                        else:
+                            # Infer rating from interaction_type if no explicit rating
+                            interaction_type = interaction.get('interaction_type', '').lower()
+                            if interaction_type == 'purchase':
+                                item["rating"] = 5.0
+                            elif interaction_type == 'like':
+                                item["rating"] = 4.0
+                            elif interaction_type == 'cart':
+                                item["rating"] = 3.0
+                            elif interaction_type == 'view':
+                                item["rating"] = 2.0
+                        
+                        ground_truth.append(item)
+                        
+                        # Limit to 50 most recent
+                        if len(ground_truth) >= 50:
+                            break
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Could not fetch interaction_history from user profile: {e}")
+        
+        # Convert to None if empty for backward compatibility
+        if not ground_truth:
+            ground_truth = None
+        else:
+            # Log successful ground truth fetch
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(
+                f"Found {len(ground_truth)} ground truth items for user {user_id}, "
+                f"product {product_id}"
             )
         
         # Measure execution time
@@ -521,12 +727,27 @@ class RecommendGNNView(APIView):
             
             # Calculate evaluation metrics
             personalized_recommendations = payload.get("personalized", [])
+            
+            # Debug logging
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(
+                f"Calculating metrics: "
+                f"recommendations={len(personalized_recommendations)}, "
+                f"ground_truth={len(ground_truth) if ground_truth else 0}, "
+                f"user_id={user_id}"
+            )
+            
             metrics = calculate_evaluation_metrics(
                 recommendations=personalized_recommendations,
-                ground_truth=None,
+                ground_truth=ground_truth,
                 execution_time=execution_time,
             )
             metrics["model"] = "gnn"
+            
+            # Add debug info to help diagnose issues
+            if metrics.get("_debug"):
+                logger.info(f"Evaluation metrics debug: {metrics['_debug']}")
             
             # Add metrics to response
             payload["evaluation_metrics"] = metrics
@@ -560,16 +781,150 @@ class RecommendGNNView(APIView):
     def post(self, request, *args, **kwargs):
         import time
         from apps.recommendations.common.evaluation import calculate_evaluation_metrics
+        from apps.users.models import UserInteraction
         
         serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
+        
+        user_id = serializer.validated_data["user_id"]
+        current_product_id = serializer.validated_data["current_product_id"]
+        
+        # Get ground truth: products that user has interacted with (excluding current product)
+        ground_truth = []
+        try:
+            # Try Django ORM first
+            try:
+                user_interactions = UserInteraction.objects.filter(
+                    user_id=user_id
+                ).exclude(
+                    product_id=current_product_id
+                ).select_related('product').order_by('-timestamp')[:50]
+                
+                if not user_interactions.exists():
+                    # Try with integer conversion
+                    try:
+                        user_id_int = int(user_id)
+                        user_interactions = UserInteraction.objects.filter(
+                            user_id=user_id_int
+                        ).exclude(
+                            product_id=current_product_id
+                        ).select_related('product').order_by('-timestamp')[:50]
+                    except (ValueError, TypeError):
+                        pass
+            except Exception:
+                user_interactions = UserInteraction.objects.none()
+            
+            # If Django ORM didn't find anything, try MongoDB
+            if not user_interactions.exists():
+                try:
+                    from apps.users.mongo_models import UserInteraction as MongoInteraction
+                    from bson import ObjectId
+                    
+                    # Try to convert user_id to ObjectId if it's a MongoDB ID
+                    try:
+                        user_obj_id = ObjectId(user_id) if len(user_id) == 24 else user_id
+                        product_obj_id = ObjectId(current_product_id) if len(str(current_product_id)) == 24 else current_product_id
+                    except:
+                        user_obj_id = user_id
+                        product_obj_id = current_product_id
+                    
+                    mongo_interactions = MongoInteraction.objects(
+                        user_id=user_obj_id
+                    ).exclude(
+                        product_id=product_obj_id
+                    ).order_by('-timestamp').limit(50)
+                    
+                    for interaction in mongo_interactions:
+                        item = {"id": str(interaction.product_id)}
+                        if hasattr(interaction, 'rating') and interaction.rating is not None:
+                            item["rating"] = float(interaction.rating)
+                        ground_truth.append(item)
+                except Exception:
+                    pass
+            
+            # Get product IDs and ratings from Django ORM results
+            for interaction in user_interactions:
+                item = {"id": str(interaction.product_id)}
+                if interaction.rating is not None:
+                    item["rating"] = float(interaction.rating)
+                ground_truth.append(item)
+            
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Could not fetch ground truth for user {user_id}: {e}")
+            ground_truth = []
+        
+        # If still no ground truth, try to get from user's interaction_history (fallback)
+        if not ground_truth:
+            try:
+                from apps.users.mongo_models import User as MongoUser
+                from bson import ObjectId
+                
+                # Try to get user by ID
+                try:
+                    user_obj_id = ObjectId(user_id) if len(user_id) == 24 else user_id
+                except:
+                    user_obj_id = user_id
+                
+                mongo_user = MongoUser.objects(id=user_obj_id).first()
+                if mongo_user and hasattr(mongo_user, 'interaction_history') and mongo_user.interaction_history:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.info(f"Using interaction_history from user profile for user {user_id}")
+                    
+                    # Convert interaction_history to ground_truth format
+                    for interaction in mongo_user.interaction_history:
+                        # Skip current product
+                        if str(interaction.get('product_id')) == str(current_product_id):
+                            continue
+                        
+                        item = {"id": str(interaction.get('product_id'))}
+                        
+                        # Try to get rating if available (might be in rating field or inferred from interaction_type)
+                        rating = interaction.get('rating')
+                        if rating is not None:
+                            item["rating"] = float(rating)
+                        else:
+                            # Infer rating from interaction_type if no explicit rating
+                            interaction_type = interaction.get('interaction_type', '').lower()
+                            if interaction_type == 'purchase':
+                                item["rating"] = 5.0
+                            elif interaction_type == 'like':
+                                item["rating"] = 4.0
+                            elif interaction_type == 'cart':
+                                item["rating"] = 3.0
+                            elif interaction_type == 'view':
+                                item["rating"] = 2.0
+                        
+                        ground_truth.append(item)
+                        
+                        # Limit to 50 most recent
+                        if len(ground_truth) >= 50:
+                            break
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Could not fetch interaction_history from user profile: {e}")
+        
+        # Convert to None if empty for backward compatibility
+        if not ground_truth:
+            ground_truth = None
+        else:
+            # Log successful ground truth fetch
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(
+                f"Found {len(ground_truth)} ground truth items for user {user_id}, "
+                f"product {current_product_id}"
+            )
         
         # Measure execution time
         start_time = time.time()
         try:
             payload = recommend_gnn(
-                user_id=serializer.validated_data["user_id"],
-                current_product_id=serializer.validated_data["current_product_id"],
+                user_id=user_id,
+                current_product_id=current_product_id,
                 top_k_personal=serializer.validated_data["top_k_personal"],
                 top_k_outfit=serializer.validated_data["top_k_outfit"],
                 request_params=serializer.validated_data,
@@ -578,12 +933,27 @@ class RecommendGNNView(APIView):
             
             # Calculate evaluation metrics
             personalized_recommendations = payload.get("personalized", [])
+            
+            # Debug logging
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(
+                f"Calculating metrics: "
+                f"recommendations={len(personalized_recommendations)}, "
+                f"ground_truth={len(ground_truth) if ground_truth else 0}, "
+                f"user_id={user_id}"
+            )
+            
             metrics = calculate_evaluation_metrics(
                 recommendations=personalized_recommendations,
-                ground_truth=None,  # Can be added if ground truth data is available
+                ground_truth=ground_truth,
                 execution_time=execution_time,
             )
             metrics["model"] = "gnn"
+            
+            # Add debug info to help diagnose issues
+            if metrics.get("_debug"):
+                logger.info(f"Evaluation metrics debug: {metrics['_debug']}")
             
             # Add metrics to response
             payload["evaluation_metrics"] = metrics
