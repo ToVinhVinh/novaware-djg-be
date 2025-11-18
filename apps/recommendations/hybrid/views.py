@@ -32,6 +32,17 @@ class TrainHybridView(APIView):
             "result": result,
         }
         
+        # Extract metrics directly from result for easy access
+        if isinstance(result, dict):
+            # Training parameters
+            training_data.update({
+                "num_users": result.get("num_users"),
+                "num_products": result.get("num_products"),
+                "num_interactions": result.get("num_interactions"),
+                "embedding_dim": result.get("embedding_dim", 64),  # Default from GNN
+                "test_size": 0.2,  # Default test split
+            })
+        
         if include_artifacts:
             try:
                 storage = ArtifactStorage("hybrid")
@@ -39,7 +50,7 @@ class TrainHybridView(APIView):
                 artifacts = stored.get("artifacts", {})
                 
                 training_data["training_info"] = {
-                    "trained_at": stored.get("trained_at"),
+                    "trained_at": stored.get("trained_at") or result.get("trained_at"),
                     "model_name": stored.get("model", "hybrid"),
                 }
                 
@@ -51,15 +62,31 @@ class TrainHybridView(APIView):
                         "sparsity": matrix_data.get("sparsity") if isinstance(matrix_data, dict) else None,
                     }
                 
-                # Include training metrics if available
+                # Include training metrics if available (prioritize artifacts over result)
                 if "metrics" in artifacts:
                     training_data["metrics"] = artifacts["metrics"]
+                    # Extract evaluation metrics if available
+                    metrics = artifacts["metrics"]
+                    if isinstance(metrics, dict):
+                        training_data.update({
+                            "mape": metrics.get("mape"),
+                            "rmse": metrics.get("rmse"),
+                            "precision": metrics.get("precision"),
+                            "recall": metrics.get("recall"),
+                            "f1": metrics.get("f1") or metrics.get("f1_score"),
+                        })
                 elif "training_metrics" in artifacts:
                     training_data["metrics"] = artifacts["training_metrics"]
                 
                 # Include model info if available
                 if "model_info" in artifacts:
-                    training_data["model_info"] = artifacts["model_info"]
+                    model_info = artifacts["model_info"]
+                    training_data["model_info"] = model_info
+                    # Extract additional info from model_info if available
+                    if isinstance(model_info, dict):
+                        training_data.update({
+                            "embedding_dim": model_info.get("embedding_dim", training_data.get("embedding_dim", 64)),
+                        })
                 
                 # Include alpha if available
                 if "alpha" in artifacts:

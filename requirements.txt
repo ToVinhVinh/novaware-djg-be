@@ -23,4 +23,5 @@ faiss-cpu>=1.7
 tf-keras>=2.20
 gunicorn>=21.2
 requests>=2.31
-
+matplotlib>=3.8
+streamlit>=1.38

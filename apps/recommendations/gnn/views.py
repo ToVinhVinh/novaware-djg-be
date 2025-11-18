@@ -31,6 +31,25 @@ class TrainGNNView(APIView):
             "result": result,
         }
         
+        # Extract metrics directly from result for easy access
+        if isinstance(result, dict):
+            # Training parameters (hardcoded in engine, but we can extract from result or defaults)
+            training_data.update({
+                "num_users": result.get("num_users"),
+                "num_products": result.get("num_products"),
+                "num_interactions": result.get("num_interactions"),
+                "num_training_samples": result.get("num_training_samples"),
+                "embedding_dim": result.get("embedding_dim"),
+                "epochs": 50,  # Default from engine
+                "batch_size": 2048,  # Default from engine
+                "learning_rate": 0.001,  # Default from engine
+                "test_size": 0.2,  # Default test split
+            })
+            
+            # Training metrics from result
+            if "training_metrics" in result:
+                training_data["training_metrics"] = result["training_metrics"]
+        
         if include_artifacts:
             try:
                 storage = ArtifactStorage("gnn")
@@ -38,7 +57,7 @@ class TrainGNNView(APIView):
                 artifacts = stored.get("artifacts", {})
                 
                 training_data["training_info"] = {
-                    "trained_at": stored.get("trained_at"),
+                    "trained_at": stored.get("trained_at") or result.get("trained_at"),
                     "model_name": stored.get("model", "gnn"),
                 }
                 
@@ -50,15 +69,33 @@ class TrainGNNView(APIView):
                         "sparsity": matrix_data.get("sparsity") if isinstance(matrix_data, dict) else None,
                     }
                 
-                # Include training metrics if available
+                # Include training metrics if available (prioritize artifacts over result)
                 if "metrics" in artifacts:
                     training_data["metrics"] = artifacts["metrics"]
+                    # Extract evaluation metrics if available
+                    metrics = artifacts["metrics"]
+                    if isinstance(metrics, dict):
+                        training_data.update({
+                            "mape": metrics.get("mape"),
+                            "rmse": metrics.get("rmse"),
+                            "precision": metrics.get("precision"),
+                            "recall": metrics.get("recall"),
+                            "f1": metrics.get("f1") or metrics.get("f1_score"),
+                        })
                 elif "training_metrics" in artifacts:
                     training_data["metrics"] = artifacts["training_metrics"]
                 
                 # Include model info if available
                 if "model_info" in artifacts:
-                    training_data["model_info"] = artifacts["model_info"]
+                    model_info = artifacts["model_info"]
+                    training_data["model_info"] = model_info
+                    # Extract additional info from model_info if available
+                    if isinstance(model_info, dict):
+                        training_data.update({
+                            "epochs": model_info.get("epochs", training_data.get("epochs", 50)),
+                            "batch_size": model_info.get("batch_size", training_data.get("batch_size", 2048)),
+                            "learning_rate": model_info.get("learning_rate", training_data.get("learning_rate", 0.001)),
+                        })
             except Exception as e:
                 logging.getLogger(__name__).warning(f"Could not load artifacts: {e}")
         
