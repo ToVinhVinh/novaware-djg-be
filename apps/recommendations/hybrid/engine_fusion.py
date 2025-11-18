@@ -15,7 +15,7 @@ from apps.users.mongo_models import User as MongoUser
 from apps.recommendations.utils import (
     filter_by_age_gender,
     get_outfit_categories,
-    generate_vietnamese_reason,
+    generate_english_reason,
     map_subcategory_to_tag,
 )
 
@@ -195,7 +195,7 @@ class HybridRecommendationEngine:
             score = combined_scores.get(product_id, 0.0)
             
             # Generate reason mentioning both components
-            reason = generate_vietnamese_reason(
+            reason = generate_english_reason(
                 product=product,
                 user=user,
                 reason_type="personalized",
@@ -257,7 +257,7 @@ class HybridRecommendationEngine:
                 candidates.sort(key=lambda x: x[1], reverse=True)
                 product, score = candidates[0]
                 
-                reason = generate_vietnamese_reason(
+                reason = generate_english_reason(
                     product=product,
                     user=user,
                     reason_type="outfit",

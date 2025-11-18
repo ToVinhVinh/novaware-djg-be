@@ -19,7 +19,7 @@ from apps.recommendations.utils import (
     EmbeddingGenerator,
     filter_by_age_gender,
     get_outfit_categories,
-    generate_vietnamese_reason,
+    generate_english_reason,
     map_subcategory_to_tag,
 )
 
@@ -291,7 +291,7 @@ class ContentBasedRecommendationEngine:
             else:
                 similarity = 0.5
             
-            reason = generate_vietnamese_reason(
+            reason = generate_english_reason(
                 product=product,
                 user=user,
                 reason_type="personalized",
@@ -332,7 +332,7 @@ class ContentBasedRecommendationEngine:
                 else:
                     similarity = 0.5
                 
-                reason = generate_vietnamese_reason(
+                reason = generate_english_reason(
                     product=product,
                     user=user,
                     reason_type="outfit",

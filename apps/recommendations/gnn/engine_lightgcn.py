@@ -19,7 +19,7 @@ from apps.users.mongo_models import User as MongoUser, UserInteraction as MongoI
 from apps.recommendations.utils import (
     filter_by_age_gender,
     get_outfit_categories,
-    generate_vietnamese_reason,
+    generate_english_reason,
     map_subcategory_to_tag,
 )
 
@@ -339,7 +339,7 @@ class LightGCNRecommendationEngine:
 
             # If it passes all checks, add to list
             logger.info(f"Product {product_id} passed all filters. Adding to personalized list.")
-            reason = generate_vietnamese_reason(
+            reason = generate_english_reason(
                 product=product,
                 user=user,
                 reason_type="personalized",
@@ -376,7 +376,7 @@ class LightGCNRecommendationEngine:
             ).order_by('-rating').first()
 
             if outfit_candidate:
-                reason = generate_vietnamese_reason(
+                reason = generate_english_reason(
                     product=outfit_candidate,
                     user=user,
                     reason_type="outfit",
@@ -432,7 +432,7 @@ class LightGCNRecommendationEngine:
 
         personalized = []
         for product in filtered_personalized[:top_k_personal]:
-            reason = generate_vietnamese_reason(
+            reason = generate_english_reason(
                 product=product,
                 user=user,
                 reason_type="personalized",
@@ -466,7 +466,7 @@ class LightGCNRecommendationEngine:
             ).order_by('-rating').first()
 
             if outfit_candidate:
-                reason = generate_vietnamese_reason(
+                reason = generate_english_reason(
                     product=outfit_candidate,
                     user=user,
                     reason_type="outfit",
