@@ -37,7 +37,8 @@ from .mongo_serializers import (
 class CategoryViewSet(viewsets.ViewSet):
     """ViewSet for Category."""
     
-     
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
     
     def list(self, request):
         """List all categories from unique values in Product collection."""
@@ -51,7 +52,6 @@ class CategoryViewSet(viewsets.ViewSet):
         master_categories_set = set()
         sub_categories_set = set()
         article_types_set = set()
-        # Track all subCategories per masterCategory (even without articleTypes)
         master_sub_mapping = defaultdict(set)
         
         for product in products:
@@ -59,7 +59,6 @@ class CategoryViewSet(viewsets.ViewSet):
             sub_cat = getattr(product, "subCategory", None)
             article_type = getattr(product, "articleType", None)
             
-            # Filter out None/empty values and normalize strings
             if master_cat and str(master_cat).strip():
                 master_cat = str(master_cat).strip()
                 master_categories_set.add(master_cat)
@@ -367,6 +366,9 @@ class SizeViewSet(viewsets.ViewSet):
 
 class ProductViewSet(viewsets.ViewSet):
     """ViewSet for Product."""
+    
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
     
     def list(self, request):
         """List products with filtering and pagination."""
@@ -748,7 +750,6 @@ class ProductViewSet(viewsets.ViewSet):
     def sale(self, request):
         """Get products on sale (sale > 0), sorted by highest sale then newest."""
         page, page_size = get_pagination_params(request)
-        # Filter sale > 0 using raw query for DecimalField
         queryset = Product.objects.filter(__raw__={"sale": {"$gt": 0}}).order_by("-sale", "-created_at")
         products, total_count, total_pages, current_page, page_size = paginate_queryset(
             queryset, page, page_size
@@ -765,6 +766,201 @@ class ProductViewSet(viewsets.ViewSet):
             },
         )
     
+    @action(detail=False, methods=["get"], permission_classes=[permissions.AllowAny], authentication_classes=[])
+    def filter(self, request):
+        """Filter products with advanced filtering options."""
+        queryset = Product.objects.all()
+        
+        category_id = request.query_params.get("category")
+        if category_id:
+            try:
+                category_object_id = ObjectId(category_id)
+                
+                queryset1 = queryset.filter(category_id=category_object_id)
+                count1 = queryset1.count()
+                
+                if count1 > 0:
+                    queryset = queryset1
+                else:
+                    queryset2 = Product.objects.all().filter(__raw__={"category_id": category_object_id})
+                    count2 = queryset2.count()
+                    
+                    if count2 > 0:
+                        queryset = queryset2
+                    else:
+                        queryset3 = Product.objects.all().filter(__raw__={"category_id": category_id})
+                        count3 = queryset3.count()
+                        
+                        if count3 > 0:
+                            queryset = queryset3
+                        else:
+                            try:
+                                queryset4 = Product.objects.all().filter(category_id=category_id)
+                                count4 = queryset4.count()
+                                if count4 > 0:
+                                    queryset = queryset4
+                            except:
+                                pass
+                            
+            except Exception as e:
+                queryset = queryset.filter(__raw__={"category_id": category_id})
+        
+        # Filter by brand
+        brand_id = request.query_params.get("brand")
+        if brand_id:
+            try:
+                brand_object_id = ObjectId(brand_id)
+                queryset = queryset.filter(__raw__={"brand_id": brand_object_id})
+            except Exception as e:
+                pass
+        
+        # Filter by gender
+        gender = request.query_params.get("gender")
+        if gender:
+            queryset = queryset.filter(gender__iexact=gender)
+        
+        # Filter by master category
+        master_category = request.query_params.get("masterCategory")
+        if master_category:
+            queryset = queryset.filter(masterCategory__iexact=master_category)
+        
+        # Filter by sub category
+        sub_category = request.query_params.get("subCategory")
+        if sub_category:
+            queryset = queryset.filter(subCategory__iexact=sub_category)
+        
+        # Filter by article type
+        article_type = request.query_params.get("articleType")
+        if article_type:
+            queryset = queryset.filter(articleType__iexact=article_type)
+        
+        # Filter by base colour
+        base_colour = request.query_params.get("baseColour")
+        if base_colour:
+            queryset = queryset.filter(baseColour__iexact=base_colour)
+        
+        # Filter by season
+        season = request.query_params.get("season")
+        if season:
+            queryset = queryset.filter(season__iexact=season)
+        
+        # Filter by year
+        year = request.query_params.get("year")
+        if year:
+            try:
+                year_int = int(year)
+                queryset = queryset.filter(year=year_int)
+            except ValueError:
+                pass
+        
+        # Price range filtering
+        min_price = request.query_params.get("minPrice")
+        max_price = request.query_params.get("maxPrice")
+        if min_price:
+            try:
+                min_price_float = float(min_price)
+                queryset = queryset.filter(price__gte=min_price_float)
+            except ValueError:
+                pass
+        if max_price:
+            try:
+                max_price_float = float(max_price)
+                queryset = queryset.filter(price__lte=max_price_float)
+            except ValueError:
+                pass
+        
+        # Search
+        search = request.query_params.get("search")
+        if search:
+            if search.isdigit():
+                try:
+                    search_id = int(search)
+                    queryset = queryset.filter(
+                        __raw__={"$or": [
+                            {"_id": search_id},
+                            {"id": search_id},
+                            {"name": {"$regex": search, "$options": "i"}},
+                            {"productDisplayName": {"$regex": search, "$options": "i"}},
+                            {"slug": {"$regex": search, "$options": "i"}},
+                            {"description": {"$regex": search, "$options": "i"}},
+                        ]}
+                    )
+                except ValueError:
+                    queryset = queryset.filter(
+                        __raw__={"$or": [
+                            {"name": {"$regex": search, "$options": "i"}},
+                            {"productDisplayName": {"$regex": search, "$options": "i"}},
+                            {"slug": {"$regex": search, "$options": "i"}},
+                            {"description": {"$regex": search, "$options": "i"}},
+                        ]}
+                    )
+            else:
+                queryset = queryset.filter(
+                    __raw__={"$or": [
+                        {"name": {"$regex": search, "$options": "i"}},
+                        {"productDisplayName": {"$regex": search, "$options": "i"}},
+                        {"slug": {"$regex": search, "$options": "i"}},
+                        {"description": {"$regex": search, "$options": "i"}},
+                    ]}
+                )
+        
+        # Sorting
+        sort_by = request.query_params.get("sort_by") or request.query_params.get("ordering")
+        if sort_by:
+            if sort_by == "default":
+                queryset = queryset.order_by("id")
+            elif sort_by == "price_low_to_high":
+                queryset = queryset.order_by("price")
+            elif sort_by == "price_high_to_low":
+                queryset = queryset.order_by("-price")
+            elif sort_by == "rating":
+                queryset = queryset.order_by("-rating", "-num_reviews")
+            elif sort_by == "newest":
+                queryset = queryset.order_by("-created_at")
+            elif sort_by == "oldest":
+                queryset = queryset.order_by("created_at")
+            elif sort_by.startswith("-"):
+                queryset = queryset.order_by(f"-{sort_by[1:]}")
+            else:
+                queryset = queryset.order_by(sort_by)
+        else:
+            queryset = queryset.order_by("id")
+        
+        # Pagination
+        page, page_size = get_pagination_params(request)
+
+        # Option handling (e.g., option=all to get all without pagination)
+        option = request.query_params.get("option")
+        if option == "all":
+            products = list(queryset)
+            serializer = ProductSerializer(products, many=True)
+            total_count = queryset.count()
+            return api_success(
+                "Products filtered successfully",
+                {
+                    "products": serializer.data,
+                    "page": 1,
+                    "pages": 1,
+                    "perPage": len(products) or total_count or page_size,
+                    "count": total_count,
+                },
+            )
+
+        products, total_count, total_pages, current_page, page_size = paginate_queryset(
+            queryset, page, page_size
+        )
+        serializer = ProductSerializer(products, many=True)
+        return api_success(
+            "Products filtered successfully",
+            {
+                "products": serializer.data,
+                "page": current_page,
+                "pages": total_pages,
+                "perPage": page_size,
+                "count": total_count,
+            },
+        )
+
     @action(detail=False, methods=["get"], permission_classes=[permissions.AllowAny], authentication_classes=[])
     def debug_category(self, request):
         """Debug endpoint to check category and products count."""

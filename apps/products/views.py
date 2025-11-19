@@ -25,7 +25,7 @@ from .serializers import (
 class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
     search_fields = ["name"]
     ordering_fields = ["name", "created_at"]
 
@@ -33,14 +33,14 @@ class CategoryViewSet(viewsets.ModelViewSet):
 class ColorViewSet(viewsets.ModelViewSet):
     queryset = Color.objects.all()
     serializer_class = ColorSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
     search_fields = ["name", "hex_code"]
 
 
 class SizeViewSet(viewsets.ModelViewSet):
     queryset = Size.objects.all()
     serializer_class = SizeSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
     search_fields = ["name", "code"]
 
 
@@ -50,7 +50,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         "reviews",
     )
     serializer_class = ProductSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
     search_fields = ["productDisplayName", "masterCategory", "subCategory", "articleType"]
     ordering_fields = ["id", "rating", "year", "created_at"]
 
@@ -128,7 +128,7 @@ class ProductViewSet(viewsets.ModelViewSet):
 class ContentSectionViewSet(viewsets.ModelViewSet):
     queryset = ContentSection.objects.all()
     serializer_class = ContentSectionSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
     search_fields = ["title", "type"]
     ordering_fields = ["created_at"]
 
