@@ -9,13 +9,14 @@ from typing import Any, Dict, List
 
 try:
     from bson import ObjectId
-    from apps.products.mongo_models import Product as MongoProduct
+    from apps.products.mongo_models import Product as MongoProduct, ProductVariant
     from apps.brands.mongo_models import Brand as MongoBrand
     MONGO_AVAILABLE = True
 except Exception:
     MONGO_AVAILABLE = False
     ObjectId = None
     MongoProduct = None
+    ProductVariant = None
     MongoBrand = None
 
 # Cache for MongoDB availability check
@@ -192,6 +193,23 @@ def _serialize_product(product: MongoProduct, original_mongo_id: str | None = No
     
     product_id = getattr(product, "id", None)
     
+    # Load variants for this product
+    variants = []
+    if ProductVariant is not None:
+        try:
+            product_variants = ProductVariant.objects(product_id=product_id)
+            for variant in product_variants:
+                variants.append({
+                    "id": str(variant.id),
+                    "color": variant.color,
+                    "size": variant.size,
+                    "price": float(variant.price) if variant.price is not None else None,
+                    "stock": variant.stock if variant.stock is not None else 0,
+                })
+        except Exception:
+            # If variants can't be loaded, return empty list
+            variants = []
+    
     # Directly access attributes from the MongoProduct object.
     # Use getattr to provide default values for fields that might be missing.
     return {
@@ -214,7 +232,7 @@ def _serialize_product(product: MongoProduct, original_mongo_id: str | None = No
         
         # Default empty lists for fields not currently in the model.
         "reviews": [],
-        "variants": [],
+        "variants": variants,
         
         "created_at": getattr(product, "created_at", None).isoformat() if getattr(product, "created_at", None) else None,
         "updated_at": getattr(product, "updated_at", None).isoformat() if getattr(product, "updated_at", None) else None,

@@ -14,7 +14,7 @@ import numpy as np
 import torch
 from bson import ObjectId
 
-from apps.products.mongo_models import Product as MongoProduct
+from apps.products.mongo_models import Product as MongoProduct, ProductVariant
 from apps.users.mongo_models import User as MongoUser, UserInteraction as MongoInteraction
 from apps.recommendations.utils import (
     filter_by_age_gender,
@@ -495,17 +495,40 @@ class LightGCNRecommendationEngine:
     
     def _serialize_product(self, product: MongoProduct) -> Dict[str, Any]:
         """Serialize product to dictionary."""
+        # Load variants for this product
+        variants = []
+        try:
+            product_variants = ProductVariant.objects(product_id=product.id)
+            for variant in product_variants:
+                variants.append({
+                    "id": str(variant.id),
+                    "color": variant.color,
+                    "size": variant.size,
+                    "price": float(variant.price) if variant.price is not None else None,
+                    "stock": variant.stock if variant.stock is not None else 0,
+                })
+        except Exception as e:
+            logger.debug(f"Could not load variants for product {product.id}: {e}")
+            variants = []
+        
         return {
-            "id": str(product.id),
-            "name": product.productDisplayName or "",
-            "gender": product.gender or "",
-            "masterCategory": product.masterCategory or "",
-            "subCategory": product.subCategory or "",
-            "articleType": product.articleType or "",
-            "baseColour": product.baseColour or "",
-            "season": product.season or "",
-            "usage": product.usage or "",
-            "images": product.images or [],
+            "id": int(product.id) if product.id is not None else None,
+            "gender": getattr(product, "gender", None),
+            "masterCategory": getattr(product, "masterCategory", None),
+            "subCategory": getattr(product, "subCategory", None),
+            "articleType": getattr(product, "articleType", None),
+            "baseColour": getattr(product, "baseColour", None),
+            "season": getattr(product, "season", None),
+            "year": getattr(product, "year", None),
+            "usage": getattr(product, "usage", None),
+            "productDisplayName": getattr(product, "productDisplayName", getattr(product, "name", None)),
+            "images": list(getattr(product, "images", [])) or [],
+            "rating": float(getattr(product, "rating", 0.0)) if getattr(product, "rating", None) is not None else None,
+            "sale": float(getattr(product, "sale", 0.0)) if getattr(product, "sale", None) is not None else None,
+            "reviews": [],
+            "variants": variants,
+            "created_at": getattr(product, "created_at", None).isoformat() if getattr(product, "created_at", None) else None,
+            "updated_at": getattr(product, "updated_at", None).isoformat() if getattr(product, "updated_at", None) else None,
         }
 
 
