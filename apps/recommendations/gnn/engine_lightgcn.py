@@ -364,10 +364,34 @@ class LightGCNRecommendationEngine:
         )
         outfit_categories = get_outfit_categories(current_tag or "tops", user.gender)
         
+        # Add current product to outfit in its category
+        if current_tag and current_tag in outfit_categories:
+            current_product_reason = generate_english_reason(
+                product=current_product,
+                user=user,
+                reason_type="outfit",
+                current_product=current_product,
+            )
+            # Use a high score for the current product (1.0 or the product's rating normalized)
+            current_score = 1.0
+            if str(current_product.id) in self.product_id_map:
+                current_score = float(scores[self.product_id_map[str(current_product.id)]])
+            else:
+                current_score = min(1.0, float(getattr(current_product, 'rating', 5.0) / 5.0))
+            
+            outfit[current_tag] = {
+                "product": self._serialize_product(current_product),
+                "score": current_score,
+                "reason": f"Selected product: {current_product_reason}",
+            }
+        
         used_outfit_product_ids = {str(current_product.id)}
         used_outfit_product_ids.update(item['product']['id'] for item in personalized)
 
         for category in outfit_categories:
+            # Skip if we already added the current product to this category
+            if category == current_tag:
+                continue
             # Directly query for the best-rated product in the category
             outfit_candidate = MongoProduct.objects(
                 subCategory__iexact=category,
@@ -453,11 +477,30 @@ class LightGCNRecommendationEngine:
         )
         outfit_categories = get_outfit_categories(current_tag or "tops", user.gender)
         
+        # Add current product to outfit in its category
+        if current_tag and current_tag in outfit_categories:
+            current_product_reason = generate_english_reason(
+                product=current_product,
+                user=user,
+                reason_type="outfit",
+                current_product=current_product,
+            )
+            current_score = min(1.0, float(getattr(current_product, 'rating', 5.0) / 5.0))
+            
+            outfit[current_tag] = {
+                "product": self._serialize_product(current_product),
+                "score": current_score,
+                "reason": f"Selected product: {current_product_reason}",
+            }
+        
         used_outfit_product_ids = {str(current_product.id)}
         if personalized:
             used_outfit_product_ids.update(item['product']['id'] for item in personalized)
 
         for category in outfit_categories:
+            # Skip if we already added the current product to this category
+            if category == current_tag:
+                continue
             # Find the best product for this category
             outfit_candidate = MongoProduct.objects(
                 subCategory__iexact=category,  # Case-insensitive match for category

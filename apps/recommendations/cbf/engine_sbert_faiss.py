@@ -313,7 +313,25 @@ class ContentBasedRecommendationEngine:
         outfit_categories = get_outfit_categories(current_tag or "tops", user.gender)
         outfit = {}
         
+        # Add current product to outfit in its category
+        if current_tag and current_tag in outfit_categories:
+            current_product_reason = generate_english_reason(
+                product=current_product,
+                user=user,
+                reason_type="outfit",
+                current_product=current_product,
+            )
+            # Use high similarity score for current product (1.0)
+            outfit[current_tag] = {
+                "product": self._serialize_product(current_product),
+                "score": 1.0,
+                "reason": f"Selected product: {current_product_reason}",
+            }
+        
         for category in outfit_categories:
+            # Skip if we already added the current product to this category
+            if category == current_tag:
+                continue
             # Find products in this category
             category_products = [
                 p for p in filtered_products

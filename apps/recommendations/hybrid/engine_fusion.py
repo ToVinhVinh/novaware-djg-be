@@ -220,11 +220,29 @@ class HybridRecommendationEngine:
         
         outfit_categories = get_outfit_categories(current_tag or "tops", user.gender)
         
+        # Add current product to outfit in its category
+        if current_tag and current_tag in outfit_categories:
+            current_product_reason = generate_english_reason(
+                product=current_product,
+                user=user,
+                reason_type="outfit",
+                current_product=current_product,
+            )
+            # Use high score for current product (1.0)
+            outfit[current_tag] = {
+                "product": self._serialize_product(current_product),
+                "score": 1.0,
+                "reason": f"Selected product: {current_product_reason} (Hybrid fusion)",
+            }
+        
         # Combine outfit results from both engines
         gnn_outfit = gnn_results.get("outfit", {})
         cbf_outfit = cbf_results.get("outfit", {})
         
         for category in outfit_categories:
+            # Skip if we already added the current product to this category
+            if category == current_tag:
+                continue
             # Get candidates from both engines
             candidates = []
             

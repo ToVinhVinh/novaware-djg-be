@@ -77,12 +77,30 @@ class OutfitBuilder:
         outfit_items = {}
         used_product_ids = set()
         
-        # Add current product ID to exclusion list
+        # Add current product to outfit in its category
         if context.current_product and hasattr(context.current_product, 'id'):
-            used_product_ids.add(context.current_product.id)
+            current_product = context.current_product
+            current_category_key = cls._get_category_key_for_product(current_product)
+            
+            if current_category_key:
+                # Get subcategory name for reason
+                subcategory_name = required_categories.get(current_category_key, current_category_key.replace("apparel_", "").replace("_", " ").title())
+                
+                # Add current product to outfit
+                current_score = scored_candidates.get(current_product.id, 1.0) if hasattr(current_product, 'id') else 1.0
+                current_reason = cls._build_outfit_reason(current_product, context, subcategory_name)
+                current_reason = f"Selected product: {current_reason}"
+                
+                outfit_items[current_category_key] = OutfitRecommendation(
+                    current_category_key, current_product, current_score, current_reason, context=context
+                )
+                used_product_ids.add(current_product.id)
         
         # Build each category
         for category_key, subcategory in required_categories.items():
+            # Skip if current product already fills this category
+            if category_key in outfit_items:
+                continue
             product = cls._find_product_for_category(
                 subcategory=subcategory,
                 user_product_gender=user_product_gender,
@@ -454,6 +472,41 @@ class OutfitBuilder:
         return ranked
 
 
+    @classmethod
+    def _get_category_key_for_product(cls, product) -> str:
+        """Get the outfit category key for a product based on its subCategory and articleType."""
+        if not product:
+            return None
+        
+        sub_category = (getattr(product, "subCategory", "") or "").lower().strip()
+        article_type = (getattr(product, "articleType", "") or "").lower().strip()
+        
+        # Check for topwear
+        if sub_category == "topwear" or article_type in ["jackets", "shirts", "sweaters", "sweatshirts", "tops", "tshirts", "tunics"]:
+            return "apparel_topwear"
+        
+        # Check for bottomwear
+        if sub_category == "bottomwear" or article_type in ["capris", "jeans", "shorts", "skirts", "track pants", "tracksuits", "trousers"]:
+            return "apparel_bottomwear"
+        
+        # Check for footwear
+        if sub_category in ["shoes", "sandal", "flip flops"] or article_type in ["flip flops", "sandals", "sports sandals", "casual shoes", "flats", "formal shoes", "heels", "sports shoes"]:
+            return "footwear"
+        
+        # Check for accessories
+        if sub_category in ["bags", "belts", "headwear", "watches"] or article_type in ["backpacks", "handbags", "belts", "caps", "watches"]:
+            return "accessories"
+        
+        # Check for dress
+        if sub_category == "dress" or article_type == "dresses":
+            return "apparel_dress"
+        
+        # Check for innerwear
+        if sub_category == "innerwear" or article_type == "bra":
+            return "apparel_innerwear"
+        
+        return None
+    
     @staticmethod
     def _product_matches_category(product, target_category: str) -> bool:
         """Check if a product matches a target outfit category based on the hierarchy."""
