@@ -32,10 +32,10 @@ class Outfit(models.Model):
 
 class RecommendationRequest(models.Model):
     ALGORITHM_CHOICES = (
-        ("cf", "Collaborative Filtering"),
+        ("cf", "GNN (LightGCN) - Collaborative Filtering"),
         ("cb", "Content Based"),
         ("gnn", "Graph Neural Network"),
-        ("hybrid", "Hybrid"),
+        ("hybrid", "Hybrid GNN+CBF"),
     )
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="recommendation_requests")

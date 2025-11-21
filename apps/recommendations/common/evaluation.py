@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 from typing import Any
 
@@ -17,22 +18,26 @@ def calculate_evaluation_metrics(
     Args:
         recommendations: List of recommended items with scores (from payload.as_dict())
         ground_truth: Optional ground truth items for comparison
-        execution_time: Optional execution time in seconds
+        execution_time: Optional execution time in seconds (inference time per user)
         
     Returns:
-        Dictionary containing evaluation metrics
+        Dictionary containing evaluation metrics:
+        - recall_at_10: Recall@10 metric
+        - recall_at_20: Recall@20 metric
+        - ndcg_at_10: NDCG@10 metric
+        - ndcg_at_20: NDCG@20 metric
+        - inference_time: Inference time per user in milliseconds
     """
     import logging
     logger = logging.getLogger(__name__)
     
     metrics = {
         "model": None,  # Will be set by caller
-        "mape": None,
-        "rmse": None,
-        "precision": 0.0,  # Default to 0.0 instead of None
-        "recall": 0.0,
-        "f1": 0.0,
-        "time": round(execution_time, 4) if execution_time is not None else None,
+        "recall_at_10": 0.0,
+        "recall_at_20": 0.0,
+        "ndcg_at_10": 0.0,
+        "ndcg_at_20": 0.0,
+        "inference_time": round(execution_time * 1000, 2) if execution_time is not None else None,  # Convert to ms
         "_debug": {  # Debug info to help diagnose issues
             "num_recommendations": len(recommendations) if recommendations else 0,
             "num_ground_truth": len(ground_truth) if ground_truth else 0,
@@ -129,199 +134,173 @@ def calculate_evaluation_metrics(
             f"sample_ids={ground_truth_ids[:5] if ground_truth_ids else []}"
         )
         
-        # Calculate precision, recall, F1
+        # Calculate Recall@K and NDCG@K metrics
         if recommended_ids and ground_truth_ids:
-            # Try exact match first
-            true_positives_set = set(recommended_ids) & set(ground_truth_ids)
-            true_positives = len(true_positives_set)
+            # Normalize IDs to sets for comparison (handle string vs int mismatch)
+            rec_ids_set = set()
+            gt_ids_set = set()
             
-            # If no exact match, try converting to int for comparison (handle string vs int mismatch)
-            if true_positives == 0:
-                try:
-                    # Convert all to int for comparison
-                    rec_ids_int = {}
-                    for id in recommended_ids:
-                        if id and str(id).strip():
-                            try:
-                                int_id = int(str(id).strip())
-                                rec_ids_int[int_id] = str(id)
-                            except (ValueError, TypeError):
-                                pass
-                    
-                    gt_ids_int = {}
-                    for id in ground_truth_ids:
-                        if id and str(id).strip():
-                            try:
-                                int_id = int(str(id).strip())
-                                gt_ids_int[int_id] = str(id)
-                            except (ValueError, TypeError):
-                                pass
-                    
-                    # Find overlap in int space
-                    common_int_ids = set(rec_ids_int.keys()) & set(gt_ids_int.keys())
-                    true_positives = len(common_int_ids)
-                    
-                    if true_positives > 0:
-                        logger.info(f"Found overlap after converting IDs to int: {true_positives} matches")
-                        # Update true_positives_set with string versions for later use
-                        true_positives_set = {rec_ids_int[int_id] for int_id in common_int_ids if int_id in rec_ids_int}
-                except (ValueError, TypeError) as e:
-                    logger.warning(f"Could not convert IDs to int for comparison: {e}")
-                except Exception as e:
-                    logger.warning(f"Unexpected error in ID conversion: {e}")
+            # Convert recommended IDs to normalized set
+            for id in recommended_ids:
+                if id and str(id).strip():
+                    try:
+                        # Try int conversion first
+                        rec_ids_set.add(int(str(id).strip()))
+                    except (ValueError, TypeError):
+                        # Keep as string if not numeric
+                        rec_ids_set.add(str(id).strip())
             
-            precision = true_positives / len(recommended_ids) if recommended_ids else 0.0
-            recall = true_positives / len(ground_truth_ids) if ground_truth_ids else 0.0
-            f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+            # Convert ground truth IDs to normalized set
+            for id in ground_truth_ids:
+                if id and str(id).strip():
+                    try:
+                        # Try int conversion first
+                        gt_ids_set.add(int(str(id).strip()))
+                    except (ValueError, TypeError):
+                        # Keep as string if not numeric
+                        gt_ids_set.add(str(id).strip())
             
-            metrics["precision"] = round(precision, 4)
-            metrics["recall"] = round(recall, 4)
-            metrics["f1"] = round(f1, 4)
+            # Find overlap
+            overlap = rec_ids_set & gt_ids_set
             
-            # Debug: log why metrics might be 0
-            if true_positives == 0:
+            if len(overlap) > 0:
+                logger.info(f"Found {len(overlap)} overlapping items between recommendations and ground truth")
+                metrics["_debug"]["overlap_found"] = True
+                metrics["_debug"]["overlap_count"] = len(overlap)
+            else:
                 logger.warning(
                     f"No overlap between recommendations ({len(recommended_ids)} items) "
                     f"and ground truth ({len(ground_truth_ids)} items). "
                     f"Recommended IDs sample: {recommended_ids[:5] if recommended_ids else []}, "
                     f"Ground truth IDs sample: {ground_truth_ids[:5] if ground_truth_ids else []}"
                 )
-                # Add to debug info
-                metrics["_debug"]["overlap_attempted"] = True
                 metrics["_debug"]["overlap_found"] = False
                 metrics["_debug"]["sample_recommended_ids"] = recommended_ids[:5] if recommended_ids else []
                 metrics["_debug"]["sample_ground_truth_ids"] = ground_truth_ids[:5] if ground_truth_ids else []
+            
+            # Calculate Recall@K
+            # Recall@K = (number of relevant items in top K) / (total number of relevant items)
+            if len(gt_ids_set) > 0:
+                # Get top K recommendations (first K items)
+                top_10_ids = set()
+                top_20_ids = set()
                 
-                # Additional debug: check ID types
-                if recommended_ids and ground_truth_ids:
-                    rec_types = [type(id).__name__ for id in recommended_ids[:3]]
-                    gt_types = [type(id).__name__ for id in ground_truth_ids[:3]]
-                    metrics["_debug"]["recommended_id_types"] = rec_types
-                    metrics["_debug"]["ground_truth_id_types"] = gt_types
+                # Normalize recommended_ids to same format as sets
+                for i, id in enumerate(recommended_ids):
+                    normalized_id = None
+                    if id and str(id).strip():
+                        try:
+                            normalized_id = int(str(id).strip())
+                        except (ValueError, TypeError):
+                            normalized_id = str(id).strip()
                     
-                    # Try to see if any IDs match when converted
-                    rec_set = set(str(id).strip() for id in recommended_ids)
-                    gt_set = set(str(id).strip() for id in ground_truth_ids)
-                    string_overlap = rec_set & gt_set
-                    metrics["_debug"]["string_overlap_count"] = len(string_overlap)
-                    if string_overlap:
-                        metrics["_debug"]["string_overlap_ids"] = list(string_overlap)[:5]
-            else:
-                metrics["_debug"]["overlap_found"] = True
-                metrics["_debug"]["true_positives"] = true_positives
-        else:
-            logger.warning(
-                f"Cannot calculate precision/recall: "
-                f"recommended_ids={len(recommended_ids)}, ground_truth_ids={len(ground_truth_ids)}"
-            )
-        
-        # Calculate MAPE and RMSE if we have both predicted scores and actual ratings
-        if recommended_scores and ground_truth_ratings:
-            # Find common products - try exact match first
-            common_ids = set(recommended_scores.keys()) & set(ground_truth_ratings.keys())
-            
-            # Create mappings for int-based comparison
-            rec_scores_by_int = {}
-            gt_ratings_by_int = {}
-            rec_int_to_str = {}  # Map int -> str for recommended
-            gt_int_to_str = {}   # Map int -> str for ground truth
-            
-            # If no exact match, try converting to int
-            if not common_ids:
-                try:
-                    # Create mapping: int_id -> (score/rating, str_id) for both
-                    for k, v in recommended_scores.items():
-                        if str(k).isdigit():
-                            int_id = int(k)
-                            rec_scores_by_int[int_id] = v
-                            rec_int_to_str[int_id] = k
+                    if normalized_id is not None:
+                        if i < 10:
+                            top_10_ids.add(normalized_id)
+                        if i < 20:
+                            top_20_ids.add(normalized_id)
+                
+                # Calculate Recall@10
+                relevant_at_10 = len(top_10_ids & gt_ids_set)
+                recall_at_10 = relevant_at_10 / len(gt_ids_set) if len(gt_ids_set) > 0 else 0.0
+                metrics["recall_at_10"] = round(recall_at_10, 4)
+                
+                # Calculate Recall@20
+                relevant_at_20 = len(top_20_ids & gt_ids_set)
+                recall_at_20 = relevant_at_20 / len(gt_ids_set) if len(gt_ids_set) > 0 else 0.0
+                metrics["recall_at_20"] = round(recall_at_20, 4)
+                
+                # Calculate NDCG@K
+                # NDCG@K = DCG@K / IDCG@K
+                # DCG@K = sum(rel_i / log2(i+1)) for i in [1, K]
+                # IDCG@K = DCG of ideal ranking (all relevant items ranked first)
+                
+                def calculate_dcg(relevance_list: list[float], k: int) -> float:
+                    """Calculate DCG@K given a list of relevance scores."""
+                    dcg = 0.0
+                    for i in range(min(len(relevance_list), k)):
+                        rel = relevance_list[i]
+                        dcg += rel / math.log2(i + 2)  # i+2 because log2(1) = 0, we want log2(2) = 1
+                    return dcg
+                
+                # Build mapping from normalized IDs to original string keys for ratings lookup
+                # ground_truth_ratings uses string keys from ground_truth_ids
+                normalized_to_string = {}
+                for orig_id in ground_truth_ids:
+                    if orig_id and str(orig_id).strip():
+                        try:
+                            normalized_id = int(str(orig_id).strip())
+                            normalized_to_string[normalized_id] = str(orig_id).strip()
+                        except (ValueError, TypeError):
+                            normalized_id = str(orig_id).strip()
+                            normalized_to_string[normalized_id] = str(orig_id).strip()
+                
+                # Build relevance lists for top 10 and top 20
+                # Relevance = 1 if item is in ground truth, 0 otherwise
+                # Use ratings if available, otherwise binary relevance
+                relevance_list_10 = []
+                relevance_list_20 = []
+                
+                for i, id in enumerate(recommended_ids):
+                    normalized_id = None
+                    if id and str(id).strip():
+                        try:
+                            normalized_id = int(str(id).strip())
+                        except (ValueError, TypeError):
+                            normalized_id = str(id).strip()
                     
-                    for k, v in ground_truth_ratings.items():
-                        if str(k).isdigit():
-                            int_id = int(k)
-                            gt_ratings_by_int[int_id] = v
-                            gt_int_to_str[int_id] = k
-                    
-                    common_int_ids = set(rec_scores_by_int.keys()) & set(gt_ratings_by_int.keys())
-                    
-                    if common_int_ids:
-                        logger.info(f"Found {len(common_int_ids)} common products after converting IDs to int for MAPE/RMSE")
-                        # Use int IDs for processing - need to get scores/ratings using int keys
-                        # Build mappings from int IDs back to original string keys
-                        for int_id in common_int_ids:
-                            if int_id in rec_scores_by_int and int_id in gt_ratings_by_int:
-                                # We have both score and rating for this int_id
-                                # Map back to string keys for common_ids
-                                if int_id in rec_int_to_str:
-                                    common_ids.add(rec_int_to_str[int_id])
-                        common_ids_int = common_int_ids
+                    if normalized_id is not None:
+                        # Check if in ground truth
+                        if normalized_id in gt_ids_set:
+                            # Use rating if available, otherwise 1.0
+                            # Try to get rating using original string key
+                            string_key = normalized_to_string.get(normalized_id, str(normalized_id))
+                            if string_key in ground_truth_ratings:
+                                rel = float(ground_truth_ratings[string_key])
+                                # Normalize rating to 0-1 scale (assuming max rating is 5.0)
+                                rel = min(rel / 5.0, 1.0)
+                            else:
+                                rel = 1.0  # Binary relevance
+                        else:
+                            rel = 0.0
+                        
+                        if i < 10:
+                            relevance_list_10.append(rel)
+                        if i < 20:
+                            relevance_list_20.append(rel)
+                
+                # Calculate DCG@10 and DCG@20
+                dcg_at_10 = calculate_dcg(relevance_list_10, 10)
+                dcg_at_20 = calculate_dcg(relevance_list_20, 20)
+                
+                # Calculate IDCG@K (ideal DCG - all relevant items ranked first)
+                # Get all relevance scores from ground truth, sort descending
+                ideal_relevance = []
+                for normalized_id in gt_ids_set:
+                    string_key = normalized_to_string.get(normalized_id, str(normalized_id))
+                    if string_key in ground_truth_ratings:
+                        rel = float(ground_truth_ratings[string_key])
+                        rel = min(rel / 5.0, 1.0)
                     else:
-                        common_ids_int = set()
-                except (ValueError, TypeError) as e:
-                    logger.warning(f"Could not convert IDs to int for MAPE/RMSE: {e}")
-                    common_ids_int = set()
-            else:
-                # We have exact matches, convert to int for processing
-                try:
-                    common_ids_int = {int(id) for id in common_ids if str(id).isdigit()}
-                    # Build mappings
-                    for k, v in recommended_scores.items():
-                        if k in common_ids and str(k).isdigit():
-                            int_id = int(k)
-                            rec_scores_by_int[int_id] = v
-                            rec_int_to_str[int_id] = k
-                    for k, v in ground_truth_ratings.items():
-                        if k in common_ids and str(k).isdigit():
-                            int_id = int(k)
-                            gt_ratings_by_int[int_id] = v
-                            gt_int_to_str[int_id] = k
-                except (ValueError, TypeError):
-                    common_ids_int = set()
-            
-            if common_ids_int:
-                predicted_values = []
-                actual_values = []
+                        rel = 1.0  # Binary relevance
+                    ideal_relevance.append(rel)
                 
-                for product_id_int in common_ids_int:
-                    pred_score = rec_scores_by_int[product_id_int]
-                    actual_rating = gt_ratings_by_int[product_id_int]
-                    
-                    # Normalize scores to 0-5 range if needed (assuming max score is around 1.0)
-                    # You may need to adjust this based on your actual score range
-                    normalized_pred = min(max(pred_score * 5.0, 0.0), 5.0)  # Scale to 0-5
-                    
-                    predicted_values.append(normalized_pred)
-                    actual_values.append(actual_rating)
+                ideal_relevance.sort(reverse=True)  # Sort descending
                 
-                if predicted_values and actual_values:
-                    # Calculate RMSE
-                    squared_errors = [(p - a) ** 2 for p, a in zip(predicted_values, actual_values)]
-                    rmse = (sum(squared_errors) / len(squared_errors)) ** 0.5
-                    metrics["rmse"] = round(rmse, 4)
-                    
-                    # Calculate MAPE (avoid division by zero)
-                    absolute_percentage_errors = []
-                    for p, a in zip(predicted_values, actual_values):
-                        if a != 0:
-                            ape = abs((p - a) / a) * 100
-                            absolute_percentage_errors.append(ape)
-                    
-                    if absolute_percentage_errors:
-                        mape = sum(absolute_percentage_errors) / len(absolute_percentage_errors)
-                        metrics["mape"] = round(mape, 4)
+                idcg_at_10 = calculate_dcg(ideal_relevance, 10)
+                idcg_at_20 = calculate_dcg(ideal_relevance, 20)
+                
+                # Calculate NDCG@10 and NDCG@20
+                ndcg_at_10 = dcg_at_10 / idcg_at_10 if idcg_at_10 > 0 else 0.0
+                ndcg_at_20 = dcg_at_20 / idcg_at_20 if idcg_at_20 > 0 else 0.0
+                
+                metrics["ndcg_at_10"] = round(ndcg_at_10, 4)
+                metrics["ndcg_at_20"] = round(ndcg_at_20, 4)
             else:
                 logger.warning(
-                    f"Cannot calculate MAPE/RMSE: "
-                    f"common_ids={len(common_ids)}, "
-                    f"recommended_scores={len(recommended_scores)}, "
-                    f"ground_truth_ratings={len(ground_truth_ratings)}"
+                    f"Cannot calculate Recall/NDCG: "
+                    f"recommended_ids={len(recommended_ids)}, ground_truth_ids={len(ground_truth_ids)}"
                 )
-        else:
-            logger.warning(
-                f"Cannot calculate MAPE/RMSE: "
-                f"recommended_scores={len(recommended_scores)}, "
-                f"ground_truth_ratings={len(ground_truth_ratings)}"
-            )
     else:
         logger.info(
             f"No ground truth provided. Metrics will be 0.0. "
@@ -329,25 +308,6 @@ def calculate_evaluation_metrics(
             f"Recommended IDs: {len(recommended_ids)}, "
             f"Scores: {len(recommended_scores)}"
         )
-    
-    # Fallback: If no ground truth but we have scores, calculate basic score-based metrics
-    if (ground_truth is None or len(ground_truth) == 0) and recommended_scores:
-        scores_list = list(recommended_scores.values())
-        if scores_list:
-            # Calculate score statistics
-            avg_score = sum(scores_list) / len(scores_list)
-            max_score = max(scores_list)
-            min_score = min(scores_list)
-            
-            # Use score distribution as a proxy for model confidence
-            # Higher variance = more diverse recommendations
-            if len(scores_list) > 1:
-                variance = sum((s - avg_score) ** 2 for s in scores_list) / len(scores_list)
-                std_dev = variance ** 0.5
-                
-                # Normalize to 0-1 range for display
-                # These are not true precision/recall but score-based metrics
-                # We keep precision/recall/f1 as 0.0 when no ground truth
     
     return metrics
 

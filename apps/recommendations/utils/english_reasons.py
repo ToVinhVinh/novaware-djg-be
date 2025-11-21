@@ -295,13 +295,12 @@ def build_english_reason_from_context(product, context, model_name: str = "") ->
     if product_season:
         parts.append(f"Suitable for {product_season.lower()} season")
     
-    # Model-specific additions
     if model_name == "cbf":
-        parts.append("Content similarity based on product features")
+        parts.append("Content similarity based on product features (Sentence-BERT + FAISS)")
     elif model_name == "gnn":
-        parts.append("Collaborative filtering based on user interactions")
+        parts.append("GNN (LightGCN) recommendation based on user interaction graph")
     elif model_name == "hybrid":
-        parts.append("Hybrid approach combining collaborative and content-based filtering")
+        parts.append("Hybrid approach combining GNN (LightGCN) and Content-based Filtering (Sentence-BERT + FAISS)")
     
     # Default if no parts
     if not parts:

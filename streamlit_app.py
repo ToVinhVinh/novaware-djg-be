@@ -247,7 +247,7 @@ def extract_training_metrics(result_data: Dict[str, Any], model_type: str) -> Di
     
     This extracts metrics from /train API response which includes:
     - Training parameters: num_users, num_products, epochs, batch_size, etc.
-    - Training metrics: may include evaluation metrics if available in artifacts
+    - Training time: time taken to train the model
     """
     metrics = {
         "num_users": "N/A",
@@ -259,12 +259,7 @@ def extract_training_metrics(result_data: Dict[str, Any], model_type: str) -> Di
         "embed_dim": "N/A",
         "learning_rate": "N/A",
         "test_size": 0.2,
-        "mape": "N/A",
-        "rmse": "N/A",
-        "precision": "N/A",
-        "recall": "N/A",
-        "f1": "N/A",
-        "time": "N/A",
+        "training_time": "N/A",
     }
     
     if not result_data:
@@ -272,15 +267,15 @@ def extract_training_metrics(result_data: Dict[str, Any], model_type: str) -> Di
     
     # Try to extract from different possible response structures
     if isinstance(result_data, dict):
-        # Direct metrics (evaluation metrics) - may be from /train artifacts
-        for key in ["mape", "rmse", "precision", "recall", "f1", "f1_score"]:
+        # Training time - extract from result
+        for key in ["training_time", "time"]:
             if key in result_data:
                 value = result_data[key]
                 # Convert to string if numeric
                 if isinstance(value, (int, float)):
-                    metrics[key] = str(value)
+                    metrics["training_time"] = str(value)
                 else:
-                    metrics[key] = value
+                    metrics["training_time"] = value
         
         # Training info nested structure
         if "training_info" in result_data:
@@ -319,13 +314,14 @@ def extract_training_metrics(result_data: Dict[str, Any], model_type: str) -> Di
         for nested_key in ["metrics", "evaluation", "stats", "results"]:
             if nested_key in result_data and isinstance(result_data[nested_key], dict):
                 nested = result_data[nested_key]
-                for key in ["mape", "rmse", "precision", "recall", "f1", "f1_score"]:
+                # Extract training time if available
+                for key in ["training_time", "time"]:
                     if key in nested:
                         value = nested[key]
                         if isinstance(value, (int, float)):
-                            metrics[key] = str(value)
+                            metrics["training_time"] = str(value)
                         else:
-                            metrics[key] = value
+                            metrics["training_time"] = value
         
         # Try to extract from summary or message
         if "summary" in result_data:
@@ -343,15 +339,14 @@ def extract_recommend_metrics(result_data: Dict[str, Any], model_type: str) -> D
     """Extract evaluation metrics from /recommend API response.
     
     The /recommend API returns evaluation_metrics with:
-    - MAPE, RMSE, Precision, Recall, F1, execution_time
+    - Recall@10, Recall@20, NDCG@10, NDCG@20, inference_time
     """
     metrics = {
-        "mape": "N/A",
-        "rmse": "N/A",
-        "precision": "N/A",
-        "recall": "N/A",
-        "f1": "N/A",
-        "time": "N/A",
+        "recall_at_10": "N/A",
+        "recall_at_20": "N/A",
+        "ndcg_at_10": "N/A",
+        "ndcg_at_20": "N/A",
+        "inference_time": "N/A",
     }
     
     if not result_data or not isinstance(result_data, dict):
@@ -361,7 +356,7 @@ def extract_recommend_metrics(result_data: Dict[str, Any], model_type: str) -> D
     if "evaluation_metrics" in result_data:
         eval_metrics = result_data["evaluation_metrics"]
         if isinstance(eval_metrics, dict):
-            for key in ["mape", "rmse", "precision", "recall", "f1", "f1_score"]:
+            for key in ["recall_at_10", "recall_at_20", "ndcg_at_10", "ndcg_at_20"]:
                 if key in eval_metrics:
                     value = eval_metrics[key]
                     if isinstance(value, (int, float)):
@@ -369,13 +364,20 @@ def extract_recommend_metrics(result_data: Dict[str, Any], model_type: str) -> D
                     else:
                         metrics[key] = value
             
-            # Execution time
-            if "execution_time" in eval_metrics:
-                value = eval_metrics["execution_time"]
-                metrics["time"] = str(value) if isinstance(value, (int, float)) else value
+            # Inference time (in milliseconds)
+            if "inference_time" in eval_metrics:
+                value = eval_metrics["inference_time"]
+                metrics["inference_time"] = str(value) if isinstance(value, (int, float)) else value
             elif "time" in eval_metrics:
                 value = eval_metrics["time"]
-                metrics["time"] = str(value) if isinstance(value, (int, float)) else value
+                # Convert seconds to milliseconds if needed
+                if isinstance(value, (int, float)):
+                    if value < 1000:  # Likely in seconds, convert to ms
+                        metrics["inference_time"] = str(value * 1000)
+                    else:
+                        metrics["inference_time"] = str(value)
+                else:
+                    metrics["inference_time"] = value
     
     return metrics
 
@@ -393,12 +395,12 @@ def auto_fill_metrics_to_session_state(slug: str, metrics: Dict[str, Any]) -> No
         "embed_dim": f"{slug}_embed",
         "learning_rate": f"{slug}_lr",
         "test_size": f"{slug}_test_size",
-        "mape": f"{slug}_mape",
-        "rmse": f"{slug}_rmse",
-        "precision": f"{slug}_precision",
-        "recall": f"{slug}_recall",
-        "f1": f"{slug}_f1",
-        "time": f"{slug}_time",
+        "training_time": f"{slug}_training_time",
+        "recall_at_10": f"{slug}_recall_at_10",
+        "recall_at_20": f"{slug}_recall_at_20",
+        "ndcg_at_10": f"{slug}_ndcg_at_10",
+        "ndcg_at_20": f"{slug}_ndcg_at_20",
+        "inference_time": f"{slug}_inference_time",
     }
     
     # Update session state with extracted metrics
@@ -698,17 +700,15 @@ for col, (label, slug) in zip(train_cols, models.items()):
                         
                         # Check if this result is better (has non-zero/non-null metrics)
                         if eval_metrics:
-                            mape = eval_metrics.get("mape")
-                            rmse = eval_metrics.get("rmse")
-                            precision = eval_metrics.get("precision", 0)
-                            recall = eval_metrics.get("recall", 0)
-                            f1 = eval_metrics.get("f1", 0)
+                            recall_at_10 = eval_metrics.get("recall_at_10", 0)
+                            recall_at_20 = eval_metrics.get("recall_at_20", 0)
+                            ndcg_at_10 = eval_metrics.get("ndcg_at_10", 0)
+                            ndcg_at_20 = eval_metrics.get("ndcg_at_20", 0)
                             
                             # Check if this is a valid result (at least one metric is non-zero/non-null)
                             is_valid = (
-                                (mape is not None and mape != 0) or
-                                (rmse is not None and rmse != 0) or
-                                precision != 0 or recall != 0 or f1 != 0
+                                recall_at_10 != 0 or recall_at_20 != 0 or 
+                                ndcg_at_10 != 0 or ndcg_at_20 != 0
                             )
                             
                             if is_valid:
@@ -725,11 +725,10 @@ for col, (label, slug) in zip(train_cols, models.items()):
                 
                 # Second pass: Test with recommended products if no valid metrics found
                 if best_metrics and not any([
-                    best_metrics.get("mape") not in [None, 0],
-                    best_metrics.get("rmse") not in [None, 0],
-                    best_metrics.get("precision", 0) != 0,
-                    best_metrics.get("recall", 0) != 0,
-                    best_metrics.get("f1", 0) != 0
+                    best_metrics.get("recall_at_10", 0) != 0,
+                    best_metrics.get("recall_at_20", 0) != 0,
+                    best_metrics.get("ndcg_at_10", 0) != 0,
+                    best_metrics.get("ndcg_at_20", 0) != 0
                 ]) and recommended_products_to_try:
                     status_text.info(f"Không tìm thấy metrics hợp lệ. Đang test với {len(recommended_products_to_try[:5])} recommended products...")
                     
@@ -745,16 +744,14 @@ for col, (label, slug) in zip(train_cols, models.items()):
                             eval_metrics = data.get("evaluation_metrics", {})
                             
                             if eval_metrics:
-                                mape = eval_metrics.get("mape")
-                                rmse = eval_metrics.get("rmse")
-                                precision = eval_metrics.get("precision", 0)
-                                recall = eval_metrics.get("recall", 0)
-                                f1 = eval_metrics.get("f1", 0)
+                                recall_at_10 = eval_metrics.get("recall_at_10", 0)
+                                recall_at_20 = eval_metrics.get("recall_at_20", 0)
+                                ndcg_at_10 = eval_metrics.get("ndcg_at_10", 0)
+                                ndcg_at_20 = eval_metrics.get("ndcg_at_20", 0)
                                 
                                 is_valid = (
-                                    (mape is not None and mape != 0) or
-                                    (rmse is not None and rmse != 0) or
-                                    precision != 0 or recall != 0 or f1 != 0
+                                    recall_at_10 != 0 or recall_at_20 != 0 or 
+                                    ndcg_at_10 != 0 or ndcg_at_20 != 0
                                 )
                                 
                                 if is_valid:
@@ -769,11 +766,10 @@ for col, (label, slug) in zip(train_cols, models.items()):
                 
                 if best_result and best_result["success"]:
                     has_valid_metrics = best_metrics and any([
-                        best_metrics.get("mape") not in [None, 0],
-                        best_metrics.get("rmse") not in [None, 0],
-                        best_metrics.get("precision", 0) != 0,
-                        best_metrics.get("recall", 0) != 0,
-                        best_metrics.get("f1", 0) != 0
+                        best_metrics.get("recall_at_10", 0) != 0,
+                        best_metrics.get("recall_at_20", 0) != 0,
+                        best_metrics.get("ndcg_at_10", 0) != 0,
+                        best_metrics.get("ndcg_at_20", 0) != 0
                     ])
                     
                     if has_valid_metrics:
@@ -941,17 +937,17 @@ def generate_gnn_documentation(metrics: Dict[str, Any]) -> str:
          - User embeddings: `[{metrics['num_users']}, {metrics['embed_dim']}]` - {metrics['num_users']} vector, mỗi vector {metrics['embed_dim']} chiều
          - Product embeddings: `[{metrics['num_products']}, {metrics['embed_dim']}]` - {metrics['num_products']} vector, mỗi vector {metrics['embed_dim']} chiều
        - Recommendation score = dot product (tích vô hướng) giữa user embedding và product embedding, giá trị càng cao thì sản phẩm càng phù hợp với người dùng
-    5. **Tính toán chỉ số đánh giá**: MAPE, RMSE, Precision, Recall, F1, thời gian.
-       - *MAPE* (Mean Absolute Percentage Error): sai số phần trăm tuyệt đối trung bình, càng thấp càng tốt (đơn vị: %)
-       - *RMSE* (Root Mean Square Error): căn bậc hai của sai số bình phương trung bình, đo độ lệch dự đoán (đơn vị: điểm rating)
-       - *Precision*: tỷ lệ sản phẩm được gợi ý thực sự phù hợp với người dùng, càng cao càng chính xác (0-1)
-       - *Recall*: tỷ lệ sản phẩm phù hợp được hệ thống tìm thấy, càng cao càng phủ tốt (0-1)
-       - *F1*: trung bình điều hòa của Precision và Recall, cân bằng giữa độ chính xác và độ phủ (0-1)
-       - *Thời gian*: thời gian thực thi pipeline ({metrics['time']})
+    5. **Tính toán chỉ số đánh giá**: Recall@10, Recall@20, NDCG@10, NDCG@20, thời gian train, thời gian inference.
+       - *Recall@10*: Trong 10 món bạn gợi ý, có bao nhiêu món user thực sự thích (trong test set)? Càng cao càng tốt (0-1)
+       - *Recall@20*: Tương tự nhưng top 20. Càng cao càng tốt (0-1)
+       - *NDCG@10*: Top 10 của bạn không chỉ đúng mà còn sắp xếp đúng thứ tự (món user thích nhất đứng cao). Càng cao càng tốt (0-1)
+       - *NDCG@20*: Tương tự top 20. Càng cao càng tốt (0-1)
+       - *Thời gian train*: Mất bao lâu để train xong 1 lần ({metrics.get('training_time', 'N/A')}) - càng thấp càng tốt
+       - *Thời gian inference/user*: Mất bao lâu để trả về gợi ý cho 1 user ({metrics.get('inference_time', 'N/A')} ms) - càng thấp càng tốt (rất quan trọng trong production)
 
-| Mô hình | MAPE | RMSE | Precision | Recall | F1 | Thời gian |
-|---------|------|------|-----------|--------|----|-----------|
-| GNN (LightGCN) | {metrics['mape']} | {metrics['rmse']} | {metrics['precision']} | {metrics['recall']} | {metrics['f1']} | {metrics['time']} |
+| Model | Recall@10 | Recall@20 | NDCG@10 | NDCG@20 | Thời gian train | Thời gian inference/user |
+|-------|-----------|-----------|---------|---------|----------------|------------------------|
+| GNN (LightGCN) | {metrics.get('recall_at_10', 'N/A')} | {metrics.get('recall_at_20', 'N/A')} | {metrics.get('ndcg_at_10', 'N/A')} | {metrics.get('ndcg_at_20', 'N/A')} | {metrics.get('training_time', 'N/A')} | {metrics.get('inference_time', 'N/A')} ms |
 """
     return doc
 
@@ -975,24 +971,24 @@ def generate_cbf_documentation(metrics: Dict[str, Any]) -> str:
     3. **Tạo ma trận TF-IDF**: sử dụng `TfidfVectorizer` để tạo ma trận TF-IDF (Term Frequency-Inverse Document Frequency) - đánh giá tầm quan trọng của từ trong mô tả sản phẩm
     4. **Tính cosine similarity** giữa các sản phẩm (SBERT embeddings).  
        - Recommendation score = cosine similarity (độ tương tự cosine) giữa product embeddings, giá trị từ 0-1, càng gần 1 thì sản phẩm càng giống nhau về đặc điểm
-    5. **Tính toán chỉ số đánh giá**: MAPE, RMSE, Precision, Recall, F1, thời gian.
-       - *MAPE* (Mean Absolute Percentage Error): sai số phần trăm tuyệt đối trung bình, càng thấp càng tốt (đơn vị: %)
-       - *RMSE* (Root Mean Square Error): căn bậc hai của sai số bình phương trung bình, đo độ lệch dự đoán (đơn vị: điểm rating)
-       - *Precision*: tỷ lệ sản phẩm được gợi ý thực sự phù hợp với người dùng, càng cao càng chính xác (0-1)
-       - *Recall*: tỷ lệ sản phẩm phù hợp được hệ thống tìm thấy, càng cao càng phủ tốt (0-1)
-       - *F1*: trung bình điều hòa của Precision và Recall, cân bằng giữa độ chính xác và độ phủ (0-1)
-       - *Thời gian*: thời gian thực thi pipeline ({metrics['time']})
+    5. **Tính toán chỉ số đánh giá**: Recall@10, Recall@20, NDCG@10, NDCG@20, thời gian train, thời gian inference.
+       - *Recall@10*: Trong 10 món bạn gợi ý, có bao nhiêu món user thực sự thích (trong test set)? Càng cao càng tốt (0-1)
+       - *Recall@20*: Tương tự nhưng top 20. Càng cao càng tốt (0-1)
+       - *NDCG@10*: Top 10 của bạn không chỉ đúng mà còn sắp xếp đúng thứ tự (món user thích nhất đứng cao). Càng cao càng tốt (0-1)
+       - *NDCG@20*: Tương tự top 20. Càng cao càng tốt (0-1)
+       - *Thời gian train*: Mất bao lâu để train xong 1 lần ({metrics.get('training_time', 'N/A')}) - càng thấp càng tốt
+       - *Thời gian inference/user*: Mất bao lâu để trả về gợi ý cho 1 user ({metrics.get('inference_time', 'N/A')} ms) - càng thấp càng tốt (rất quan trọng trong production)
 
-| Mô hình | MAPE | RMSE | Precision | Recall | F1 | Thời gian |
-|---------|------|------|-----------|--------|----|-----------|
-| Content-based Filtering | {metrics['mape']} | {metrics['rmse']} | {metrics['precision']} | {metrics['recall']} | {metrics['f1']} | {metrics['time']} |
+| Model | Recall@10 | Recall@20 | NDCG@10 | NDCG@20 | Thời gian train | Thời gian inference/user |
+|-------|-----------|-----------|---------|---------|----------------|------------------------|
+| Content-based Filtering | {metrics.get('recall_at_10', 'N/A')} | {metrics.get('recall_at_20', 'N/A')} | {metrics.get('ndcg_at_10', 'N/A')} | {metrics.get('ndcg_at_20', 'N/A')} | {metrics.get('training_time', 'N/A')} | {metrics.get('inference_time', 'N/A')} ms |
 """
     return doc
 
 
 def generate_hybrid_documentation(metrics: Dict[str, Any], alpha: float = 0.7) -> str:
     """Generate Hybrid documentation markdown with metrics."""
-    doc = f"""### 2.3.3. Hybrid Content-based Filtering & Collaborative Filtering
+    doc = f"""### 2.3.3. Hybrid GNN (LightGCN) & Content-based Filtering
 
 - **Quy trình thực hiện**:
   - *Chuẩn hóa dữ liệu với Surprise*:  
@@ -1002,31 +998,31 @@ def generate_hybrid_documentation(metrics: Dict[str, Any], alpha: float = 0.7) -
     - Số lượng sản phẩm train: **{metrics['num_products']}** (số sản phẩm trong tập huấn luyện)
     - Số lượng tương tác (interactions): **{metrics['num_interactions']}** (tổng số lượt tương tác giữa người dùng và sản phẩm)
   - *Pipeline 5 bước*:
-    1. **Huấn luyện mô hình**: Kết hợp GNN (LightGCN) + CBF (Sentence-BERT).
-       - GNN component: LightGCN với embedding dimension **{metrics['embed_dim']}** - học từ hành vi tương tác của người dùng
-       - CBF component: Sentence-BERT + FAISS index - học từ đặc điểm nội dung sản phẩm
-       - Trọng số kết hợp: `alpha = {alpha}` (CF weight = {alpha}, CBF weight = {1-alpha:.1f}) - alpha càng cao thì càng ưu tiên hành vi người dùng, càng thấp thì càng ưu tiên đặc điểm sản phẩm
+    1. **Huấn luyện mô hình**: Kết hợp GNN (LightGCN) + CBF (Sentence-BERT + FAISS).
+       - GNN component: LightGCN với embedding dimension **{metrics['embed_dim']}** - học từ hành vi tương tác của người dùng thông qua Graph Neural Network
+       - CBF component: Sentence-BERT + FAISS index - học từ đặc điểm nội dung sản phẩm thông qua semantic embeddings
+       - Trọng số kết hợp: `alpha = {alpha}` (GNN weight = {alpha}, CBF weight = {1-alpha:.1f}) - alpha càng cao thì càng ưu tiên hành vi người dùng (GNN), càng thấp thì càng ưu tiên đặc điểm sản phẩm (CBF)
     2. **Chuẩn bị dữ liệu**: 
-       - Kết hợp embedding từ CF (Collaborative Filtering - GNN) và Content-based (CBF)
-       - User embeddings từ GNN: `[{metrics['num_users']}, {metrics['embed_dim']}]` - {metrics['num_users']} vector người dùng, mỗi vector {metrics['embed_dim']} chiều
-       - Product embeddings từ CBF: `[{metrics['num_products']}, {metrics['embed_dim']}]` - {metrics['num_products']} vector sản phẩm, mỗi vector {metrics['embed_dim']} chiều
+       - Kết hợp embedding từ GNN (LightGCN) và Content-based Filtering (Sentence-BERT + FAISS)
+       - User embeddings từ GNN (LightGCN): `[{metrics['num_users']}, {metrics['embed_dim']}]` - {metrics['num_users']} vector người dùng, mỗi vector {metrics['embed_dim']} chiều, học từ đồ thị tương tác
+       - Product embeddings từ CBF (Sentence-BERT): `[{metrics['num_products']}, {metrics['embed_dim']}]` - {metrics['num_products']} vector sản phẩm, mỗi vector {metrics['embed_dim']} chiều, học từ mô tả sản phẩm
     3. **Tính toán similarity**: 
-       - CF similarity: cosine similarity giữa user embedding (GNN) và product embedding (GNN) - dựa trên hành vi người dùng tương tự
-       - CBF similarity: cosine similarity giữa product embeddings (SBERT) - dựa trên đặc điểm sản phẩm tương tự
-       - Final score = `{alpha} * CF_score + {1-alpha:.1f} * CBF_score` - kết hợp hai nguồn thông tin với trọng số
+       - GNN similarity: cosine similarity giữa user embedding (LightGCN) và product embedding (LightGCN) - dựa trên hành vi người dùng tương tự trong đồ thị tương tác
+       - CBF similarity: cosine similarity giữa product embeddings (Sentence-BERT) - dựa trên đặc điểm sản phẩm tương tự về ngữ nghĩa
+       - Final score = `{alpha} * GNN_score + {1-alpha:.1f} * CBF_score` - kết hợp hai nguồn thông tin với trọng số
     4. **Kết hợp trọng số**: 
-       - Bảng TF-IDF/Cosine kế thừa từ CBF (đánh giá độ tương tự nội dung), cộng thêm trọng số CF (đánh giá độ tương tự hành vi)
-    5. **Tính toán chỉ số đánh giá**: MAPE, RMSE, Precision, Recall, F1, thời gian.
-       - *MAPE* (Mean Absolute Percentage Error): sai số phần trăm tuyệt đối trung bình, càng thấp càng tốt (đơn vị: %)
-       - *RMSE* (Root Mean Square Error): căn bậc hai của sai số bình phương trung bình, đo độ lệch dự đoán (đơn vị: điểm rating)
-       - *Precision*: tỷ lệ sản phẩm được gợi ý thực sự phù hợp với người dùng, càng cao càng chính xác (0-1)
-       - *Recall*: tỷ lệ sản phẩm phù hợp được hệ thống tìm thấy, càng cao càng phủ tốt (0-1)
-       - *F1*: trung bình điều hòa của Precision và Recall, cân bằng giữa độ chính xác và độ phủ (0-1)
-       - *Thời gian*: thời gian thực thi pipeline ({metrics['time']})
+       - Bảng similarity từ CBF (Sentence-BERT + FAISS) đánh giá độ tương tự nội dung, cộng thêm trọng số GNN (LightGCN) đánh giá độ tương tự hành vi trong đồ thị
+    5. **Tính toán chỉ số đánh giá**: Recall@10, Recall@20, NDCG@10, NDCG@20, thời gian train, thời gian inference.
+       - *Recall@10*: Trong 10 món bạn gợi ý, có bao nhiêu món user thực sự thích (trong test set)? Càng cao càng tốt (0-1)
+       - *Recall@20*: Tương tự nhưng top 20. Càng cao càng tốt (0-1)
+       - *NDCG@10*: Top 10 của bạn không chỉ đúng mà còn sắp xếp đúng thứ tự (món user thích nhất đứng cao). Càng cao càng tốt (0-1)
+       - *NDCG@20*: Tương tự top 20. Càng cao càng tốt (0-1)
+       - *Thời gian train*: Mất bao lâu để train xong 1 lần ({metrics.get('training_time', 'N/A')}) - càng thấp càng tốt
+       - *Thời gian inference/user*: Mất bao lâu để trả về gợi ý cho 1 user ({metrics.get('inference_time', 'N/A')} ms) - càng thấp càng tốt (rất quan trọng trong production)
 
-| Mô hình | MAPE | RMSE | Precision | Recall | F1 | Thời gian |
-|---------|------|------|-----------|--------|----|-----------|
-| Hybrid CF+CBF | {metrics['mape']} | {metrics['rmse']} | {metrics['precision']} | {metrics['recall']} | {metrics['f1']} | {metrics['time']} |
+| Model | Recall@10 | Recall@20 | NDCG@10 | NDCG@20 | Thời gian train | Thời gian inference/user |
+|-------|-----------|-----------|---------|---------|----------------|------------------------|
+| Hybrid GNN+CBF | {metrics.get('recall_at_10', 'N/A')} | {metrics.get('recall_at_20', 'N/A')} | {metrics.get('ndcg_at_10', 'N/A')} | {metrics.get('ndcg_at_20', 'N/A')} | {metrics.get('training_time', 'N/A')} | {metrics.get('inference_time', 'N/A')} ms |
 """
     return doc
 
@@ -1037,43 +1033,43 @@ def generate_comparison_table(gnn_metrics: Dict[str, Any], cbf_metrics: Dict[str
     doc = """# 3. Đánh giá 3 mô hình
 
 **Giải thích các chỉ số:**
-- **MAPE** (%): Sai số phần trăm, càng thấp càng tốt
-- **RMSE**: Độ lệch dự đoán, càng thấp càng tốt
-- **Precision** (0-1): Độ chính xác gợi ý, càng cao càng tốt
-- **Recall** (0-1): Độ phủ sản phẩm phù hợp, càng cao càng tốt
-- **F1** (0-1): Cân bằng Precision và Recall, càng cao càng tốt
-- **Thời gian**: Thời gian thực thi, càng nhanh càng tốt
+- **Recall@10** (0-1): Trong 10 món bạn gợi ý, có bao nhiêu món user thực sự thích (trong test set)? Càng cao càng tốt
+- **Recall@20** (0-1): Tương tự nhưng top 20. Càng cao càng tốt
+- **NDCG@10** (0-1): Top 10 của bạn không chỉ đúng mà còn sắp xếp đúng thứ tự (món user thích nhất đứng cao). Càng cao càng tốt
+- **NDCG@20** (0-1): Tương tự top 20. Càng cao càng tốt
+- **Thời gian train**: Mất bao lâu để train xong 1 lần (thường tính bằng phút/giờ) - càng thấp càng tốt
+- **Thời gian inference/user**: Mất bao lâu để trả về gợi ý cho 1 user (thường tính bằng ms) - càng thấp càng tốt (rất quan trọng trong production)
 
-| Mô hình | MAPE | RMSE | Precision | Recall | F1 | Thời gian |
-|---------|------|------|-----------|--------|----|-----------|
-| GNN (LightGCN) | {gnn_mape} | {gnn_rmse} | {gnn_precision} | {gnn_recall} | {gnn_f1} | {gnn_time} |
-| Content-based Filtering | {cbf_mape} | {cbf_rmse} | {cbf_precision} | {cbf_recall} | {cbf_f1} | {cbf_time} |
-| Hybrid CF+CBF | {hybrid_mape} | {hybrid_rmse} | {hybrid_precision} | {hybrid_recall} | {hybrid_f1} | {hybrid_time} |
+| Model | Recall@10 | Recall@20 | NDCG@10 | NDCG@20 | Thời gian train | Thời gian inference/user |
+|-------|-----------|-----------|---------|---------|----------------|------------------------|
+| GNN (LightGCN) | {gnn_recall_10} | {gnn_recall_20} | {gnn_ndcg_10} | {gnn_ndcg_20} | {gnn_train_time} | {gnn_inference_time} |
+| Content-based Filtering | {cbf_recall_10} | {cbf_recall_20} | {cbf_ndcg_10} | {cbf_ndcg_20} | {cbf_train_time} | {cbf_inference_time} |
+| Hybrid GNN+CBF | {hybrid_recall_10} | {hybrid_recall_20} | {hybrid_ndcg_10} | {hybrid_ndcg_20} | {hybrid_train_time} | {hybrid_inference_time} |
 
 - **Phân tích & lựa chọn**:
-  - **GNN (LightGCN)**: Phù hợp khi có nhiều dữ liệu tương tác người dùng, thường cho Precision/Recall cao nhất nhờ học từ hành vi người dùng tương tự.
-  - **Content-based Filtering**: Phù hợp khi cần xử lý cold-start (người dùng/sản phẩm mới) hoặc catalog phong phú, đảm bảo gợi ý hợp lý nhờ lọc theo đặc điểm sản phẩm (age/gender/style).
-  - **Hybrid CF+CBF**: Lựa chọn production mặc định vì kết hợp ưu điểm của cả hai phương pháp, duy trì ổn định trong nhiều tình huống, có thể tinh chỉnh trọng số `alpha` để ưu tiên hành vi người dùng hoặc đặc điểm sản phẩm.
-  - **Kết luận**: Hybrid thường đạt F1 cao nhất và thời gian xử lý chấp nhận được, phù hợp cho môi trường production.
+  - **GNN (LightGCN)**: Phù hợp khi có nhiều dữ liệu tương tác người dùng, thường cho Recall@K và NDCG@K cao nhất nhờ học từ hành vi người dùng tương tự thông qua Graph Neural Network.
+  - **Content-based Filtering**: Phù hợp khi cần xử lý cold-start (người dùng/sản phẩm mới) hoặc catalog phong phú, đảm bảo gợi ý hợp lý nhờ lọc theo đặc điểm sản phẩm (age/gender/style) sử dụng Sentence-BERT + FAISS.
+  - **Hybrid GNN+CBF**: Lựa chọn production mặc định vì kết hợp ưu điểm của cả hai phương pháp (GNN LightGCN + CBF Sentence-BERT), duy trì ổn định trong nhiều tình huống, có thể tinh chỉnh trọng số `alpha` để ưu tiên hành vi người dùng (GNN) hoặc đặc điểm sản phẩm (CBF).
+  - **Kết luận**: Hybrid thường đạt Recall@K và NDCG@K cao nhất và thời gian inference chấp nhận được, phù hợp cho môi trường production.
 """.format(
-        gnn_mape=gnn_metrics['mape'],
-        gnn_rmse=gnn_metrics['rmse'],
-        gnn_precision=gnn_metrics['precision'],
-        gnn_recall=gnn_metrics['recall'],
-        gnn_f1=gnn_metrics['f1'],
-        gnn_time=gnn_metrics['time'],
-        cbf_mape=cbf_metrics['mape'],
-        cbf_rmse=cbf_metrics['rmse'],
-        cbf_precision=cbf_metrics['precision'],
-        cbf_recall=cbf_metrics['recall'],
-        cbf_f1=cbf_metrics['f1'],
-        cbf_time=cbf_metrics['time'],
-        hybrid_mape=hybrid_metrics['mape'],
-        hybrid_rmse=hybrid_metrics['rmse'],
-        hybrid_precision=hybrid_metrics['precision'],
-        hybrid_recall=hybrid_metrics['recall'],
-        hybrid_f1=hybrid_metrics['f1'],
-        hybrid_time=hybrid_metrics['time'],
+        gnn_recall_10=gnn_metrics.get('recall_at_10', 'N/A'),
+        gnn_recall_20=gnn_metrics.get('recall_at_20', 'N/A'),
+        gnn_ndcg_10=gnn_metrics.get('ndcg_at_10', 'N/A'),
+        gnn_ndcg_20=gnn_metrics.get('ndcg_at_20', 'N/A'),
+        gnn_train_time=gnn_metrics.get('training_time', 'N/A'),
+        gnn_inference_time=f"{gnn_metrics.get('inference_time', 'N/A')} ms" if gnn_metrics.get('inference_time', 'N/A') != 'N/A' else 'N/A',
+        cbf_recall_10=cbf_metrics.get('recall_at_10', 'N/A'),
+        cbf_recall_20=cbf_metrics.get('recall_at_20', 'N/A'),
+        cbf_ndcg_10=cbf_metrics.get('ndcg_at_10', 'N/A'),
+        cbf_ndcg_20=cbf_metrics.get('ndcg_at_20', 'N/A'),
+        cbf_train_time=cbf_metrics.get('training_time', 'N/A'),
+        cbf_inference_time=f"{cbf_metrics.get('inference_time', 'N/A')} ms" if cbf_metrics.get('inference_time', 'N/A') != 'N/A' else 'N/A',
+        hybrid_recall_10=hybrid_metrics.get('recall_at_10', 'N/A'),
+        hybrid_recall_20=hybrid_metrics.get('recall_at_20', 'N/A'),
+        hybrid_ndcg_10=hybrid_metrics.get('ndcg_at_10', 'N/A'),
+        hybrid_ndcg_20=hybrid_metrics.get('ndcg_at_20', 'N/A'),
+        hybrid_train_time=hybrid_metrics.get('training_time', 'N/A'),
+        hybrid_inference_time=f"{hybrid_metrics.get('inference_time', 'N/A')} ms" if hybrid_metrics.get('inference_time', 'N/A') != 'N/A' else 'N/A',
     )
     return doc
 
@@ -1150,11 +1146,18 @@ with st.expander("🔍 Test API & Xem Response", expanded=False):
                         if "evaluation_metrics" in data:
                             eval_metrics = data["evaluation_metrics"]
                             # Update session state with evaluation metrics
-                            for key in ["mape", "rmse", "precision", "recall", "f1"]:
+                            for key in ["recall_at_10", "recall_at_20", "ndcg_at_10", "ndcg_at_20"]:
                                 if key in eval_metrics:
                                     st.session_state[f"{slug}_{key}"] = str(eval_metrics[key])
-                            if "execution_time" in eval_metrics:
-                                st.session_state[f"{slug}_time"] = str(eval_metrics["execution_time"])
+                            if "inference_time" in eval_metrics:
+                                st.session_state[f"{slug}_inference_time"] = str(eval_metrics["inference_time"])
+                            elif "execution_time" in eval_metrics:
+                                # Convert seconds to milliseconds
+                                exec_time = eval_metrics["execution_time"]
+                                if isinstance(exec_time, (int, float)):
+                                    st.session_state[f"{slug}_inference_time"] = str(exec_time * 1000)
+                                else:
+                                    st.session_state[f"{slug}_inference_time"] = str(exec_time)
                             st.success(f"✅ Đã cập nhật evaluation metrics từ {label} recommend API!")
                     else:
                         st.error(f"❌ Lỗi: {result.get('error', 'Unknown error')}")
@@ -1164,7 +1167,7 @@ with st.expander("🔍 Test API & Xem Response", expanded=False):
 st.markdown("---")
 
 # Create tabs for each model
-doc_tabs = st.tabs(["📊 GNN (LightGCN)", "📝 Content-based Filtering", "🔀 Hybrid CF+CBF", "📈 So sánh 3 mô hình"])
+doc_tabs = st.tabs(["📊 GNN (LightGCN)", "📝 Content-based Filtering", "🔀 Hybrid GNN+CBF", "📈 So sánh 3 mô hình"])
 
 # Tab 1: GNN Documentation
 with doc_tabs[0]:
@@ -1236,20 +1239,20 @@ with doc_tabs[0]:
     
     eval_col1, eval_col2, eval_col3 = st.columns(3)
     with eval_col1:
-        mape = get_value("mape", str(gnn_metrics['mape']))
-        rmse = get_value("rmse", str(gnn_metrics['rmse']))
-        st.metric("MAPE", mape)
-        st.metric("RMSE", rmse)
+        recall_at_10 = get_value("recall_at_10", "N/A")
+        recall_at_20 = get_value("recall_at_20", "N/A")
+        st.metric("Recall@10", recall_at_10)
+        st.metric("Recall@20", recall_at_20)
     with eval_col2:
-        precision = get_value("precision", str(gnn_metrics['precision']))
-        recall = get_value("recall", str(gnn_metrics['recall']))
-        st.metric("Precision", precision)
-        st.metric("Recall", recall)
+        ndcg_at_10 = get_value("ndcg_at_10", "N/A")
+        ndcg_at_20 = get_value("ndcg_at_20", "N/A")
+        st.metric("NDCG@10", ndcg_at_10)
+        st.metric("NDCG@20", ndcg_at_20)
     with eval_col3:
-        f1 = get_value("f1", str(gnn_metrics['f1']))
-        time_val = get_value("time", str(gnn_metrics['time']))
-        st.metric("F1", f1)
-        st.metric("Thời gian", time_val)
+        training_time = get_value("training_time", "N/A")
+        inference_time = get_value("inference_time", "N/A")
+        st.metric("Thời gian train", training_time)
+        st.metric("Thời gian inference/user", f"{inference_time} ms" if inference_time != "N/A" else "N/A")
     
     # Update metrics with current input values
     gnn_metrics_updated = {
@@ -1262,12 +1265,12 @@ with doc_tabs[0]:
         'embed_dim': embed_dim,
         'learning_rate': learning_rate,
         'test_size': test_size,
-        'mape': mape,
-        'rmse': rmse,
-        'precision': precision,
-        'recall': recall,
-        'f1': f1,
-        'time': time_val,
+        'recall_at_10': recall_at_10,
+        'recall_at_20': recall_at_20,
+        'ndcg_at_10': ndcg_at_10,
+        'ndcg_at_20': ndcg_at_20,
+        'training_time': training_time,
+        'inference_time': inference_time,
     }
     
     # Generate and display documentation
@@ -1335,20 +1338,20 @@ with doc_tabs[1]:
     
     eval_col1, eval_col2, eval_col3 = st.columns(3)
     with eval_col1:
-        mape = get_value("mape", str(cbf_metrics['mape']))
-        rmse = get_value("rmse", str(cbf_metrics['rmse']))
-        st.metric("MAPE", mape)
-        st.metric("RMSE", rmse)
+        recall_at_10 = get_value("recall_at_10", "N/A")
+        recall_at_20 = get_value("recall_at_20", "N/A")
+        st.metric("Recall@10", recall_at_10)
+        st.metric("Recall@20", recall_at_20)
     with eval_col2:
-        precision = get_value("precision", str(cbf_metrics['precision']))
-        recall = get_value("recall", str(cbf_metrics['recall']))
-        st.metric("Precision", precision)
-        st.metric("Recall", recall)
+        ndcg_at_10 = get_value("ndcg_at_10", "N/A")
+        ndcg_at_20 = get_value("ndcg_at_20", "N/A")
+        st.metric("NDCG@10", ndcg_at_10)
+        st.metric("NDCG@20", ndcg_at_20)
     with eval_col3:
-        f1 = get_value("f1", str(cbf_metrics['f1']))
-        time_val = get_value("time", str(cbf_metrics['time']))
-        st.metric("F1", f1)
-        st.metric("Thời gian", time_val)
+        training_time = get_value("training_time", "N/A")
+        inference_time = get_value("inference_time", "N/A")
+        st.metric("Thời gian train", training_time)
+        st.metric("Thời gian inference/user", f"{inference_time} ms" if inference_time != "N/A" else "N/A")
     
     # Update metrics with current input values
     cbf_metrics_updated = {
@@ -1356,12 +1359,12 @@ with doc_tabs[1]:
         'num_users': num_users,
         'embed_dim': embed_dim,
         'test_size': test_size,
-        'mape': mape,
-        'rmse': rmse,
-        'precision': precision,
-        'recall': recall,
-        'f1': f1,
-        'time': time_val,
+        'recall_at_10': recall_at_10,
+        'recall_at_20': recall_at_20,
+        'ndcg_at_10': ndcg_at_10,
+        'ndcg_at_20': ndcg_at_20,
+        'training_time': training_time,
+        'inference_time': inference_time,
     }
     
     # Generate and display documentation
@@ -1376,7 +1379,7 @@ with doc_tabs[1]:
 
 # Tab 3: Hybrid Documentation
 with doc_tabs[2]:
-    st.markdown("### 2.3.3. Hybrid Content-based Filtering & Collaborative Filtering")
+    st.markdown("### 2.3.3. Hybrid GNN (LightGCN) & Content-based Filtering")
     
     # Get metrics from training results or session state
     hybrid_metrics = extract_training_metrics(
@@ -1401,7 +1404,7 @@ with doc_tabs[2]:
         default_alpha = st.session_state["hybrid_alpha"]
     else:
         default_alpha = 0.7
-    alpha = st.slider("Trọng số alpha (CF weight)", min_value=0.0, max_value=1.0, value=default_alpha, step=0.1, key="hybrid_alpha")
+    alpha = st.slider("Trọng số alpha (GNN weight)", min_value=0.0, max_value=1.0, value=default_alpha, step=0.1, key="hybrid_alpha")
     
     # Display metrics (read-only display, auto-filled from API)
     st.subheader("Thông số huấn luyện (tự động điền từ API)")
@@ -1439,20 +1442,20 @@ with doc_tabs[2]:
     
     eval_col1, eval_col2, eval_col3 = st.columns(3)
     with eval_col1:
-        mape = get_value("mape", str(hybrid_metrics['mape']))
-        rmse = get_value("rmse", str(hybrid_metrics['rmse']))
-        st.metric("MAPE", mape)
-        st.metric("RMSE", rmse)
+        recall_at_10 = get_value("recall_at_10", "N/A")
+        recall_at_20 = get_value("recall_at_20", "N/A")
+        st.metric("Recall@10", recall_at_10)
+        st.metric("Recall@20", recall_at_20)
     with eval_col2:
-        precision = get_value("precision", str(hybrid_metrics['precision']))
-        recall = get_value("recall", str(hybrid_metrics['recall']))
-        st.metric("Precision", precision)
-        st.metric("Recall", recall)
+        ndcg_at_10 = get_value("ndcg_at_10", "N/A")
+        ndcg_at_20 = get_value("ndcg_at_20", "N/A")
+        st.metric("NDCG@10", ndcg_at_10)
+        st.metric("NDCG@20", ndcg_at_20)
     with eval_col3:
-        f1 = get_value("f1", str(hybrid_metrics['f1']))
-        time_val = get_value("time", str(hybrid_metrics['time']))
-        st.metric("F1", f1)
-        st.metric("Thời gian", time_val)
+        training_time = get_value("training_time", "N/A")
+        inference_time = get_value("inference_time", "N/A")
+        st.metric("Thời gian train", training_time)
+        st.metric("Thời gian inference/user", f"{inference_time} ms" if inference_time != "N/A" else "N/A")
     
     # Update metrics with current input values
     hybrid_metrics_updated = {
@@ -1461,12 +1464,12 @@ with doc_tabs[2]:
         'num_interactions': num_interactions,
         'embed_dim': embed_dim,
         'test_size': test_size,
-        'mape': mape,
-        'rmse': rmse,
-        'precision': precision,
-        'recall': recall,
-        'f1': f1,
-        'time': time_val,
+        'recall_at_10': recall_at_10,
+        'recall_at_20': recall_at_20,
+        'ndcg_at_10': ndcg_at_10,
+        'ndcg_at_20': ndcg_at_20,
+        'training_time': training_time,
+        'inference_time': inference_time,
     }
     
     # Generate and display documentation
@@ -1493,7 +1496,8 @@ with doc_tabs[3]:
     # Get values from session state (auto-filled from API)
     def update_metrics_from_session(metrics_dict: Dict[str, Any], prefix: str) -> None:
         """Update metrics from session state with proper key mapping."""
-        for key in ["mape", "rmse", "precision", "recall", "f1", "time", 
+        for key in ["recall_at_10", "recall_at_20", "ndcg_at_10", "ndcg_at_20", 
+                   "training_time", "inference_time",
                    "num_users", "num_products", "num_interactions", 
                    "epochs", "embed_dim", "learning_rate"]:
             session_key = f"{prefix}_{key}"
@@ -1533,21 +1537,20 @@ with doc_tabs[3]:
     # Visual comparison
     st.subheader("📊 Biểu đồ so sánh")
     comparison_data = {
-        "Mô hình": ["GNN (LightGCN)", "Content-based Filtering", "Hybrid CF+CBF"],
-        "MAPE": [gnn_metrics_final['mape'], cbf_metrics_final['mape'], hybrid_metrics_final['mape']],
-        "RMSE": [gnn_metrics_final['rmse'], cbf_metrics_final['rmse'], hybrid_metrics_final['rmse']],
-        "Precision": [gnn_metrics_final['precision'], cbf_metrics_final['precision'], hybrid_metrics_final['precision']],
-        "Recall": [gnn_metrics_final['recall'], cbf_metrics_final['recall'], hybrid_metrics_final['recall']],
-        "F1": [gnn_metrics_final['f1'], cbf_metrics_final['f1'], hybrid_metrics_final['f1']],
+        "Mô hình": ["GNN (LightGCN)", "Content-based Filtering", "Hybrid GNN+CBF"],
+        "Recall@10": [gnn_metrics_final.get('recall_at_10', 'N/A'), cbf_metrics_final.get('recall_at_10', 'N/A'), hybrid_metrics_final.get('recall_at_10', 'N/A')],
+        "Recall@20": [gnn_metrics_final.get('recall_at_20', 'N/A'), cbf_metrics_final.get('recall_at_20', 'N/A'), hybrid_metrics_final.get('recall_at_20', 'N/A')],
+        "NDCG@10": [gnn_metrics_final.get('ndcg_at_10', 'N/A'), cbf_metrics_final.get('ndcg_at_10', 'N/A'), hybrid_metrics_final.get('ndcg_at_10', 'N/A')],
+        "NDCG@20": [gnn_metrics_final.get('ndcg_at_20', 'N/A'), cbf_metrics_final.get('ndcg_at_20', 'N/A'), hybrid_metrics_final.get('ndcg_at_20', 'N/A')],
     }
     
     # Try to convert to numeric for plotting
     try:
         comparison_df = pd.DataFrame(comparison_data)
-        for col in ["MAPE", "RMSE", "Precision", "Recall", "F1"]:
+        for col in ["Recall@10", "Recall@20", "NDCG@10", "NDCG@20"]:
             comparison_df[col] = pd.to_numeric(comparison_df[col], errors='coerce')
         
-        st.bar_chart(comparison_df.set_index("Mô hình")[["Precision", "Recall", "F1"]], use_container_width=True)
+        st.bar_chart(comparison_df.set_index("Mô hình")[["Recall@10", "Recall@20", "NDCG@10", "NDCG@20"]], use_container_width=True)
     except:
         st.info("Vui lòng nhập số liệu để hiển thị biểu đồ so sánh.")
 

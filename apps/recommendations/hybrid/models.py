@@ -1,4 +1,4 @@
-"""Hybrid recommendation engine combining LightGCN (CF) + SBERT (Content) with late fusion."""
+"""Hybrid recommendation engine combining GNN (LightGCN) + Content-based Filtering (Sentence-BERT + FAISS) with late fusion."""
 
 from __future__ import annotations
 
@@ -22,9 +22,9 @@ class HybridRecommendationEngine(ContentBasedRecommendationEngine):
     alpha = 0.6
 
     def _train_impl(self) -> dict[str, Any]:
-        logger.info(f"[{self.model_name}] Starting hybrid training...")
+        logger.info(f"[{self.model_name}] Starting hybrid training (GNN + CBF)...")
         
-        logger.info(f"[{self.model_name}] Training CBF component (SBERT + FAISS)...")
+        logger.info(f"[{self.model_name}] Training CBF component (Sentence-BERT + FAISS)...")
         cbf_artifacts = super()._train_impl()
         
         # Train GNN component (LightGCN)
@@ -33,7 +33,7 @@ class HybridRecommendationEngine(ContentBasedRecommendationEngine):
         gnn_artifacts = gnn_engine._train_impl()
         
         # Combine artifacts
-        logger.info(f"[{self.model_name}] Combining artifacts from CBF and GNN...")
+        logger.info(f"[{self.model_name}] Combining artifacts from GNN (LightGCN) and CBF (SBERT + FAISS)...")
         
         # Create combined matrix data
         cbf_matrix = cbf_artifacts.get("matrix_data", {})
@@ -41,8 +41,8 @@ class HybridRecommendationEngine(ContentBasedRecommendationEngine):
         
         # Use CBF matrix as base, or create a combined visualization
         combined_matrix_data = cbf_matrix.copy()
-        combined_matrix_data["description"] = "Hybrid Similarity Matrix (LightGCN + SBERT)"
-        combined_matrix_data["value_description"] = f"Hybrid score (alpha={self.alpha} CF + {1-self.alpha} Content)"
+        combined_matrix_data["description"] = "Hybrid Similarity Matrix (GNN LightGCN + CBF SBERT)"
+        combined_matrix_data["value_description"] = f"Hybrid score (alpha={self.alpha} GNN + {1-self.alpha} CBF)"
         
         return {
             **cbf_artifacts,
@@ -56,15 +56,15 @@ class HybridRecommendationEngine(ContentBasedRecommendationEngine):
         context: RecommendationContext,
         artifacts: dict[str, Any],
     ) -> dict[int, float]:
-        """Score candidates using late fusion of LightGCN (CF) and SBERT (Content)."""
+        """Score candidates using late fusion of GNN (LightGCN) and Content-based Filtering (Sentence-BERT + FAISS)."""
         alpha = artifacts.get("alpha", self.alpha)
         
-        # Get CBF (Content-based) scores using SBERT
-        logger.debug(f"[{self.model_name}] Computing content-based scores (SBERT)...")
+        # Get CBF (Content-based Filtering) scores using Sentence-BERT + FAISS
+        logger.debug(f"[{self.model_name}] Computing content-based scores (Sentence-BERT + FAISS)...")
         cbf_scores = super()._score_candidates(context, artifacts)
         
-        # Get GNN (Collaborative filtering) scores using LightGCN
-        logger.debug(f"[{self.model_name}] Computing collaborative filtering scores (LightGCN)...")
+        # Get GNN (LightGCN) scores
+        logger.debug(f"[{self.model_name}] Computing GNN scores (LightGCN)...")
         gnn_artifacts = artifacts.get("gnn_artifacts", {})
         gnn_engine = GNNRecommendationEngine()
         gnn_scores = gnn_engine._score_candidates(context, gnn_artifacts)
@@ -84,7 +84,7 @@ class HybridRecommendationEngine(ContentBasedRecommendationEngine):
         gnn_scores_norm = normalize_scores(gnn_scores)
         
         # Late fusion: weighted sum
-        logger.debug(f"[{self.model_name}] Fusing scores: alpha={alpha} (CF) + {1-alpha} (Content)")
+        logger.debug(f"[{self.model_name}] Fusing scores: alpha={alpha} (GNN LightGCN) + {1-alpha} (CBF SBERT)")
         candidate_scores: dict[int, float] = {}
         
         # Get all candidate IDs
@@ -94,7 +94,7 @@ class HybridRecommendationEngine(ContentBasedRecommendationEngine):
             cbf_score = cbf_scores_norm.get(candidate_id, 0.0)
             gnn_score = gnn_scores_norm.get(candidate_id, 0.0)
             
-            # Late fusion: weighted sum
+            # Late fusion: weighted sum of GNN (LightGCN) and CBF (Sentence-BERT + FAISS)
             fused_score = alpha * gnn_score + (1 - alpha) * cbf_score
             
             # Add style and brand bonuses

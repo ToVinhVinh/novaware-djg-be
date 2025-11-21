@@ -58,7 +58,7 @@ if TORCH_AVAILABLE:
 
 
     class LightGCNModel(nn.Module):
-        """LightGCN model for collaborative filtering."""
+        """LightGCN model (Graph Neural Network) for collaborative filtering via user-item interaction graph."""
         
         def __init__(self, num_users: int, num_items: int, embedding_dim: int = 64, num_layers: int = 3):
             super().__init__()

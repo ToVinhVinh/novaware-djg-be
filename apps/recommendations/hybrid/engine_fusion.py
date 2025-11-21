@@ -1,6 +1,6 @@
 """
 Hybrid recommendation engine with late fusion.
-Combines LightGCN (CF) and Sentence-BERT (Content) with weighted sum (default: 0.7 CF + 0.3 Content).
+Combines GNN (LightGCN) and CBF (Sentence-BERT + FAISS) with weighted sum (default: 0.7 GNN + 0.3 CBF).
 """
 
 import logging
@@ -83,7 +83,7 @@ class HybridRecommendationEngine:
         current_product_id: str,
         top_k_personal: int = 5,
         top_k_outfit: int = 4,
-        alpha: float = 0.7,  # Weight for GNN (CF), 1-alpha for CBF (Content)
+        alpha: float = 0.7,  # Weight for GNN (LightGCN), 1-alpha for CBF (Sentence-BERT + FAISS)
     ) -> Dict[str, Any]:
         """
         Generate hybrid recommendations.
@@ -201,7 +201,7 @@ class HybridRecommendationEngine:
                 reason_type="personalized",
                 interaction_history=getattr(user, 'interaction_history', []),
             )
-            reason += f" (Hybrid: {alpha:.0%} CF + {1-alpha:.0%} Content)"
+            reason += f" (Hybrid: {alpha:.0%} GNN + {1-alpha:.0%} CBF)"
             
             personalized.append({
                 "product": self._serialize_product(product),
@@ -300,8 +300,8 @@ class HybridRecommendationEngine:
             "outfit": outfit,
             "reasons": reasons,
             "fusion_weights": {
-                "gnn_cf": alpha,
-                "cbf_content": 1 - alpha,
+                "gnn_lightgcn": alpha,
+                "cbf_sbert": 1 - alpha,
             },
         }
     

@@ -54,7 +54,7 @@ class LightGCNConv(MessagePassing):
 
 class LightGCN(nn.Module):
     """
-    LightGCN model for collaborative filtering.
+    LightGCN model (Graph Neural Network) for collaborative filtering via user-item interaction graph.
     
     Architecture:
     - User and Product embeddings
