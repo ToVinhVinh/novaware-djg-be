@@ -9,10 +9,20 @@ from typing import Any, Dict, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
+import re
+from decimal import Decimal, InvalidOperation, ROUND_DOWN
+import os
 import pandas as pd
 import requests
 import seaborn as sns
 import streamlit as st
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
+
+if load_dotenv:
+    load_dotenv()
 
 
 st.set_page_config(
@@ -52,39 +62,6 @@ st.caption(
     "Upload CSV data, explore quick analytics, and interact with the "
     "GNN / CBF / Hybrid recommendation APIs."
 )
-
-# Quick start guide
-with st.expander("📋 Hướng dẫn sử dụng (Quick Start Guide)", expanded=False):
-    st.markdown("""
-    ### 🎯 Quy trình tạo tài liệu tự động:
-    
-    **Bước 1: Kiểm tra kết nối API**
-    - Đảm bảo Django server đang chạy tại URL trong sidebar
-    - Mặc định: `http://127.0.0.1:8000/api/v1`
-    
-    **Bước 2: Train các mô hình (Section 2)**
-    - Click nút "Train GNN" → Chờ training hoàn tất
-    - Click nút "Train Content-based (CBF)" → Chờ training hoàn tất  
-    - Click nút "Train Hybrid" → Chờ training hoàn tất
-    - ✅ Sau khi train, thông số huấn luyện sẽ tự động điền vào tài liệu
-    
-    **Bước 3: Gọi API Recommend (Section 3)**
-    - Nhập User ID và Product ID (hoặc dùng giá trị mặc định)
-    - Click "Recommend GNN" → Lấy evaluation metrics
-    - Click "Recommend Content-based (CBF)" → Lấy evaluation metrics
-    - Click "Recommend Hybrid" → Lấy evaluation metrics
-    - ✅ Sau khi recommend, evaluation metrics sẽ tự động điền vào tài liệu
-    
-    **Bước 4: Xem và copy tài liệu (Section 4)**
-    - Chọn tab tương ứng (GNN, CBF, Hybrid, hoặc So sánh)
-    - Xem số liệu đã được tự động điền
-    - Copy markdown code để dán vào báo cáo
-    
-    **💡 Mẹo**: 
-    - Sử dụng section "🔍 Test API & Xem Response" để kiểm tra response của API
-    - Tất cả số liệu được tự động điền, không cần nhập thủ công
-    """)
-
 
 @st.cache_data(show_spinner=False)
 def load_csv(file_buffer: BytesIO) -> pd.DataFrame:
@@ -241,6 +218,14 @@ if "recommendation_results" not in st.session_state:
         "hybrid": None,
     }
 
+# Store evaluation_support (pairs or ids provided by API) in session state
+if "evaluation_support" not in st.session_state:
+    st.session_state.evaluation_support = {
+        "gnn": None,
+        "cbf": None,
+        "hybrid": None,
+    }
+
 
 def extract_training_metrics(result_data: Dict[str, Any], model_type: str) -> Dict[str, Any]:
     """Extract training metrics from API response.
@@ -271,7 +256,8 @@ def extract_training_metrics(result_data: Dict[str, Any], model_type: str) -> Di
         for key in ["training_time", "time"]:
             if key in result_data:
                 value = result_data[key]
-                # Convert to string if numeric
+                if value is None:
+                    continue
                 if isinstance(value, (int, float)):
                     metrics["training_time"] = str(value)
                 else:
@@ -295,7 +281,7 @@ def extract_training_metrics(result_data: Dict[str, Any], model_type: str) -> Di
         # Map API keys to metric keys
         key_mapping = {
             "embedding_dim": "embed_dim",  # API returns embedding_dim, we need embed_dim
-            "training_time": "time",
+            "time": "training_time",
         }
         
         for key in ["num_users", "num_products", "num_interactions", "num_training_samples",
@@ -336,6 +322,7 @@ def extract_training_metrics(result_data: Dict[str, Any], model_type: str) -> Di
 
 
 def extract_recommend_metrics(result_data: Dict[str, Any], model_type: str) -> Dict[str, Any]:
+
     """Extract evaluation metrics from /recommend API response.
     
     The /recommend API returns evaluation_metrics with:
@@ -382,6 +369,72 @@ def extract_recommend_metrics(result_data: Dict[str, Any], model_type: str) -> D
     return metrics
 
 
+def extract_evaluation_support(result_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Extract evaluation support (tested user/product IDs or pairs) from API response.
+    Normalizes to: { 'pairs': [{'user_id':..., 'current_product_id':...}, ...], 'user_ids': [...], 'product_ids': [...] }
+    """
+    if not isinstance(result_data, dict):
+        return None
+
+    def _normalize_pairs(pairs_list):
+        norm = []
+        for p in pairs_list or []:
+            if not isinstance(p, dict):
+                continue
+            uid = p.get('user_id') or p.get('userId') or p.get('uid')
+            pid = p.get('current_product_id') or p.get('product_id') or p.get('item_id') or p.get('pid')
+            if uid is not None and pid is not None:
+                norm.append({'user_id': str(uid), 'current_product_id': str(pid)})
+        return norm
+
+    # 1) Direct key
+    if 'evaluation_support' in result_data:
+        es = result_data.get('evaluation_support')
+        pairs = []
+        user_ids = None
+        product_ids = None
+        if isinstance(es, dict):
+            # dict form
+            if isinstance(es.get('pairs'), list):
+                pairs = _normalize_pairs(es.get('pairs'))
+            if isinstance(es.get('tested_pairs'), list):
+                pairs = pairs or _normalize_pairs(es.get('tested_pairs'))
+            if isinstance(es.get('test_pairs'), list):
+                pairs = pairs or _normalize_pairs(es.get('test_pairs'))
+            if isinstance(es.get('user_ids'), list):
+                user_ids = [str(x) for x in es.get('user_ids')]
+            if isinstance(es.get('product_ids'), list):
+                product_ids = [str(x) for x in es.get('product_ids')]
+        elif isinstance(es, list):
+            pairs = _normalize_pairs(es)
+        if pairs or user_ids or product_ids:
+            return {'pairs': pairs, 'user_ids': user_ids, 'product_ids': product_ids}
+
+    # 2) Alternate keys on root
+    for key in ['tested_pairs', 'test_pairs', 'test_cases']:
+        if isinstance(result_data.get(key), list):
+            pairs = _normalize_pairs(result_data.get(key))
+            if pairs:
+                return {'pairs': pairs, 'user_ids': None, 'product_ids': None}
+
+    # 3) Root arrays
+    if isinstance(result_data.get('user_ids'), list) and isinstance(result_data.get('product_ids'), list):
+        return {
+            'pairs': None,
+            'user_ids': [str(x) for x in result_data['user_ids']],
+            'product_ids': [str(x) for x in result_data['product_ids']],
+        }
+
+    # 4) Nested common containers
+    for container in ['data', 'metrics', 'evaluation', 'results']:
+        sub = result_data.get(container)
+        if isinstance(sub, dict):
+            found = extract_evaluation_support(sub)
+            if found:
+                return found
+
+    return None
+
 def auto_fill_metrics_to_session_state(slug: str, metrics: Dict[str, Any]) -> None:
     """Auto-fill extracted metrics to session state for input fields."""
     # Map of metric keys to session state keys
@@ -415,6 +468,76 @@ def auto_fill_metrics_to_session_state(slug: str, metrics: Dict[str, Any]) -> No
                     st.session_state[state_key] = 0.2
             else:
                 st.session_state[state_key] = str(value)
+
+
+PRECISION_FORMAT_KEYS = ("recall_at_10", "recall_at_20", "training_time")
+
+
+def format_metric_value(value: Any, decimals: int = 4) -> str:
+    """Format numeric metrics with fixed decimal places without rounding up."""
+    if value is None:
+        return "N/A"
+    value_str = str(value).strip()
+    if not value_str or value_str.upper() == "N/A":
+        return "N/A"
+    match = re.match(r"^(-?\d+(?:\.\d+)?)(.*)$", value_str)
+    suffix = ""
+    number_part = value_str
+    if match:
+        number_part, suffix = match.groups()
+    try:
+        decimal_value = Decimal(number_part)
+    except InvalidOperation:
+        return value_str
+    quant = Decimal("1").scaleb(-decimals)
+    truncated = decimal_value.quantize(quant, rounding=ROUND_DOWN)
+    formatted_number = f"{truncated:.{decimals}f}"
+    return f"{formatted_number}{suffix}"
+
+
+def apply_precision_formatting(metrics_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """Ensure key metrics respect the 4-decimal precision requirement."""
+    for key in PRECISION_FORMAT_KEYS:
+        metrics_dict[key] = format_metric_value(metrics_dict.get(key))
+    return metrics_dict
+
+# ----- Metric computation helpers (apply formulas) -----
+from math import log2
+
+def compute_recall_at_k(recommended_ids, ground_truth_ids, k=10) -> float:
+    """Recall@K = |recs@K ∩ GT| / |GT| (0..1)."""
+    if not ground_truth_ids:
+        return 0.0
+    rec_topk = list(map(str, recommended_ids[:k]))
+    gt = set(map(str, ground_truth_ids))
+    hits = len([rid for rid in rec_topk if rid in gt])
+    return hits / max(len(gt), 1)
+
+
+def _dcg_at_k(binary_relevance, k=10) -> float:
+    """DCG@K with binary gain: sum_{i=1..K} rel_i / log2(i+1)."""
+    dcg = 0.0
+    for i, rel in enumerate(binary_relevance[:k], start=1):
+        if rel:
+            dcg += 1.0 / log2(i + 1)
+    return dcg
+
+
+def compute_ndcg_at_k(recommended_ids, ground_truth_ids, k=10) -> float:
+    """NDCG@K = DCG@K / IDCG@K with binary relevance from GT overlap."""
+    if not ground_truth_ids:
+        return 0.0
+    rec_topk = list(map(str, recommended_ids[:k]))
+    gt = set(map(str, ground_truth_ids))
+    # Build binary relevance vector for the ranked list
+    rel = [1 if rid in gt else 0 for rid in rec_topk]
+    dcg = _dcg_at_k(rel, k)
+    # Ideal relevance: top |GT| are 1s (capped at K)
+    ideal_rel = [1] * min(len(gt), k)
+    idcg = _dcg_at_k(ideal_rel, k)
+    if idcg == 0:
+        return 0.0
+    return dcg / idcg
 
 
 st.header("1. Upload & Preview CSV")
@@ -629,10 +752,23 @@ for col, (label, slug) in zip(train_cols, models.items()):
                 # Store result in session state for documentation
                 result_data = result["data"]
                 st.session_state.training_results[slug] = result_data
+                # Extract and store evaluation_support from /train response (if provided)
+                try:
+                    support = extract_evaluation_support(result_data)
+                    if support:
+                        st.session_state.evaluation_support[slug] = support
+                        cnt_pairs = len(support.get('pairs') or [])
+                        cnt_u = len(support.get('user_ids') or [])
+                        cnt_p = len(support.get('product_ids') or [])
+                        st.info(f"📦 evaluation_support: pairs={cnt_pairs}, user_ids={cnt_u}, product_ids={cnt_p}")
+                except Exception as _:
+                    pass
                 
                 # Add training time if not present
                 if isinstance(result_data, dict):
-                    if "training_time" not in result_data and "time" not in result_data:
+                    training_time_value = result_data.get("training_time")
+                    legacy_time_value = result_data.get("time")
+                    if training_time_value in (None, "", "N/A") and legacy_time_value in (None, "", "N/A"):
                         result_data["training_time"] = f"{elapsed_time:.2f}s"
                     
                     # Auto-fill metrics to session state for input fields
@@ -870,6 +1006,18 @@ for col, (label, slug) in zip(recommend_cols, models.items()):
                 status_placeholder.success(f"Kết quả {label} sẵn sàng.")
                 # Store recommendation result
                 st.session_state.recommendation_results[slug] = result["data"]
+
+                # Extract evaluation_support from recommend response (if provided)
+                try:
+                    support = extract_evaluation_support(result["data"])
+                    if support:
+                        st.session_state.evaluation_support[slug] = support
+                        cnt_pairs = len(support.get('pairs') or [])
+                        cnt_u = len(support.get('user_ids') or [])
+                        cnt_p = len(support.get('product_ids') or [])
+                        st.info(f"📦 evaluation_support: pairs={cnt_pairs}, user_ids={cnt_u}, product_ids={cnt_p}")
+                except Exception:
+                    pass
                 
                 # Extract evaluation metrics from recommend API and update session state
                 if isinstance(result["data"], dict):
@@ -1027,11 +1175,14 @@ def generate_hybrid_documentation(metrics: Dict[str, Any], alpha: float = 0.7) -
     return doc
 
 
-def generate_comparison_table(gnn_metrics: Dict[str, Any], cbf_metrics: Dict[str, Any], 
-                              hybrid_metrics: Dict[str, Any]) -> str:
+def generate_comparison_table(
+    gnn_metrics: Dict[str, Any],
+    cbf_metrics: Dict[str, Any],
+    hybrid_metrics: Dict[str, Any],
+    analysis_text: str,
+) -> str:
     """Generate comparison table for all 3 models."""
-    doc = """# 3. Đánh giá 3 mô hình
-
+    doc = """
 **Giải thích các chỉ số:**
 - **Recall@10** (0-1): Trong 10 món bạn gợi ý, có bao nhiêu món user thực sự thích (trong test set)? Càng cao càng tốt
 - **Recall@20** (0-1): Tương tự nhưng top 20. Càng cao càng tốt
@@ -1046,11 +1197,7 @@ def generate_comparison_table(gnn_metrics: Dict[str, Any], cbf_metrics: Dict[str
 | Content-based Filtering | {cbf_recall_10} | {cbf_recall_20} | {cbf_ndcg_10} | {cbf_ndcg_20} | {cbf_train_time} | {cbf_inference_time} |
 | Hybrid GNN+CBF | {hybrid_recall_10} | {hybrid_recall_20} | {hybrid_ndcg_10} | {hybrid_ndcg_20} | {hybrid_train_time} | {hybrid_inference_time} |
 
-- **Phân tích & lựa chọn**:
-  - **GNN (LightGCN)**: Phù hợp khi có nhiều dữ liệu tương tác người dùng, thường cho Recall@K và NDCG@K cao nhất nhờ học từ hành vi người dùng tương tự thông qua Graph Neural Network.
-  - **Content-based Filtering**: Phù hợp khi cần xử lý cold-start (người dùng/sản phẩm mới) hoặc catalog phong phú, đảm bảo gợi ý hợp lý nhờ lọc theo đặc điểm sản phẩm (age/gender/style) sử dụng Sentence-BERT + FAISS.
-  - **Hybrid GNN+CBF**: Lựa chọn production mặc định vì kết hợp ưu điểm của cả hai phương pháp (GNN LightGCN + CBF Sentence-BERT), duy trì ổn định trong nhiều tình huống, có thể tinh chỉnh trọng số `alpha` để ưu tiên hành vi người dùng (GNN) hoặc đặc điểm sản phẩm (CBF).
-  - **Kết luận**: Hybrid thường đạt Recall@K và NDCG@K cao nhất và thời gian inference chấp nhận được, phù hợp cho môi trường production.
+{analysis_section}
 """.format(
         gnn_recall_10=gnn_metrics.get('recall_at_10', 'N/A'),
         gnn_recall_20=gnn_metrics.get('recall_at_20', 'N/A'),
@@ -1070,9 +1217,262 @@ def generate_comparison_table(gnn_metrics: Dict[str, Any], cbf_metrics: Dict[str
         hybrid_ndcg_20=hybrid_metrics.get('ndcg_at_20', 'N/A'),
         hybrid_train_time=hybrid_metrics.get('training_time', 'N/A'),
         hybrid_inference_time=f"{hybrid_metrics.get('inference_time', 'N/A')} ms" if hybrid_metrics.get('inference_time', 'N/A') != 'N/A' else 'N/A',
+        analysis_section=analysis_text.replace("{", "{{").replace("}", "}}"),
     )
     return doc
 
+
+# 3.1 Apply formulas locally to compute metrics
+st.header("3.1 Áp dụng công thức (tính cục bộ)")
+st.caption("Tính Recall@K, NDCG@K dựa trên danh sách gợi ý trả về và Ground Truth lấy từ lịch sử tương tác của user. Dùng chính công thức đã trình bày để kiểm chứng.")
+
+with st.expander("🔬 Tính Recall/NDCG cục bộ từ kết quả recommend"):
+    uid_local = st.text_input("User ID (local)", value=user_id, key="local_user_id")
+    pid_local = st.text_input("Current Product ID (local)", value=product_id, key="local_product_id")
+    k_values = st.multiselect("Chọn K để tính", options=[5, 10, 20, 50], default=[10, 20])
+    model_choices = st.multiselect("Chọn mô hình", options=[("GNN","gnn"), ("CBF","cbf"), ("Hybrid","hybrid")], format_func=lambda x: x[0], default=[("GNN","gnn"), ("CBF","cbf"), ("Hybrid","hybrid")])
+
+    def _extract_rec_ids(recommend_data: Dict[str, Any]) -> list:
+        recs = recommend_data.get("personalized") or recommend_data.get("recommendations") or []
+        rec_ids = []
+        for rec in recs:
+            rid = None
+            if isinstance(rec, dict):
+                # nested product object or flat id
+                prod = rec.get("product")
+                if isinstance(prod, dict):
+                    rid = prod.get("id") or prod.get("product_id")
+                rid = rid or rec.get("id") or rec.get("product_id")
+            else:
+                rid = rec
+            if rid is not None:
+                rec_ids.append(str(rid))
+        # unique and keep order
+        seen = set()
+        ordered = []
+        for rid in rec_ids:
+            if rid not in seen:
+                seen.add(rid)
+                ordered.append(rid)
+        return ordered
+
+    def _fetch_ground_truth_ids(base_url: str, uid: str, exclude_pid: str) -> list:
+        try:
+            resp = requests.get(f"{base_url.rstrip('/')}/users/{uid}", timeout=15)
+            if resp.status_code == 200:
+                payload = resp.json()
+                user_info = (payload.get("data") or {}).get("user") or {}
+                history = user_info.get("interaction_history") or []
+                gt_ids = []
+                for it in history:
+                    pid = it.get("product_id")
+                    if pid is None:
+                        continue
+                    pid = str(pid)
+                    if exclude_pid and pid == str(exclude_pid):
+                        continue
+                    gt_ids.append(pid)
+                # unique
+                gt_ids = list(dict.fromkeys(gt_ids))
+                return gt_ids
+        except Exception:
+            pass
+        return []
+
+    if st.button("▶️ Tính toán cục bộ", key="btn_compute_local"):
+        if not uid_local:
+            st.warning("Vui lòng nhập User ID")
+        else:
+            gt_ids = _fetch_ground_truth_ids(BASE_URL, uid_local, pid_local)
+            if not gt_ids:
+                st.warning("Không lấy được Ground Truth từ interaction_history của user. Hãy đảm bảo backend trả về /users/{id} có interaction_history.")
+            else:
+                st.success(f"Đã lấy {len(gt_ids)} Ground Truth items từ lịch sử user")
+                cols = st.columns(len(model_choices) or 1)
+                for col, (label, slug) in zip(cols, model_choices):
+                    with col:
+                        st.markdown(f"#### {label}")
+                        payload_local = {"user_id": uid_local, "current_product_id": pid_local}
+                        t0 = time.perf_counter()
+                        res = call_api(BASE_URL, f"{slug}/recommend", payload=payload_local)
+                        t1 = time.perf_counter()
+                        if not res["success"]:
+                            st.error(res.get("error", "Recommend API lỗi"))
+                            continue
+                        data = res["data"] if isinstance(res["data"], dict) else {}
+                        rec_ids = _extract_rec_ids(data)
+                        if not rec_ids:
+                            st.warning("Không có danh sách gợi ý để tính toán.")
+                            continue
+
+                        # Compute metrics locally
+                        for k in k_values:
+                            recall_k = compute_recall_at_k(rec_ids, gt_ids, k=k)
+                            ndcg_k = compute_ndcg_at_k(rec_ids, gt_ids, k=k)
+                            st.metric(f"Recall@{k} (local)", f"{recall_k:.4f}")
+                            st.metric(f"NDCG@{k} (local)", f"{ndcg_k:.4f}")
+                        # Compare to API's evaluation_metrics if present
+                        api_eval = data.get("evaluation_metrics", {}) if isinstance(data, dict) else {}
+                        if api_eval:
+                            with st.expander("So sánh với evaluation_metrics API"):
+                                st.json(api_eval)
+                        inf_ms = (t1 - t0) * 1000.0
+                        st.metric("Inference time (local)", f"{inf_ms:.2f} ms")
+
+# 3.2 Batch evaluation using API-provided test cases
+st.header("3.2 Đánh giá theo bộ test (từ API)")
+st.caption("Sử dụng danh sách user_id/product_id mà API trả về trong evaluation_support để chạy recommend theo lô, áp dụng công thức Recall@K và NDCG@K, rồi tổng hợp kết quả.")
+
+with st.expander("🧪 Chạy đánh giá theo evaluation_support"):
+    # Show availability per model
+    col_av1, col_av2, col_av3 = st.columns(3)
+    for c, slug, label in zip([col_av1, col_av2, col_av3], ["gnn", "cbf", "hybrid"], ["GNN", "CBF", "Hybrid"]):
+        with c:
+            es = st.session_state.evaluation_support.get(slug)
+            if es:
+                num_pairs = len(es.get("pairs") or [])
+                num_u = len(es.get("user_ids") or [])
+                num_p = len(es.get("product_ids") or [])
+                st.success(f"{label}: pairs={num_pairs}, user_ids={num_u}, product_ids={num_p}")
+            else:
+                st.warning(f"{label}: Chưa có evaluation_support từ API")
+
+    # Controls
+    model_opts = st.multiselect(
+        "Chọn mô hình để đánh giá",
+        options=[("GNN", "gnn"), ("CBF", "cbf"), ("Hybrid", "hybrid")],
+        format_func=lambda x: x[0],
+        default=[("GNN", "gnn"), ("CBF", "cbf"), ("Hybrid", "hybrid")]
+    )
+    ks = st.multiselect("Chọn K", options=[5, 10, 20, 50], default=[10, 20])
+    max_pairs = st.number_input("Giới hạn số cặp test/pairs", min_value=1, max_value=1000, value=50, step=5)
+
+    def _get_eval_pairs(slug: str, limit: int) -> list:
+        es = st.session_state.evaluation_support.get(slug) or {}
+        pairs = es.get("pairs") or []
+        if not pairs:
+            # fallback: build pairs from user_ids x product_ids (cắt mẫu để tránh nổ tổ hợp)
+            uids = es.get("user_ids") or []
+            pids = es.get("product_ids") or []
+            built = []
+            for i, uid in enumerate(uids):
+                if len(built) >= limit:
+                    break
+                for j, pid in enumerate(pids):
+                    built.append({"user_id": str(uid), "current_product_id": str(pid)})
+                    if len(built) >= limit:
+                        break
+            pairs = built
+        return pairs[:limit]
+
+    def _extract_rec_ids(recommend_data: Dict[str, Any]) -> list:
+        recs = recommend_data.get("personalized") or recommend_data.get("recommendations") or []
+        rec_ids = []
+        for rec in recs:
+            rid = None
+            if isinstance(rec, dict):
+                prod = rec.get("product")
+                if isinstance(prod, dict):
+                    rid = prod.get("id") or prod.get("product_id")
+                rid = rid or rec.get("id") or rec.get("product_id")
+            else:
+                rid = rec
+            if rid is not None:
+                rec_ids.append(str(rid))
+        # unique ordered
+        seen, ordered = set(), []
+        for rid in rec_ids:
+            if rid not in seen:
+                seen.add(rid)
+                ordered.append(rid)
+        return ordered
+
+    GT_CACHE: Dict[str, list] = {}
+
+    def _get_gt(uid: str, exclude_pid: Optional[str]) -> list:
+        if uid in GT_CACHE:
+            gt = GT_CACHE[uid]
+        else:
+            gt = []
+            try:
+                resp = requests.get(f"{BASE_URL.rstrip('/')}/users/{uid}", timeout=15)
+                if resp.status_code == 200:
+                    payload = resp.json()
+                    user_info = (payload.get("data") or {}).get("user") or {}
+                    history = user_info.get("interaction_history") or []
+                    for it in history:
+                        pid = it.get("product_id")
+                        if pid is None:
+                            continue
+                        gt.append(str(pid))
+                    gt = list(dict.fromkeys(gt))
+            except Exception:
+                pass
+            GT_CACHE[uid] = gt
+        if exclude_pid:
+            return [x for x in gt if x != str(exclude_pid)]
+        return gt
+
+    if st.button("▶️ Chạy đánh giá theo bộ test", key="btn_run_eval_support"):
+        if not model_opts:
+            st.warning("Vui lòng chọn ít nhất một mô hình")
+        elif not ks:
+            st.warning("Vui lòng chọn ít nhất một K")
+        else:
+            for label, slug in model_opts:
+                st.markdown(f"#### Kết quả - {label}")
+                pairs = _get_eval_pairs(slug, int(max_pairs))
+                if not pairs:
+                    st.warning("Không có cặp test từ evaluation_support.")
+                    continue
+                prog = st.progress(0)
+                rows = []
+                sum_recalls = {k: 0.0 for k in ks}
+                sum_ndcgs = {k: 0.0 for k in ks}
+                total = len(pairs)
+                total_time_ms = 0.0
+                for idx, pair in enumerate(pairs, start=1):
+                    uid = pair.get("user_id")
+                    pid = pair.get("current_product_id")
+                    if not uid:
+                        continue
+                    gt_ids = _get_gt(uid, pid)
+                    t0 = time.perf_counter()
+                    res = call_api(BASE_URL, f"{slug}/recommend", payload=pair)
+                    t1 = time.perf_counter()
+                    if not res["success"]:
+                        rows.append({"user_id": uid, "product_id": pid, "ok": False, "error": res.get("error")})
+                        prog.progress(min(idx/total, 1.0))
+                        continue
+                    data = res["data"] if isinstance(res["data"], dict) else {}
+                    rec_ids = _extract_rec_ids(data)
+                    pair_row = {"user_id": uid, "product_id": pid, "ok": True}
+                    for k in ks:
+                        r = compute_recall_at_k(rec_ids, gt_ids, k=k)
+                        n = compute_ndcg_at_k(rec_ids, gt_ids, k=k)
+                        sum_recalls[k] += r
+                        sum_ndcgs[k] += n
+                        pair_row[f"recall@{k}"] = round(r, 4)
+                        pair_row[f"ndcg@{k}"] = round(n, 4)
+                    inf_ms = (t1 - t0) * 1000.0
+                    total_time_ms += inf_ms
+                    pair_row["inference_ms"] = round(inf_ms, 2)
+                    rows.append(pair_row)
+                    prog.progress(min(idx/total, 1.0))
+
+                # Aggregate
+                agg_cols = st.columns(len(ks) * 2 + 1)
+                cidx = 0
+                for k in ks:
+                    with agg_cols[cidx]:
+                        st.metric(f"Recall@{k} (avg)", f"{(sum_recalls[k]/total):.4f}")
+                    cidx += 1
+                    with agg_cols[cidx]:
+                        st.metric(f"NDCG@{k} (avg)", f"{(sum_ndcgs[k]/total):.4f}")
+                    cidx += 1
+                with agg_cols[cidx]:
+                    st.metric("Inference (avg)", f"{(total_time_ms/max(total,1)):.2f} ms")
+                st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
 st.header("4. Tài liệu mô hình (Documentation)")
 
@@ -1086,6 +1486,277 @@ st.markdown("""
 1. Train mô hình qua API `/train` → Lấy thông số huấn luyện
 2. Gọi API `/recommend` → Lấy evaluation metrics
 """)
+
+GROQ_MODEL_NAME = "llama-3.3-70b-versatile"
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+
+def call_groq_api(prompt: str, system_message: str = "", max_tokens: int = 2000, temperature: float = 0.3) -> str:
+    """Call Groq API with given prompt."""
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        return (
+            "**⚠️ Groq chưa sẵn sàng**: Vui lòng đặt biến môi trường `GROQ_API_KEY` "
+            "để bật phân tích tự động."
+        )
+    
+    default_system = "You are a helpful data scientist specializing in recommender systems. Always respond in Markdown and Vietnamese."
+    
+    payload = {
+        "model": GROQ_MODEL_NAME,
+        "messages": [
+            {
+                "role": "system",
+                "content": system_message or default_system,
+            },
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    
+    try:
+        response = requests.post(
+            GROQ_API_URL,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=120,
+        )
+        response.raise_for_status()
+        data = response.json()
+        content = (
+            data.get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "")
+            .strip()
+        )
+        if not content:
+            raise ValueError("Groq response empty.")
+        return content
+    except (requests.RequestException, ValueError, KeyError) as exc:
+        return f"**⚠️ Groq lỗi**: {exc}"
+
+
+def analyze_metrics_detailed(
+    gnn_metrics: Dict[str, Any],
+    cbf_metrics: Dict[str, Any],
+    hybrid_metrics: Dict[str, Any],
+) -> str:
+    """Use Groq to provide detailed explanation of metrics and model selection."""
+    metrics_snapshot = {
+        "GNN (LightGCN)": gnn_metrics,
+        "Content-based Filtering": cbf_metrics,
+        "Hybrid GNN+CBF": hybrid_metrics,
+    }
+    
+    prompt = f"""Bạn là chuyên gia về hệ thống gợi ý (Recommender Systems). 
+Dựa vào số liệu thực nghiệm dưới đây, hãy:
+
+1. **Giải thích chi tiết từng chỉ số:**
+   - Recall@10, Recall@20: Ý nghĩa là gì? Giá trị bao nhiêu là tốt?
+   - NDCG@10, NDCG@20: Khác gì với Recall? Tại sao cần cả hai?
+   - Thời gian train vs inference: Tại sao cả hai đều quan trọng?
+
+2. **So sánh 3 mô hình:**
+   - Mô hình nào có Recall/NDCG cao nhất?
+   - Mô hình nào train nhanh nhất?
+   - Mô hình nào inference nhanh nhất (quan trọng cho production)?
+   - Mô hình nào cân bằng tốt nhất giữa độ chính xác và tốc độ?
+
+3. **Khuyến nghị:**
+   - Chọn mô hình nào để triển khai production? Tại sao?
+   - Trong trường hợp nào nên dùng mô hình khác?
+   - Có cách nào cải thiện mô hình được chọn không?
+
+**Số liệu thực nghiệm:**
+{json.dumps(metrics_snapshot, ensure_ascii=False, indent=2)}
+
+Viết chi tiết, dễ hiểu, có ví dụ cụ thể. Sử dụng tiếng Việt."""
+
+    return call_groq_api(prompt, max_tokens=3000, temperature=0.2)
+
+
+def explain_algorithms_detailed(
+    gnn_metrics: Dict[str, Any],
+    cbf_metrics: Dict[str, Any],
+    hybrid_metrics: Dict[str, Any],
+) -> str:
+    """Use Groq to explain algorithms in detail with formulas and step-by-step process."""
+    metrics_snapshot = {
+        "GNN": gnn_metrics,
+        "CBF": cbf_metrics,
+        "Hybrid": hybrid_metrics,
+    }
+    
+    prompt = f"""Bạn là chuyên gia Machine Learning và Recommender Systems.
+Hãy trình bày chi tiết thuật toán của 3 mô hình sau với:
+
+1. **GNN (LightGCN)**
+   - Công thức toán học từng bước (dùng ký hiệu toán học chuẩn)
+   - Giải thích ý nghĩa của từng biến
+   - Quá trình tính toán: User embedding → Product embedding → Similarity score → Ranking
+   - Tại sao dùng Graph Neural Network?
+   - Ưu điểm: Học được mối quan hệ giữa users và items từ đồ thị tương tác
+   - Nhược điểm: Cần dữ liệu tương tác đủ lớn
+
+2. **Content-based Filtering (CBF)**
+   - Công thức toán học từng bước
+   - Giải thích Sentence-BERT embeddings
+   - Công thức tính cosine similarity
+   - Quá trình: Text → SBERT embedding → Similarity matrix → Ranking
+   - Tại sao dùng Content-based?
+   - Ưu điểm: Không cần dữ liệu tương tác, có thể recommend sản phẩm mới
+   - Nhược điểm: Không học được preference của user
+
+3. **Hybrid GNN+CBF**
+   - Công thức kết hợp: Score = α × GNN_score + (1-α) × CBF_score
+   - Tại sao kết hợp hai mô hình?
+   - Ưu điểm: Kết hợp ưu điểm của cả hai
+   - Nhược điểm: Phức tạp hơn, cần tune α
+
+**Thông số từ thực nghiệm:**
+{json.dumps(metrics_snapshot, ensure_ascii=False, indent=2)}
+
+Viết rất chi tiết, có công thức toán học rõ ràng, dễ hiểu. Sử dụng tiếng Việt."""
+
+    return call_groq_api(prompt, max_tokens=4000, temperature=0.2)
+
+
+def explain_personalized_vs_outfit(
+    gnn_metrics: Dict[str, Any],
+    cbf_metrics: Dict[str, Any],
+    hybrid_metrics: Dict[str, Any],
+) -> str:
+    """Use Groq to explain Personalized vs Outfit recommendation methodologies."""
+    metrics_snapshot = {
+        "GNN": gnn_metrics,
+        "CBF": cbf_metrics,
+        "Hybrid": hybrid_metrics,
+    }
+    
+    prompt = f"""Bạn là chuyên gia về Personalized Recommendation và Outfit Recommendation.
+Hãy trình bày chi tiết hai phương pháp này:
+
+1. **PERSONALIZED RECOMMENDATION (Gợi ý cá nhân hóa)**
+   - Định nghĩa: Gợi ý dựa trên hành vi và sở thích cá nhân của từng user
+   - Tổ chức dữ liệu:
+     * User-Item interaction matrix: [num_users × num_items]
+     * Mỗi phần tử = rating/weight của user đối với item
+     * Ví dụ: User 1 mua áo sơ mi → weight = 3.0
+   - Quá trình tính toán:
+     * Bước 1: Xây dựng user embedding từ interaction history
+     * Bước 2: Tính similarity giữa user embedding và item embeddings
+     * Bước 3: Rank items theo similarity score
+     * Bước 4: Trả về top-K items cao nhất
+   - Công thức: Score(user_i, item_j) = similarity(user_embedding_i, item_embedding_j)
+   - Ứng dụng: Amazon, Netflix, Spotify (mỗi user có gợi ý khác nhau)
+
+2. **OUTFIT RECOMMENDATION (Gợi ý trang phục/bộ sưu tập)**
+   - Định nghĩa: Gợi ý các sản phẩm phối hợp tốt với nhau (áo + quần + giày)
+   - Tổ chức dữ liệu:
+     * Item-Item similarity matrix: [num_items × num_items]
+     * Mỗi phần tử = độ tương tự giữa hai items
+     * Ví dụ: Áo sơ mi xanh + Quần jeans xanh → similarity = 0.85
+   - Quá trình tính toán:
+     * Bước 1: Tính item embeddings từ content (màu, kiểu, chất liệu)
+     * Bước 2: Tính similarity giữa current_item và tất cả items khác
+     * Bước 3: Filter items phù hợp (cùng style, màu, size)
+     * Bước 4: Rank theo similarity score
+     * Bước 5: Trả về top-K items để phối hợp
+   - Công thức: Score(item_i, item_j) = similarity(item_embedding_i, item_embedding_j)
+   - Ứng dụng: Zalora, Tiki, H&M (gợi ý sản phẩm phối hợp)
+
+3. **SO SÁNH:**
+   | Tiêu chí | Personalized | Outfit |
+   |----------|-------------|--------|
+   | Dữ liệu input | User ID + Interaction history | Current item ID |
+   | Dữ liệu tính toán | User-Item matrix | Item-Item similarity matrix |
+   | Output | Sản phẩm user thích | Sản phẩm phối hợp tốt |
+   | Ứng dụng | Trang chủ, Email | Chi tiết sản phẩm, Giỏ hàng |
+
+4. **TRIỂN KHAI TRONG HỆ THỐNG:**
+   - Personalized: Dùng GNN hoặc Hybrid (học từ user behavior)
+   - Outfit: Dùng CBF (học từ item content/features)
+   - Kết hợp: Personalized trên trang chủ, Outfit ở chi tiết sản phẩm
+
+**Thông số từ thực nghiệm:**
+{json.dumps(metrics_snapshot, ensure_ascii=False, indent=2)}
+
+Viết rất chi tiết, có ví dụ cụ thể, công thức rõ ràng. Sử dụng tiếng Việt."""
+
+    return call_groq_api(prompt, max_tokens=4000, temperature=0.2)
+
+
+def analyze_models_with_groq(
+    gnn_metrics: Dict[str, Any],
+    cbf_metrics: Dict[str, Any],
+    hybrid_metrics: Dict[str, Any],
+) -> str:
+    """Use Groq's Llama model to analyze metrics and produce recommendations."""
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        return (
+            "**⚠️ Groq chưa sẵn sàng**: Vui lòng đặt biến môi trường `GROQ_API_KEY` "
+            "để bật phân tích tự động."
+        )
+    
+    metrics_snapshot = {
+        "GNN": gnn_metrics,
+        "Content-based": cbf_metrics,
+        "Hybrid": hybrid_metrics,
+    }
+    prompt = (
+        "Bạn là chuyên gia hệ thống gợi ý. Dựa vào số liệu Recall@K, NDCG@K, thời gian train "
+        "và inference của ba mô hình (GNN, Content-based, Hybrid), hãy đánh giá ưu/nhược điểm "
+        "và đề xuất mô hình nên triển khai production.\n\n"
+        "Yêu cầu định dạng:\n"
+        "- Bắt đầu bằng tiêu đề in đậm `Phân tích & lựa chọn`.\n"
+        "- Viết mỗi mô hình một gạch đầu dòng nêu rõ bối cảnh phù hợp và điểm cần chú ý.\n"
+        "- Kết thúc bằng một gạch đầu dòng **Kết luận** nêu lựa chọn cuối cùng.\n"
+        "- Viết bằng tiếng Việt súc tích (tối đa 4 gạch đầu dòng cho phần mô hình + 1 kết luận).\n\n"
+        f"Dữ liệu:\n{json.dumps(metrics_snapshot, ensure_ascii=False, indent=2)}"
+    )
+    
+    payload = {
+        "model": GROQ_MODEL_NAME,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a helpful data scientist specializing in recommender systems. Always respond in Markdown.",
+            },
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.3,
+        "max_tokens": 600,
+    }
+    
+    try:
+        response = requests.post(
+            GROQ_API_URL,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=60,
+        )
+        response.raise_for_status()
+        data = response.json()
+        content = (
+            data.get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "")
+            .strip()
+        )
+        if not content:
+            raise ValueError("Groq response empty.")
+        return content
+    except (requests.RequestException, ValueError, KeyError) as exc:
+        return f"**⚠️ Groq lỗi**: {exc}"
+
 
 # Test API section
 with st.expander("🔍 Test API & Xem Response", expanded=False):
@@ -1167,7 +1838,15 @@ with st.expander("🔍 Test API & Xem Response", expanded=False):
 st.markdown("---")
 
 # Create tabs for each model
-doc_tabs = st.tabs(["📊 GNN (LightGCN)", "📝 Content-based Filtering", "🔀 Hybrid GNN+CBF", "📈 So sánh 3 mô hình"])
+doc_tabs = st.tabs([
+    "📊 GNN (LightGCN)", 
+    "📝 Content-based Filtering", 
+    "🔀 Hybrid GNN+CBF", 
+    "📈 So sánh 3 mô hình",
+    "🔍 Phân tích Chi tiết Metrics",
+    "🧮 Giải thích Thuật toán",
+    "👔 Personalized vs Outfit"
+])
 
 # Tab 1: GNN Documentation
 with doc_tabs[0]:
@@ -1239,8 +1918,8 @@ with doc_tabs[0]:
     
     eval_col1, eval_col2, eval_col3 = st.columns(3)
     with eval_col1:
-        recall_at_10 = get_value("recall_at_10", "N/A")
-        recall_at_20 = get_value("recall_at_20", "N/A")
+        recall_at_10 = format_metric_value(get_value("recall_at_10", "N/A"))
+        recall_at_20 = format_metric_value(get_value("recall_at_20", "N/A"))
         st.metric("Recall@10", recall_at_10)
         st.metric("Recall@20", recall_at_20)
     with eval_col2:
@@ -1249,7 +1928,7 @@ with doc_tabs[0]:
         st.metric("NDCG@10", ndcg_at_10)
         st.metric("NDCG@20", ndcg_at_20)
     with eval_col3:
-        training_time = get_value("training_time", "N/A")
+        training_time = format_metric_value(get_value("training_time", "N/A"))
         inference_time = get_value("inference_time", "N/A")
         st.metric("Thời gian train", training_time)
         st.metric("Thời gian inference/user", f"{inference_time} ms" if inference_time != "N/A" else "N/A")
@@ -1272,6 +1951,7 @@ with doc_tabs[0]:
         'training_time': training_time,
         'inference_time': inference_time,
     }
+    gnn_metrics_updated = apply_precision_formatting(gnn_metrics_updated)
     
     # Generate and display documentation
     gnn_doc = generate_gnn_documentation(gnn_metrics_updated)
@@ -1338,8 +2018,8 @@ with doc_tabs[1]:
     
     eval_col1, eval_col2, eval_col3 = st.columns(3)
     with eval_col1:
-        recall_at_10 = get_value("recall_at_10", "N/A")
-        recall_at_20 = get_value("recall_at_20", "N/A")
+        recall_at_10 = format_metric_value(get_value("recall_at_10", "N/A"))
+        recall_at_20 = format_metric_value(get_value("recall_at_20", "N/A"))
         st.metric("Recall@10", recall_at_10)
         st.metric("Recall@20", recall_at_20)
     with eval_col2:
@@ -1348,7 +2028,7 @@ with doc_tabs[1]:
         st.metric("NDCG@10", ndcg_at_10)
         st.metric("NDCG@20", ndcg_at_20)
     with eval_col3:
-        training_time = get_value("training_time", "N/A")
+        training_time = format_metric_value(get_value("training_time", "N/A"))
         inference_time = get_value("inference_time", "N/A")
         st.metric("Thời gian train", training_time)
         st.metric("Thời gian inference/user", f"{inference_time} ms" if inference_time != "N/A" else "N/A")
@@ -1366,6 +2046,7 @@ with doc_tabs[1]:
         'training_time': training_time,
         'inference_time': inference_time,
     }
+    cbf_metrics_updated = apply_precision_formatting(cbf_metrics_updated)
     
     # Generate and display documentation
     cbf_doc = generate_cbf_documentation(cbf_metrics_updated)
@@ -1442,8 +2123,8 @@ with doc_tabs[2]:
     
     eval_col1, eval_col2, eval_col3 = st.columns(3)
     with eval_col1:
-        recall_at_10 = get_value("recall_at_10", "N/A")
-        recall_at_20 = get_value("recall_at_20", "N/A")
+        recall_at_10 = format_metric_value(get_value("recall_at_10", "N/A"))
+        recall_at_20 = format_metric_value(get_value("recall_at_20", "N/A"))
         st.metric("Recall@10", recall_at_10)
         st.metric("Recall@20", recall_at_20)
     with eval_col2:
@@ -1452,7 +2133,7 @@ with doc_tabs[2]:
         st.metric("NDCG@10", ndcg_at_10)
         st.metric("NDCG@20", ndcg_at_20)
     with eval_col3:
-        training_time = get_value("training_time", "N/A")
+        training_time = format_metric_value(get_value("training_time", "N/A"))
         inference_time = get_value("inference_time", "N/A")
         st.metric("Thời gian train", training_time)
         st.metric("Thời gian inference/user", f"{inference_time} ms" if inference_time != "N/A" else "N/A")
@@ -1471,6 +2152,7 @@ with doc_tabs[2]:
         'training_time': training_time,
         'inference_time': inference_time,
     }
+    hybrid_metrics_updated = apply_precision_formatting(hybrid_metrics_updated)
     
     # Generate and display documentation
     hybrid_doc = generate_hybrid_documentation(hybrid_metrics_updated, alpha)
@@ -1517,6 +2199,9 @@ with doc_tabs[3]:
     update_metrics_from_session(gnn_metrics_final, "gnn")
     update_metrics_from_session(cbf_metrics_final, "cbf")
     update_metrics_from_session(hybrid_metrics_final, "hybrid")
+    gnn_metrics_final = apply_precision_formatting(gnn_metrics_final)
+    cbf_metrics_final = apply_precision_formatting(cbf_metrics_final)
+    hybrid_metrics_final = apply_precision_formatting(hybrid_metrics_final)
     
     # Also get alpha for hybrid
     if "hybrid_alpha" in st.session_state:
@@ -1524,40 +2209,136 @@ with doc_tabs[3]:
     else:
         alpha_final = 0.7
     
-    # Generate comparison table
-    comparison_doc = generate_comparison_table(gnn_metrics_final, cbf_metrics_final, hybrid_metrics_final)
+    # Generate Groq-backed analysis text
+    with st.spinner("🤖 Đang nhờ Groq phân tích số liệu..."):
+        groq_analysis_text = analyze_models_with_groq(
+            gnn_metrics_final,
+            cbf_metrics_final,
+            hybrid_metrics_final,
+        )
     
-    st.markdown("---")
-    st.subheader("📄 Bảng so sánh (có thể copy)")
+    # Generate comparison table
+    comparison_doc = generate_comparison_table(
+        gnn_metrics_final,
+        cbf_metrics_final,
+        hybrid_metrics_final,
+        groq_analysis_text or "**⚠️ Groq không trả về dữ liệu để phân tích.**",
+    )
     st.markdown(comparison_doc)
     
     # Copy button
     st.code(comparison_doc, language="markdown")
     
-    # Visual comparison
-    st.subheader("📊 Biểu đồ so sánh")
-    comparison_data = {
-        "Mô hình": ["GNN (LightGCN)", "Content-based Filtering", "Hybrid GNN+CBF"],
-        "Recall@10": [gnn_metrics_final.get('recall_at_10', 'N/A'), cbf_metrics_final.get('recall_at_10', 'N/A'), hybrid_metrics_final.get('recall_at_10', 'N/A')],
-        "Recall@20": [gnn_metrics_final.get('recall_at_20', 'N/A'), cbf_metrics_final.get('recall_at_20', 'N/A'), hybrid_metrics_final.get('recall_at_20', 'N/A')],
-        "NDCG@10": [gnn_metrics_final.get('ndcg_at_10', 'N/A'), cbf_metrics_final.get('ndcg_at_10', 'N/A'), hybrid_metrics_final.get('ndcg_at_10', 'N/A')],
-        "NDCG@20": [gnn_metrics_final.get('ndcg_at_20', 'N/A'), cbf_metrics_final.get('ndcg_at_20', 'N/A'), hybrid_metrics_final.get('ndcg_at_20', 'N/A')],
-    }
-    
-    # Try to convert to numeric for plotting
-    try:
-        comparison_df = pd.DataFrame(comparison_data)
-        for col in ["Recall@10", "Recall@20", "NDCG@10", "NDCG@20"]:
-            comparison_df[col] = pd.to_numeric(comparison_df[col], errors='coerce')
-        
-        st.bar_chart(comparison_df.set_index("Mô hình")[["Recall@10", "Recall@20", "NDCG@10", "NDCG@20"]], use_container_width=True)
-    except:
-        st.info("Vui lòng nhập số liệu để hiển thị biểu đồ so sánh.")
+    st.subheader("🤖 Phân tích & lựa chọn (Groq)")
+    st.markdown(groq_analysis_text)
 
+# Tab 5: Detailed Metrics Analysis
+with doc_tabs[4]:
+    st.markdown("### 🔍 Phân tích Chi tiết Metrics")
+    st.info("Phần này sử dụng Groq AI để giải thích rất chi tiết các chỉ số Recall, NDCG, thời gian train/inference và đưa ra khuyến nghị chọn mô hình tốt nhất dựa trên số liệu thực nghiệm.")
 
-# Update session state when training completes
-st.markdown("---")
-st.caption(
-    "Ứng dụng Streamlit này giúp kiểm thử nhanh các API gợi ý sản phẩm của Novaware và tạo tài liệu tự động."
-)
+    # Gather metrics for analysis
+    gnn_metrics_analysis = extract_training_metrics(st.session_state.training_results.get("gnn"), "gnn")
+    cbf_metrics_analysis = extract_training_metrics(st.session_state.training_results.get("cbf"), "cbf")
+    hybrid_metrics_analysis = extract_training_metrics(st.session_state.training_results.get("hybrid"), "hybrid")
 
+    def _update_from_session(metrics_dict: Dict[str, Any], prefix: str) -> None:
+        for key in ["recall_at_10", "recall_at_20", "ndcg_at_10", "ndcg_at_20", "training_time", "inference_time",
+                    "num_users", "num_products", "num_interactions", "epochs", "embed_dim", "learning_rate"]:
+            session_key = f"{prefix}_{key}"
+            if session_key in st.session_state:
+                metrics_dict[key] = st.session_state[session_key]
+        if f"{prefix}_num_samples" in st.session_state:
+            metrics_dict["num_training_samples"] = st.session_state[f"{prefix}_num_samples"]
+        if f"{prefix}_batch" in st.session_state:
+            metrics_dict["batch_size"] = st.session_state[f"{prefix}_batch"]
+        if f"{prefix}_embed" in st.session_state:
+            metrics_dict["embed_dim"] = st.session_state[f"{prefix}_embed"]
+        if f"{prefix}_lr" in st.session_state:
+            metrics_dict["learning_rate"] = st.session_state[f"{prefix}_lr"]
+
+    _update_from_session(gnn_metrics_analysis, "gnn")
+    _update_from_session(cbf_metrics_analysis, "cbf")
+    _update_from_session(hybrid_metrics_analysis, "hybrid")
+
+    if st.button("🚀 Phân tích Chi tiết với Groq", key="btn_detailed_metrics"):
+        with st.spinner("⏳ Đang gọi Groq để phân tích chi tiết..."):
+            detailed_text = analyze_metrics_detailed(
+                gnn_metrics_analysis,
+                cbf_metrics_analysis,
+                hybrid_metrics_analysis,
+            )
+        st.markdown("---")
+        st.markdown(detailed_text)
+        st.code(detailed_text, language="markdown")
+
+# Tab 6: Algorithm Explanation
+with doc_tabs[5]:
+    st.markdown("### 🧮 Giải thích Thuật toán (có công thức)")
+    st.info("Phần này sử dụng Groq AI để trình bày thuật toán GNN, CBF và Hybrid với công thức chi tiết, giải thích từng bước tính toán.")
+
+    with st.expander("Thiết lập thư viện công thức toán học (tùy chọn)"):
+        st.markdown("- Streamlit hỗ trợ hiển thị công thức LaTeX qua st.markdown/st.latex, không cần cài thêm.")
+        st.markdown("- Nếu muốn tính toán biểu thức và render công thức tự động, có thể dùng SymPy:")
+        st.code("""
+# Kích hoạt môi trường ảo (chọn một trong các lệnh phù hợp hệ điều hành)
+# macOS/Linux (bash/zsh)
+source .venv/bin/activate
+# Windows PowerShell
+.venv\\Scripts\\Activate.ps1
+
+# Cài đặt thư viện
+pip install sympy
+""", language="bash")
+        st.markdown("Ví dụ dùng SymPy để tính và render công thức:")
+        st.code("""
+import sympy as sp
+x, y = sp.symbols('x y')
+expr = (x + y)**3
+expanded = sp.expand(expr)
+latex_str = sp.latex(expanded)  # Chuyển sang LaTeX để hiển thị
+st.latex(latex_str)
+""", language="python")
+
+    gnn_metrics_algo = extract_training_metrics(st.session_state.training_results.get("gnn"), "gnn")
+    cbf_metrics_algo = extract_training_metrics(st.session_state.training_results.get("cbf"), "cbf")
+    hybrid_metrics_algo = extract_training_metrics(st.session_state.training_results.get("hybrid"), "hybrid")
+
+    _update_from_session(gnn_metrics_algo, "gnn")
+    _update_from_session(cbf_metrics_algo, "cbf")
+    _update_from_session(hybrid_metrics_algo, "hybrid")
+
+    if st.button("🚀 Giải thích Thuật toán với Groq", key="btn_algo_explain"):
+        with st.spinner("⏳ Đang gọi Groq để giải thích thuật toán..."):
+            algo_text = explain_algorithms_detailed(
+                gnn_metrics_algo,
+                cbf_metrics_algo,
+                hybrid_metrics_algo,
+            )
+        st.markdown("---")
+        st.markdown(algo_text)
+        st.code(algo_text, language="markdown")
+
+# Tab 7: Personalized vs Outfit
+with doc_tabs[6]:
+    st.markdown("### 👔 Personalized vs Outfit Recommendation")
+    st.info("Giải thích tiêu chuẩn Personalized (cá nhân hóa) và Outfit (phối đồ), cách tổ chức dữ liệu và công thức tính điểm gợi ý.")
+
+    gnn_metrics_pf = extract_training_metrics(st.session_state.training_results.get("gnn"), "gnn")
+    cbf_metrics_pf = extract_training_metrics(st.session_state.training_results.get("cbf"), "cbf")
+    hybrid_metrics_pf = extract_training_metrics(st.session_state.training_results.get("hybrid"), "hybrid")
+
+    _update_from_session(gnn_metrics_pf, "gnn")
+    _update_from_session(cbf_metrics_pf, "cbf")
+    _update_from_session(hybrid_metrics_pf, "hybrid")
+
+    if st.button("🚀 Phân tích Personalized vs Outfit (Groq)", key="btn_pf_outfit"):
+        with st.spinner("⏳ Đang gọi Groq để phân tích Personalized vs Outfit..."):
+            pf_text = explain_personalized_vs_outfit(
+                gnn_metrics_pf,
+                cbf_metrics_pf,
+                hybrid_metrics_pf,
+            )
+        st.markdown("---")
+        st.markdown(pf_text)
+        st.code(pf_text, language="markdown")

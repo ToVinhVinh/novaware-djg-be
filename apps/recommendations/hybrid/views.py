@@ -22,6 +22,40 @@ class TrainHybridView(APIView):
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
 
+    def _build_evaluation_support(self, max_pairs: int = 100) -> dict:
+        """Build evaluation_support with (user_id, current_product_id) pairs from interactions."""
+        pairs = []
+        user_ids = set()
+        product_ids = set()
+        # Try Django ORM
+        try:
+            from apps.users.models import UserInteraction
+            qs = UserInteraction.objects.all().order_by('-timestamp')[: max_pairs * 3]
+            for inter in qs:
+                uid = str(inter.user_id)
+                pid = str(inter.product_id)
+                pairs.append({"user_id": uid, "current_product_id": pid})
+                user_ids.add(uid)
+                product_ids.add(pid)
+                if len(pairs) >= max_pairs:
+                    break
+        except Exception:
+            pass
+        # Fallback to Mongo
+        if not pairs:
+            try:
+                from apps.users.mongo_models import UserInteraction as MongoInteraction
+                mq = MongoInteraction.objects.order_by('-timestamp').limit(max_pairs)
+                for inter in mq:
+                    uid = str(inter.user_id)
+                    pid = str(inter.product_id)
+                    pairs.append({"user_id": uid, "current_product_id": pid})
+                    user_ids.add(uid)
+                    product_ids.add(pid)
+            except Exception:
+                pass
+        return {"pairs": pairs, "user_ids": list(user_ids), "product_ids": list(product_ids)}
+
     def _get_training_data(self, result: dict, include_artifacts: bool = True) -> dict:
         """Extract and format training data for frontend rendering."""
         from apps.recommendations.common.storage import ArtifactStorage
@@ -160,6 +194,11 @@ class TrainHybridView(APIView):
             except Exception:
                 pass
         
+        # Attach evaluation_support to training response
+        try:
+            training_data["evaluation_support"] = self._build_evaluation_support(max_pairs=100)
+        except Exception:
+            training_data["evaluation_support"] = {"pairs": [], "user_ids": [], "product_ids": []}
         return training_data
 
     def _get_task_status(self, task_id: str) -> dict:
@@ -422,6 +461,34 @@ class RecommendHybridView(APIView):
             
             # Add metrics to response
             payload["evaluation_metrics"] = metrics
+
+            # Attach evaluation_support for formulas on frontend
+            try:
+                rec_ids = []
+                for rec in personalized_recommendations:
+                    rid = None
+                    if isinstance(rec, dict):
+                        prod = rec.get("product")
+                        if isinstance(prod, dict):
+                            rid = prod.get("id") or prod.get("product_id")
+                        rid = rid or rec.get("id") or rec.get("product_id")
+                    else:
+                        rid = rec
+                    if rid is not None:
+                        rec_ids.append(str(rid))
+                gt_ids = []
+                # ground_truth is list of dicts with id
+                if isinstance(ground_truth, list):
+                    gt_ids = [str(x.get("id")) for x in ground_truth if isinstance(x, dict) and x.get("id") is not None]
+                payload["evaluation_support"] = {
+                    "pairs": [{"user_id": str(user_id), "current_product_id": str(product_id)}],
+                    "user_ids": [str(user_id)],
+                    "product_ids": [str(product_id)],
+                    "rec_ids": rec_ids,
+                    "ground_truth_ids": gt_ids,
+                }
+            except Exception:
+                pass
             
         except ModelNotTrainedError as exc:
             return Response(
