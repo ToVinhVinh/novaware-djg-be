@@ -20,7 +20,6 @@ class UserAdmin(BaseUserAdmin):
                     "preferences",
                     "user_embedding",
                     "content_profile",
-                    "amazon_user_id",
                 )
             },
         ),
@@ -37,7 +36,7 @@ class UserAdmin(BaseUserAdmin):
     )
     list_display = ("email", "username", "is_staff", "gender", "age", "last_login")
     ordering = ("email",)
-    search_fields = ("email", "username", "amazon_user_id")
+    search_fields = ("email", "username")
 
 
 @admin.register(UserInteraction)

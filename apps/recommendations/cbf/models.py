@@ -171,7 +171,7 @@ class ContentBasedRecommendationEngine(BaseRecommendationEngine):
             similarity = float(np.dot(user_profile, candidate_vector.T)[0, 0])
             
             style_bonus = 0.05 * sum(context.style_weight(token) for token in _style_tokens(candidate))
-            brand_bonus = 0.0  # Brand field removed
+            brand_bonus = 0.0 
             
             candidate_scores[candidate_id] = float(similarity + style_bonus + brand_bonus)
 

@@ -52,8 +52,6 @@ class UserViewSet(viewsets.ModelViewSet):
             return User.objects.all()
         return User.objects.filter(pk=self.request.user.pk)
 
-    # Removed permission restrictions - all actions are now public
-
     @action(detail=False, methods=["get"])
     def me(self, request):
         serializer = self.get_serializer(request.user)

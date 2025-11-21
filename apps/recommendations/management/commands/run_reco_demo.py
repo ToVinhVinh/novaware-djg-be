@@ -11,7 +11,6 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandParser
 from django.utils import timezone
 
-from apps.brands.models import Brand
 from apps.products.models import Category, Product
 from apps.recommendations.cbf.models import engine as cbf_engine, recommend_cbf
 from apps.recommendations.gnn.models import engine as gnn_engine, recommend_gnn
@@ -128,8 +127,7 @@ class Command(BaseCommand):
         return None
 
     def _ensure_demo_data(self) -> tuple[User, Product]:
-        """Create or retrieve a demo user, brand, categories, a few products, and interactions."""
-        brand, _ = Brand.objects.get_or_create(name="DemoBrand")
+        """Create or retrieve a demo user, categories, a few products, and interactions."""
         cat_tops, _ = Category.objects.get_or_create(name="Tops")
         cat_bottoms, _ = Category.objects.get_or_create(name="Bottoms")
         cat_shoes, _ = Category.objects.get_or_create(name="Shoes")
@@ -150,7 +148,6 @@ class Command(BaseCommand):
                 slug=slug,
                 defaults={
                     "user": user,
-                    "brand": brand,
                     "category": category,
                     "name": name,
                     "description": "Demo product",

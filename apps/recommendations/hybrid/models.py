@@ -101,7 +101,7 @@ class HybridRecommendationEngine(ContentBasedRecommendationEngine):
             candidate = next((c for c in context.candidate_products if c.id == candidate_id), None)
             if candidate:
                 style_bonus = 0.05 * sum(context.style_weight(token) for token in _style_tokens(candidate))
-                brand_bonus = 0.0  # Brand field removed from Product model
+                brand_bonus = 0.0 
                 fused_score += style_bonus + brand_bonus
             
             candidate_scores[candidate_id] = fused_score

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Dict, Iterable, List
 
-from .constants import BRAND_MATCH_BONUS, OUTFIT_COMPLETION_RULES, OUTFIT_SCORE_FLOOR
+from .constants import OUTFIT_COMPLETION_RULES, OUTFIT_SCORE_FLOOR
 from .context import RecommendationContext
 from .gender_utils import gender_filter_values, normalize_gender
 from .schema import OutfitRecommendation
@@ -422,10 +422,6 @@ class OutfitBuilder:
             color = product.baseColour.lower()
             if context.style_weight(color) > 0:
                 parts.append(f"Color {color} suitable for your preference")
-        
-        # Brand preference
-        # Brand field removed from Product model
-        
         # Outfit completion context - use current product's category info
         current_sub_category = (getattr(context.current_product, "subCategory", "") or "").lower()
         current_article_type = (getattr(context.current_product, "articleType", "") or "").lower()
@@ -465,7 +461,7 @@ class OutfitBuilder:
                 continue
             base_score = scored_candidates.get(product_id, 0.0)
             style_bonus = sum(context.style_weight(tag) for tag in _extract_style_tokens(product))
-            brand_bonus = 0.0  # Brand field removed from Product model
+            brand_bonus = 0.0 
             total_score = base_score + style_bonus + brand_bonus
             ranked.append((product_id, total_score))
         ranked.sort(key=lambda item: item[1], reverse=True)

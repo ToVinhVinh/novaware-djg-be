@@ -86,8 +86,6 @@ class BaseRecommendationEngine(ABC):
         matched = [token for token in tags if context.style_weight(token) > 0]
         if matched:
             return f"Similar to your favorite ({', '.join(matched[:3])})"
-        # Brand field removed from Product model
-            return "Suitable for your favorite brand"
         return "Suggestions based on your interaction history"
 
     @abstractmethod

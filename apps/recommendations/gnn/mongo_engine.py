@@ -319,7 +319,6 @@ def _as_product_object(prod: MongoProduct, *, color_cache: dict[str, list[str]])
         "age_group": getattr(prod, "age_group", None),
         "category_type": getattr(prod, "category_type", None),
         "brand_id": str(getattr(prod, "brand_id")) if getattr(prod, "brand_id", None) else None,
-        "amazon_asin": getattr(prod, "amazon_asin", None),
         "colors": _product_color_tokens(prod, color_cache),
     }
 

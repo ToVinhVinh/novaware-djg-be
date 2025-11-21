@@ -21,7 +21,6 @@ OUTFIT_COMPLETION_RULES: dict[str, list[str]] = {
 }
 
 DEFAULT_STYLE_WEIGHT: float = 1.0
-BRAND_MATCH_BONUS: float = 0.35
 FRESHNESS_DECAY_HALFLIFE = timedelta(days=30)
 OUTFIT_SCORE_FLOOR: float = 0.25
 MAX_STYLE_TAGS: int = 20

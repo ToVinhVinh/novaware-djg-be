@@ -285,7 +285,6 @@ class LightGCNRecommendationEngine:
             except FileNotFoundError:
                 raise ValueError("Model not trained. Please train the model first.")
         
-        # Load user and current product
         user = MongoUser.objects(id=ObjectId(user_id)).first()
         if not user:
             raise ValueError(f"User {user_id} not found")
@@ -294,25 +293,20 @@ class LightGCNRecommendationEngine:
         if not current_product:
             raise ValueError(f"Product {current_product_id} not found")
         
-        # Get user index
         user_idx = self.user_id_map.get(user_id)
         if user_idx is None:
             logger.warning(f"User {user_id} not in training data, using cold start")
             return self._cold_start_recommend(user, current_product, top_k_personal, top_k_outfit)
         
-        # Get user embedding
         user_emb = self.user_embeddings[user_idx]
         
-        # Compute scores for all products
         scores = torch.matmul(self.product_embeddings, user_emb)
         scores = scores.numpy()
         
-        # Get top products
         top_indices = np.argsort(scores)[::-1]
         logger.debug(f"Top 10 raw recommendation indices: {top_indices[:10]}")
         logger.debug(f"Top 10 raw scores: {scores[top_indices[:10]]}")
 
-        # Generate personalized recommendations (Robust version)
         personalized = []
         exclude_ids = {current_product_id}
         logger.debug(f"Starting personalized recommendation generation for user {user_id}. Excluding initial product: {current_product_id}")
@@ -332,12 +326,9 @@ class LightGCNRecommendationEngine:
                 logger.warning(f"Product ID {product_id} from recommendations not found in DB.")
                 continue
 
-            # Filter by age and gender for this single product
             if not filter_by_age_gender([product], user):
-                # Detailed logging is now inside filter_by_age_gender
                 continue
 
-            # If it passes all checks, add to list
             logger.info(f"Product {product_id} passed all filters. Adding to personalized list.")
             reason = generate_english_reason(
                 product=product,
@@ -356,7 +347,6 @@ class LightGCNRecommendationEngine:
         if not personalized:
             logger.warning("Personalized recommendation list is empty after filtering.")
         
-        # Generate outfit recommendations (Robust version)
         outfit = {}
         current_tag = map_subcategory_to_tag(
             current_product.subCategory,
@@ -364,7 +354,6 @@ class LightGCNRecommendationEngine:
         )
         outfit_categories = get_outfit_categories(current_tag or "tops", user.gender)
         
-        # Add current product to outfit in its category
         if current_tag and current_tag in outfit_categories:
             current_product_reason = generate_english_reason(
                 product=current_product,
@@ -372,7 +361,6 @@ class LightGCNRecommendationEngine:
                 reason_type="outfit",
                 current_product=current_product,
             )
-            # Use a high score for the current product (1.0 or the product's rating normalized)
             current_score = 1.0
             if str(current_product.id) in self.product_id_map:
                 current_score = float(scores[self.product_id_map[str(current_product.id)]])

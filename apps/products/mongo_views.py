@@ -374,7 +374,7 @@ class ProductViewSet(viewsets.ViewSet):
         """List products with filtering and pagination."""
         queryset = Product.objects.all()
         
-        # Filter by category FIRST (before brand filter)
+        # Filter by category
         category_id = request.query_params.get("category")
         if category_id:
             try:
@@ -415,16 +415,10 @@ class ProductViewSet(viewsets.ViewSet):
                 # If ObjectId conversion fails, try as string
                 queryset = queryset.filter(__raw__={"category_id": category_id})
         
-        # Filter by brand
-        brand_id = request.query_params.get("brand")
-        if brand_id:
-            try:
-                brand_object_id = ObjectId(brand_id)
-                # Use __raw__ to ensure proper filtering
-                queryset = queryset.filter(__raw__={"brand_id": brand_object_id})
-            except Exception as e:
-                # Invalid ObjectId format, skip filter
-                pass
+        # Filter by article type
+        article_type = request.query_params.get("articleType")
+        if article_type:
+            queryset = queryset.filter(articleType__iexact=article_type)
         
         # Search
         search = request.query_params.get("search")
@@ -804,15 +798,6 @@ class ProductViewSet(viewsets.ViewSet):
                             
             except Exception as e:
                 queryset = queryset.filter(__raw__={"category_id": category_id})
-        
-        # Filter by brand
-        brand_id = request.query_params.get("brand")
-        if brand_id:
-            try:
-                brand_object_id = ObjectId(brand_id)
-                queryset = queryset.filter(__raw__={"brand_id": brand_object_id})
-            except Exception as e:
-                pass
         
         # Filter by gender
         gender = request.query_params.get("gender")

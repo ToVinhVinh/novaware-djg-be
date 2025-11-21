@@ -441,9 +441,7 @@ class GNNRecommendationEngine(BaseRecommendationEngine):
                 similarity = np.dot(user_emb, item_emb) / (np.linalg.norm(user_emb) * np.linalg.norm(item_emb) + 1e-9)
                 score = float(similarity)
             
-            # Add style and brand bonuses
             score += 0.1 * sum(context.style_weight(token) for token in _style_tokens(candidate))
-            # Brand field removed from Product model
             score += 0.01 * product_frequency.get(candidate_id_str, 0.0)
             
             candidate_scores[candidate_id] = score
@@ -474,7 +472,6 @@ class GNNRecommendationEngine(BaseRecommendationEngine):
             score += current_neighbors.get(candidate_id, 0.0) * 1.2
             score += sum(context.style_weight(token) for token in _style_tokens(candidate))
             score += 0.1 * frequency.get(candidate_id, 1.0)
-            # Brand field removed from Product model
             candidate_scores[candidate_id] = score
 
         if not candidate_scores:

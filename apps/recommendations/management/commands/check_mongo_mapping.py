@@ -85,20 +85,6 @@ class Command(BaseCommand):
             self.stdout.write(f"  Django-only slugs: {len(django_slugs - mongo_slugs)}")
             self.stdout.write(f"  MongoDB-only slugs: {len(mongo_slugs - django_slugs)}")
             
-            # Check amazon_asin matching
-            django_asins = set(
-                django_products.exclude(amazon_asin__isnull=True)
-                .exclude(amazon_asin='')
-                .values_list('amazon_asin', flat=True)
-            )
-            mongo_asins = set()
-            for mp in mongo_products:
-                if hasattr(mp, 'amazon_asin') and mp.amazon_asin:
-                    mongo_asins.add(mp.amazon_asin)
-            
-            matched_asins = django_asins & mongo_asins
-            self.stdout.write(f"  Matched amazon_asins: {len(matched_asins)}")
-            
             # Check name matching
             django_names = set(django_products.exclude(name__isnull=True).exclude(name='').values_list('name', flat=True))
             mongo_names = set()
@@ -109,7 +95,7 @@ class Command(BaseCommand):
             matched_names = django_names & mongo_names
             self.stdout.write(f"  Matched names: {len(matched_names)}")
             
-            total_matched = len(matched_slugs) + len(matched_asins) + len(matched_names)
+            total_matched = len(matched_slugs) + len(matched_names)
             if total_matched > 0:
                 self.stdout.write(f"  ✓ Found {total_matched} products that can be mapped")
             else:

@@ -35,7 +35,6 @@ class UserSerializer(serializers.Serializer):
     gender = serializers.CharField(required=False, allow_null=True)
     age = serializers.IntegerField(required=False, allow_null=True)
     preferences = serializers.DictField(default=dict)
-    amazon_user_id = serializers.CharField(required=False, allow_null=True)
     favorites = serializers.ListField(child=serializers.CharField(), required=False)
     user_embedding = serializers.ListField(child=serializers.FloatField(), required=False)
     content_profile = serializers.DictField(required=False)
@@ -62,7 +61,6 @@ class UserSerializer(serializers.Serializer):
         gender = getattr(instance, 'gender', None)
         age = getattr(instance, 'age', None)
         preferences_raw = getattr(instance, 'preferences', None) or {}
-        amazon_user_id = getattr(instance, 'amazon_user_id', None)
         is_admin = getattr(instance, 'is_admin', False)
         is_active = getattr(instance, 'is_active', True)
         
@@ -128,7 +126,6 @@ class UserSerializer(serializers.Serializer):
             "gender": gender,
             "age": age,
             "preferences": preferences,
-            "amazon_user_id": amazon_user_id,
             "favorites": favorites_list,
             "user_embedding": user_embedding,
             "content_profile": content_profile_result,

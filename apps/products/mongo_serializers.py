@@ -26,8 +26,6 @@ from .mongo_models import (
     ProductVariant,
     Size,
 )
-from apps.brands.mongo_models import Brand
-from apps.brands.mongo_serializers import BrandSerializer
 
 
 class ColorSerializer(serializers.Serializer):
@@ -123,8 +121,6 @@ class ProductReviewSerializer(serializers.Serializer):
 class ProductSerializer(serializers.Serializer):
     id = serializers.SerializerMethodField()
     user_id = serializers.CharField(write_only=True, required=False)
-    brand_id = serializers.CharField(required=False)
-    brand_name = serializers.SerializerMethodField()
     category_id = serializers.CharField(required=False)
     category_detail = CategorySerializer(read_only=True, source="category")
     name = serializers.CharField(required=False)
@@ -143,12 +139,9 @@ class ProductSerializer(serializers.Serializer):
     outfit_tags = serializers.ListField(child=serializers.CharField(), required=False)
     compatible_product_ids = serializers.ListField(child=serializers.CharField(), required=False)
     feature_vector = serializers.ListField(child=serializers.FloatField(), required=False)
-    amazon_asin = serializers.CharField(required=False, allow_null=True)
-    amazon_parent_asin = serializers.CharField(required=False, allow_null=True)
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
     
-    # Fields from CSV data that should be handled
     _id = serializers.CharField(required=False)
     productDisplayName = serializers.CharField(required=False)
     gender = serializers.CharField(required=False)
@@ -162,14 +155,6 @@ class ProductSerializer(serializers.Serializer):
     
     def get_id(self, obj):
         return str(obj.id)
-    
-    def get_brand_name(self, obj):
-        from apps.brands.mongo_models import Brand
-        try:
-            brand = Brand.objects.get(id=obj.brand_id)
-            return brand.name
-        except Brand.DoesNotExist:
-            return None
     
     @staticmethod
     @lru_cache(maxsize=1)
@@ -190,26 +175,8 @@ class ProductSerializer(serializers.Serializer):
     @staticmethod
     @lru_cache(maxsize=1)
     def _brand_catalog() -> List[Dict[str, object]]:
-        """Cache all brands for reuse when mapping data."""
-        try:
-            brands = Brand.objects.only("id", "name").order_by("name")
-        except Exception:
-            return []
-
-        catalog: List[Dict[str, object]] = []
-        for brand in brands:
-            name = getattr(brand, "name", "") or ""
-            serializer_data = BrandSerializer(brand).data
-            catalog.append(
-                {
-                    "id": str(brand.id),
-                    "name": name,
-                    "name_lower": name.lower(),
-                    "slug": slugify(name) if name else "",
-                    "data": serializer_data,
-                }
-            )
-        return catalog
+        """Cache all brands for reuse when mapping data - brands feature removed."""
+        return []
 
     @staticmethod
     @lru_cache(maxsize=1)
@@ -324,17 +291,7 @@ class ProductSerializer(serializers.Serializer):
 
     @classmethod
     def _resolve_brand(cls, product_name: str, product_slug: str) -> Dict[str, object]:
-        catalog = cls._brand_catalog()
-        lower_name = (product_name or "").lower()
-        slug_value = product_slug or ""
-
-        for entry in catalog:
-            if entry["name_lower"] and entry["name_lower"] in lower_name:
-                return entry
-        for entry in catalog:
-            if entry["slug"] and entry["slug"] in slug_value:
-                return entry
-
+        """Resolve brand - brands feature removed, returns inferred name only."""
         inferred_name = cls._infer_brand_name(product_name)
         fallback_id = cls._pseudo_object_id(f"{inferred_name}:{product_slug}")
         return {
@@ -722,15 +679,6 @@ class ProductSerializer(serializers.Serializer):
             validated_data["slug"] = slugify(validated_data["name"])
         
         # Set default values for required fields if not provided
-        if "brand_id" not in validated_data:
-            # Try to find or create a default brand
-            try:
-                default_brand = Brand.objects.first()
-                if default_brand:
-                    validated_data["brand_id"] = default_brand.id
-            except:
-                pass
-        
         if "category_id" not in validated_data:
             # Try to find or create a default category
             try:
@@ -758,11 +706,6 @@ class ProductSerializer(serializers.Serializer):
             validated_data["feature_vector"] = [0.0] * 128
         
         # Convert string IDs to ObjectId
-        if "brand_id" in validated_data and isinstance(validated_data["brand_id"], str):
-            try:
-                validated_data["brand_id"] = ObjectId(validated_data["brand_id"])
-            except:
-                pass
         if "category_id" in validated_data and isinstance(validated_data["category_id"], str):
             try:
                 validated_data["category_id"] = ObjectId(validated_data["category_id"])
@@ -808,15 +751,6 @@ class ProductSerializer(serializers.Serializer):
             validated_data["slug"] = slugify(validated_data["name"])
         
         # Set default values for required fields if not provided
-        if "brand_id" not in validated_data:
-            # Try to find or create a default brand
-            try:
-                default_brand = Brand.objects.first()
-                if default_brand:
-                    validated_data["brand_id"] = default_brand.id
-            except:
-                pass
-        
         if "category_id" not in validated_data:
             # Try to find or create a default category
             try:
@@ -844,11 +778,6 @@ class ProductSerializer(serializers.Serializer):
             validated_data["feature_vector"] = [0.0] * 128
         
         # Convert string IDs to ObjectId
-        if "brand_id" in validated_data and isinstance(validated_data["brand_id"], str):
-            try:
-                validated_data["brand_id"] = ObjectId(validated_data["brand_id"])
-            except:
-                pass
         if "category_id" in validated_data and isinstance(validated_data["category_id"], str):
             try:
                 validated_data["category_id"] = ObjectId(validated_data["category_id"])

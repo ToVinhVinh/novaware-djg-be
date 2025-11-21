@@ -25,7 +25,6 @@ class RecommendationContext:
     candidate_products: list[MongoProduct] = field(default_factory=list)
     excluded_product_ids: set[int] = field(default_factory=set)
     style_counter: dict[str, float] = field(default_factory=dict)
-    brand_counter: dict[int, float] = field(default_factory=dict)
     interaction_weights: dict[int, float] = field(default_factory=dict)
     resolved_gender: str = "unisex"
     resolved_age_group: str = "adult"
@@ -45,11 +44,6 @@ class RecommendationContext:
 
     def style_weight(self, token: str) -> float:
         return self.style_counter.get(token.lower(), 0.0)
-
-    def brand_weight(self, brand_id: int | None) -> float:
-        if brand_id is None:
-            return 0.0
-        return self.brand_counter.get(brand_id, 0.0)
 
     def interaction_weight(self, product_id: int | None) -> float:
         if product_id is None:

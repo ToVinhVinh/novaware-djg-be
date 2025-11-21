@@ -10,14 +10,12 @@ from typing import Any, Dict, List
 try:
     from bson import ObjectId
     from apps.products.mongo_models import Product as MongoProduct, ProductVariant
-    from apps.brands.mongo_models import Brand as MongoBrand
     MONGO_AVAILABLE = True
 except Exception:
     MONGO_AVAILABLE = False
     ObjectId = None
     MongoProduct = None
     ProductVariant = None
-    MongoBrand = None
 
 # Cache for MongoDB availability check
 _mongo_checked = False
@@ -63,15 +61,6 @@ def _get_mongo_product_id(product: Product) -> str | None:
         except Exception:
             pass
     
-    # Try to find by amazon_asin
-    if hasattr(product, "amazon_asin") and product.amazon_asin:
-        try:
-            mongo_product = MongoProduct.objects(amazon_asin=product.amazon_asin).first()
-            if mongo_product:
-                return str(mongo_product.id)
-        except Exception:
-            pass
-    
     return None
 
 
@@ -92,23 +81,6 @@ def _get_mongo_product_data(product: Product) -> dict[str, Any] | None:
                     "id": str(mongo_product.id),
                     "name": mongo_product.name,
                     "images": list(mongo_product.images) if mongo_product.images else [],
-                    "brand_id": str(mongo_product.brand_id) if mongo_product.brand_id else None,
-                    "color_ids": [str(cid) for cid in mongo_product.color_ids] if mongo_product.color_ids else [],
-                    "price": float(mongo_product.price) if mongo_product.price else None,
-                }
-        except Exception:
-            pass
-    
-    # Try by amazon_asin if not found
-    if hasattr(product, "amazon_asin") and product.amazon_asin:
-        try:
-            mongo_product = MongoProduct.objects(amazon_asin=product.amazon_asin).first()
-            if mongo_product:
-                return {
-                    "id": str(mongo_product.id),
-                    "name": mongo_product.name,
-                    "images": list(mongo_product.images) if mongo_product.images else [],
-                    "brand_id": str(mongo_product.brand_id) if mongo_product.brand_id else None,
                     "color_ids": [str(cid) for cid in mongo_product.color_ids] if mongo_product.color_ids else [],
                     "price": float(mongo_product.price) if mongo_product.price else None,
                 }
@@ -128,7 +100,6 @@ def _get_mongo_product_data(product: Product) -> dict[str, Any] | None:
                         "id": str(mp.id),
                         "name": mp.name,
                         "images": list(mp.images) if mp.images else [],
-                        "brand_id": str(mp.brand_id) if mp.brand_id else None,
                         "color_ids": [str(cid) for cid in mp.color_ids] if mp.color_ids else [],
                         "price": float(mp.price) if mp.price else None,
                     }
@@ -144,7 +115,6 @@ def _get_mongo_product_data(product: Product) -> dict[str, Any] | None:
                     "id": str(mongo_product.id),
                     "name": mongo_product.name,
                     "images": list(mongo_product.images) if mongo_product.images else [],
-                    "brand_id": str(mongo_product.brand_id) if mongo_product.brand_id else None,
                     "color_ids": [str(cid) for cid in mongo_product.color_ids] if mongo_product.color_ids else [],
                     "price": float(mongo_product.price) if mongo_product.price else None,
                 }
@@ -176,7 +146,6 @@ def _get_mongo_product_data(product: Product) -> dict[str, Any] | None:
                     "id": str(best_match.id),
                     "name": best_match.name,
                     "images": list(best_match.images) if best_match.images else [],
-                    "brand_id": str(best_match.brand_id) if best_match.brand_id else None,
                     "color_ids": [str(cid) for cid in best_match.color_ids] if best_match.color_ids else [],
                     "price": float(best_match.price) if best_match.price else None,
                 }
@@ -188,12 +157,8 @@ def _get_mongo_product_data(product: Product) -> dict[str, Any] | None:
 
 def _serialize_product(product: MongoProduct, original_mongo_id: str | None = None) -> dict[str, Any]:
     """Serialize a MongoProduct object to a dictionary for the API response."""
-    # The 'product' argument is a MongoProduct instance from the recommendation engine.
-    # This function now correctly handles it, removing all legacy Django logic.
-    
     product_id = getattr(product, "id", None)
     
-    # Load variants for this product
     variants = []
     if ProductVariant is not None:
         try:
@@ -207,11 +172,8 @@ def _serialize_product(product: MongoProduct, original_mongo_id: str | None = No
                     "stock": variant.stock if variant.stock is not None else 0,
                 })
         except Exception:
-            # If variants can't be loaded, return empty list
             variants = []
     
-    # Directly access attributes from the MongoProduct object.
-    # Use getattr to provide default values for fields that might be missing.
     return {
         "id": int(product_id) if product_id is not None else None,
         "gender": getattr(product, "gender", None),

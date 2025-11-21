@@ -42,7 +42,6 @@ class Migration(migrations.Migration):
                 ('preferences', models.JSONField(blank=True, default=dict)),
                 ('user_embedding', models.JSONField(blank=True, default=list)),
                 ('content_profile', models.JSONField(blank=True, default=dict)),
-                ('amazon_user_id', models.CharField(blank=True, db_index=True, max_length=255, null=True)),
                 ('favorites', models.ManyToManyField(blank=True, related_name='favorited_by', to='products.product')),
                 ('groups', models.ManyToManyField(blank=True, help_text='The groups this user belongs to. A user will get all permissions granted to each of their groups.', related_name='user_set', related_query_name='user', to='auth.group', verbose_name='groups')),
                 ('user_permissions', models.ManyToManyField(blank=True, help_text='Specific permissions for this user.', related_name='user_set', related_query_name='user', to='auth.permission', verbose_name='user permissions')),

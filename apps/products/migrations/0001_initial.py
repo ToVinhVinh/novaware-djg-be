@@ -9,7 +9,6 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('brands', '0001_initial'),
     ]
 
     operations = [
@@ -125,11 +124,8 @@ class Migration(migrations.Migration):
                 ('size', models.JSONField(blank=True, default=dict)),
                 ('outfit_tags', models.JSONField(blank=True, default=list)),
                 ('feature_vector', models.JSONField(blank=True, default=list)),
-                ('amazon_asin', models.CharField(blank=True, db_index=True, max_length=50, null=True)),
-                ('amazon_parent_asin', models.CharField(blank=True, db_index=True, max_length=50, null=True)),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
                 ('updated_at', models.DateTimeField(auto_now=True)),
-                ('brand', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='products', to='brands.brand')),
                 ('category', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='products', to='products.category')),
                 ('compatible_products', models.ManyToManyField(blank=True, to='products.product')),
             ],

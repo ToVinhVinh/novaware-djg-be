@@ -42,7 +42,6 @@ class User(AbstractUser):
     preferences = models.JSONField(blank=True, default=dict)
     user_embedding = models.JSONField(blank=True, default=list)
     content_profile = models.JSONField(blank=True, default=dict)
-    amazon_user_id = models.CharField(max_length=255, blank=True, null=True, db_index=True)
 
     # Add related_name to avoid conflicts with default auth.User
     groups = models.ManyToManyField(

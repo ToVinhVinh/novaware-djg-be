@@ -14,7 +14,7 @@ class User(me.Document):
     
     meta = {
         "collection": "users",
-        "indexes": ["email", "amazon_user_id"],
+        "indexes": ["email"],
         "strict": False,
     }
     
@@ -58,8 +58,6 @@ class User(me.Document):
     interaction_history = fields.ListField(fields.DynamicField(), default=list, db_field="interactionHistory")
     outfit_history = fields.ListField(fields.DynamicField(), default=list, db_field="outfitHistory")
     
-    # Amazon identifier
-    amazon_user_id = fields.StringField(null=True, db_field="amazonUserId")
     version = fields.IntField(null=True, db_field="__v")
     
     # Timestamps

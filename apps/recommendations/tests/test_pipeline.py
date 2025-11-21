@@ -6,7 +6,6 @@ from decimal import Decimal
 
 from django.test import TestCase
 
-from apps.brands.models import Brand
 from apps.products.models import Category, Product
 from apps.recommendations.common.filters import CandidateFilter
 from apps.recommendations.common.outfit import OutfitBuilder
@@ -18,7 +17,6 @@ class RecommendationPipelineTests(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        cls.brand = Brand.objects.create(name="Acme")
         cls.category_tops = Category.objects.create(name="Tops")
         cls.category_bottoms = Category.objects.create(name="Bottoms")
         cls.category_shoes = Category.objects.create(name="Shoes")
@@ -38,7 +36,6 @@ class RecommendationPipelineTests(TestCase):
 
         base_kwargs = {
             "user": cls.merchant,
-            "brand": cls.brand,
             "description": "Test product",
             "images": [],
             "price": Decimal("100.00"),

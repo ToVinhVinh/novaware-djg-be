@@ -13,12 +13,10 @@ try:
     from apps.users.mongo_models import User as MongoUser  # type: ignore
     from apps.products.mongo_models import Product as MongoProduct  # type: ignore
     from apps.products.mongo_models import Category as MongoCategory  # type: ignore
-    from apps.brands.mongo_models import Brand as MongoBrand  # type: ignore
 except Exception:  # pragma: no cover - optional dependency at runtime
     MongoUser = None  # type: ignore
     MongoProduct = None  # type: ignore
     MongoCategory = None  # type: ignore
-    MongoBrand = None  # type: ignore
 
 from .constants import INTERACTION_WEIGHTS, MAX_STYLE_TAGS
 from .gender_utils import gender_filter_values, normalize_gender
@@ -83,7 +81,6 @@ class CandidateFilter:
         product_id_to_mongo_id = cls._build_mongo_mapping(history_products, product_id_to_mongo_id)
 
         style_counter = cls._build_style_profile(interactions, history_products, user, current_product)
-        brand_counter = cls._build_brand_profile(interactions)
         interaction_weight_map = defaultdict(float)
         for interaction in interactions:
             product_id = getattr(interaction, 'product_id', None)
@@ -105,7 +102,6 @@ class CandidateFilter:
             candidate_products=candidate_products,
             excluded_product_ids=excluded_ids,
             style_counter=dict(style_counter),
-            brand_counter=dict(brand_counter),
             interaction_weights=dict(interaction_weight_map),
             resolved_gender=resolved_gender,
             resolved_age_group=resolved_age_group,
@@ -432,17 +428,6 @@ class CandidateFilter:
             counter[token] += 0.5
         most_common = counter.most_common(MAX_STYLE_TAGS)
         return Counter(dict(most_common))
-
-    @staticmethod
-    def _build_brand_profile(interactions: Iterable) -> Counter:
-        brand_counter: Counter = Counter()
-        for interaction in interactions:
-            product = getattr(interaction, 'product', None)
-            if not product:
-                continue
-            # Brand field removed from Product model - returning empty counter for now
-            # TODO: Implement brand tracking if needed
-        return brand_counter
 
 
 def _collect_style_tokens(product) -> list[str]:

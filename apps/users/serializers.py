@@ -30,7 +30,6 @@ class UserSerializer(serializers.ModelSerializer):
             "gender",
             "age",
             "preferences",
-            "amazon_user_id",
         ]
         read_only_fields = ["is_staff"]
 
