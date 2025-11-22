@@ -37,18 +37,34 @@ try:
 except ImportError:
     PDF_AVAILABLE = False
 
-# Try to import weasyprint for HTML to PDF conversion
+# Try to import reportlab for PDF generation (works on Windows, no system libraries needed)
+try:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.lib import colors
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
+
+# Try to import weasyprint for HTML to PDF conversion (may not work on Windows)
+WEASYPRINT_AVAILABLE = False
 try:
     from weasyprint import HTML, CSS
     WEASYPRINT_AVAILABLE = True
-except ImportError:
+except (ImportError, OSError):
     WEASYPRINT_AVAILABLE = False
-    # Fallback to pdfkit if weasyprint not available
-    try:
-        import pdfkit
-        PDFKIT_AVAILABLE = True
-    except ImportError:
-        PDFKIT_AVAILABLE = False
+
+# Fallback to pdfkit if weasyprint not available
+PDFKIT_AVAILABLE = False
+try:
+    import pdfkit
+    PDFKIT_AVAILABLE = True
+except ImportError:
+    PDFKIT_AVAILABLE = False
 
 if load_dotenv:
     load_dotenv()
@@ -532,7 +548,231 @@ def apply_precision_formatting(metrics_dict: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def generate_pdf_document(title: str, content: str, model_name: str) -> BytesIO:
-    """Generate PDF document from markdown content with proper LaTeX rendering."""
+    """Generate PDF document from markdown content using reportlab (works on Windows)."""
+    if not REPORTLAB_AVAILABLE:
+        # Try HTML-based approach if reportlab not available
+        if PDF_AVAILABLE and (WEASYPRINT_AVAILABLE or PDFKIT_AVAILABLE):
+            return _generate_pdf_from_html(title, content, model_name)
+        raise ImportError(
+            "reportlab chưa được cài đặt. Vui lòng chạy: pip install reportlab\n"
+            "Hoặc cài đặt: pip install markdown weasyprint (có thể không hoạt động trên Windows)"
+        )
+    
+    # Use reportlab to create PDF directly
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4,
+                            rightMargin=72, leftMargin=72,
+                            topMargin=72, bottomMargin=18)
+    
+    # Container for the 'Flowable' objects
+    elements = []
+    
+    # Define styles
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        textColor=colors.HexColor('#2c3e50'),
+        spaceAfter=30,
+        alignment=1,  # Center alignment
+    )
+    
+    subtitle_style = ParagraphStyle(
+        'CustomSubtitle',
+        parent=styles['Heading2'],
+        fontSize=16,
+        textColor=colors.HexColor('#7f8c8d'),
+        spaceAfter=20,
+        alignment=1,  # Center alignment
+    )
+    
+    heading2_style = ParagraphStyle(
+        'CustomHeading2',
+        parent=styles['Heading2'],
+        fontSize=16,
+        textColor=colors.HexColor('#34495e'),
+        spaceAfter=12,
+        spaceBefore=20,
+    )
+    
+    heading3_style = ParagraphStyle(
+        'CustomHeading3',
+        parent=styles['Heading3'],
+        fontSize=14,
+        textColor=colors.HexColor('#7f8c8d'),
+        spaceAfter=10,
+        spaceBefore=15,
+    )
+    
+    normal_style = styles['Normal']
+    code_style = ParagraphStyle(
+        'Code',
+        parent=styles['Code'],
+        fontSize=9,
+        fontName='Courier',
+        leftIndent=20,
+        rightIndent=20,
+        backColor=colors.HexColor('#f4f4f4'),
+    )
+    
+    # Add title
+    elements.append(Paragraph(title, title_style))
+    elements.append(Spacer(1, 0.2*inch))
+    
+    # Add subtitle
+    elements.append(Paragraph(model_name, subtitle_style))
+    elements.append(Spacer(1, 0.3*inch))
+    
+    # Process content line by line
+    lines = content.split('\n')
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        if not line:
+            elements.append(Spacer(1, 0.1*inch))
+            i += 1
+            continue
+        
+        # Handle headers
+        if line.startswith('###'):
+            text = _clean_markdown(line.replace('###', '').strip())
+            elements.append(Paragraph(text, heading3_style))
+        elif line.startswith('##'):
+            text = _clean_markdown(line.replace('##', '').strip())
+            elements.append(Paragraph(text, heading2_style))
+        elif line.startswith('#'):
+            text = _clean_markdown(line.replace('#', '').strip())
+            elements.append(Paragraph(text, heading2_style))
+        # Handle tables
+        elif line.startswith('|') and '---' not in line:
+            # Collect table rows
+            table_rows = []
+            while i < len(lines) and lines[i].strip().startswith('|'):
+                if '---' not in lines[i]:
+                    table_rows.append(lines[i].strip())
+                i += 1
+            i -= 1
+            
+            if table_rows:
+                # Parse table
+                headers = [cell.strip() for cell in table_rows[0].split('|')[1:-1]]
+                data = []
+                for row_data in table_rows[1:]:
+                    cells = [cell.strip() for cell in row_data.split('|')[1:-1]]
+                    data.append(cells)
+                
+                # Create table
+                table_data = [headers] + data
+                table = Table(table_data)
+                table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3498db')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 12),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                    ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f2f2f2')]),
+                ]))
+                elements.append(table)
+                elements.append(Spacer(1, 0.2*inch))
+        # Handle code blocks
+        elif line.startswith('```'):
+            code_lines = []
+            i += 1
+            while i < len(lines) and not lines[i].strip().startswith('```'):
+                code_lines.append(lines[i])
+                i += 1
+            
+            if code_lines:
+                code_text = ''.join(code_lines)
+                elements.append(Paragraph(f'<font face="Courier" size="9">{_escape_html(code_text)}</font>', normal_style))
+                elements.append(Spacer(1, 0.1*inch))
+        # Handle bullet points
+        elif line.startswith('- ') or line.startswith('* '):
+            text = _clean_markdown(line[2:].strip())
+            elements.append(Paragraph(f'• {text}', normal_style))
+        # Handle numbered lists
+        elif re.match(r'^\d+\.\s', line):
+            text = _clean_markdown(re.sub(r'^\d+\.\s', '', line))
+            elements.append(Paragraph(text, normal_style))
+        else:
+            # Regular paragraph
+            text = _clean_markdown(line)
+            if text:
+                elements.append(Paragraph(text, normal_style))
+        
+        i += 1
+    
+    # Build PDF
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer
+
+
+def _clean_markdown(text: str) -> str:
+    """Clean markdown formatting for PDF display."""
+    # Remove markdown formatting but keep structure
+    text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)  # Bold
+    text = re.sub(r'\*(.*?)\*', r'<i>\1</i>', text)  # Italic
+    text = re.sub(r'`(.*?)`', r'<font face="Courier">\1</font>', text)  # Code
+    # Convert LaTeX to readable format
+    text = re.sub(r'\$([^$]+)\$', r'[\1]', text)  # Inline math
+    text = re.sub(r'\$\$([^$]+)\$\$', r'[\1]', text)  # Block math
+    text = re.sub(r'\\mathbb\{R\}', 'R', text)
+    text = re.sub(r'\\times', '×', text)
+    text = re.sub(r'\\frac\{([^}]+)\}\{([^}]+)\}', r'(\1)/(\2)', text)
+    text = re.sub(r'\\sum', 'Σ', text)
+    text = re.sub(r'\\sqrt', '√', text)
+    text = re.sub(r'\\log', 'log', text)
+    text = re.sub(r'\\cos', 'cos', text)
+    text = re.sub(r'\\sin', 'sin', text)
+    text = re.sub(r'\\theta', 'θ', text)
+    text = re.sub(r'\\alpha', 'α', text)
+    text = re.sub(r'\\lambda', 'λ', text)
+    text = re.sub(r'\\sigma', 'σ', text)
+    text = re.sub(r'\\in', '∈', text)
+    text = re.sub(r'\\cap', '∩', text)
+    text = re.sub(r'\\cup', '∪', text)
+    text = re.sub(r'\\cdot', '·', text)
+    text = re.sub(r'\\leq', '≤', text)
+    text = re.sub(r'\\geq', '≥', text)
+    text = re.sub(r'\\neq', '≠', text)
+    text = re.sub(r'\\approx', '≈', text)
+    text = re.sub(r'\\partial', '∂', text)
+    text = re.sub(r'\\Delta', 'Δ', text)
+    text = re.sub(r'\\nabla', '∇', text)
+    text = re.sub(r'\\infty', '∞', text)
+    text = re.sub(r'\\pi', 'π', text)
+    text = re.sub(r'\\int', '∫', text)
+    text = re.sub(r'\\prod', '∏', text)
+    text = re.sub(r'\\exp', 'exp', text)
+    text = re.sub(r'\\ln', 'ln', text)
+    text = re.sub(r'\\max', 'max', text)
+    text = re.sub(r'\\min', 'min', text)
+    text = re.sub(r'\\sup', 'sup', text)
+    text = re.sub(r'\\inf', 'inf', text)
+    text = re.sub(r'\\lim', 'lim', text)
+    text = re.sub(r'\\to', '→', text)
+    text = re.sub(r'\\left', '', text)
+    text = re.sub(r'\\right', '', text)
+    text = re.sub(r'\\text\{([^}]+)\}', r'\1', text)
+    return text
+
+
+def _escape_html(text: str) -> str:
+    """Escape HTML special characters."""
+    text = text.replace('&', '&amp;')
+    text = text.replace('<', '&lt;')
+    text = text.replace('>', '&gt;')
+    return text
+
+
+def _generate_pdf_from_html(title: str, content: str, model_name: str) -> BytesIO:
+    """Fallback: Generate PDF from HTML (requires weasyprint or pdfkit)."""
     if not PDF_AVAILABLE:
         raise ImportError("markdown chưa được cài đặt. Vui lòng chạy: pip install markdown")
     
@@ -540,7 +780,7 @@ def generate_pdf_document(title: str, content: str, model_name: str) -> BytesIO:
     md = markdown.Markdown(extensions=['tables', 'fenced_code', 'codehilite'])
     html_content = md.convert(content)
     
-    # Create full HTML document with MathJax for LaTeX rendering
+    # Create full HTML document with MathJax
     html_template = f"""
     <!DOCTYPE html>
     <html>
@@ -563,118 +803,42 @@ def generate_pdf_document(title: str, content: str, model_name: str) -> BytesIO:
             }};
         </script>
         <style>
-            body {{
-                font-family: 'Times New Roman', serif;
-                line-height: 1.6;
-                max-width: 800px;
-                margin: 0 auto;
-                padding: 20px;
-            }}
-            h1 {{
-                text-align: center;
-                color: #2c3e50;
-                border-bottom: 3px solid #3498db;
-                padding-bottom: 10px;
-            }}
-            h2 {{
-                color: #34495e;
-                border-bottom: 2px solid #95a5a6;
-                padding-bottom: 5px;
-                margin-top: 30px;
-            }}
-            h3 {{
-                color: #7f8c8d;
-                margin-top: 20px;
-            }}
-            table {{
-                border-collapse: collapse;
-                width: 100%;
-                margin: 20px 0;
-            }}
-            th, td {{
-                border: 1px solid #ddd;
-                padding: 8px;
-                text-align: left;
-            }}
-            th {{
-                background-color: #3498db;
-                color: white;
-                font-weight: bold;
-            }}
-            tr:nth-child(even) {{
-                background-color: #f2f2f2;
-            }}
-            code {{
-                background-color: #f4f4f4;
-                padding: 2px 4px;
-                border-radius: 3px;
-                font-family: 'Courier New', monospace;
-            }}
-            pre {{
-                background-color: #f4f4f4;
-                padding: 10px;
-                border-radius: 5px;
-                overflow-x: auto;
-            }}
-            ul, ol {{
-                margin-left: 20px;
-            }}
-            .math-display {{
-                margin: 20px 0;
-                text-align: center;
-            }}
+            body {{ font-family: 'Times New Roman', serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; }}
+            h1 {{ text-align: center; color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; }}
+            h2 {{ color: #34495e; border-bottom: 2px solid #95a5a6; padding-bottom: 5px; margin-top: 30px; }}
+            table {{ border-collapse: collapse; width: 100%; margin: 20px 0; }}
+            th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+            th {{ background-color: #3498db; color: white; font-weight: bold; }}
         </style>
     </head>
     <body>
         <h1>{title}</h1>
         <h2 style="text-align: center; color: #7f8c8d;">{model_name}</h2>
         {html_content}
-        <script>
-            // Wait for MathJax to render
-            window.addEventListener('load', function() {{
-                if (window.MathJax) {{
-                    MathJax.typesetPromise().then(function() {{
-                        console.log('MathJax rendering complete');
-                    }});
-                }}
-            }});
-        </script>
     </body>
     </html>
     """
     
-    # Convert HTML to PDF
     if WEASYPRINT_AVAILABLE:
-        # Use weasyprint (better for production)
         pdf_buffer = BytesIO()
         HTML(string=html_template).write_pdf(pdf_buffer)
         pdf_buffer.seek(0)
         return pdf_buffer
     elif PDFKIT_AVAILABLE:
-        # Fallback to pdfkit (requires wkhtmltopdf installed)
-        try:
-            options = {
-                'page-size': 'A4',
-                'margin-top': '0.75in',
-                'margin-right': '0.75in',
-                'margin-bottom': '0.75in',
-                'margin-left': '0.75in',
-                'encoding': "UTF-8",
-                'no-outline': None,
-                'enable-local-file-access': None
-            }
-            pdf_bytes = pdfkit.from_string(html_template, False, options=options)
-            pdf_buffer = BytesIO(pdf_bytes)
-            pdf_buffer.seek(0)
-            return pdf_buffer
-        except Exception as e:
-            raise Exception(f"Lỗi khi tạo PDF với pdfkit: {str(e)}. Đảm bảo đã cài đặt wkhtmltopdf.")
+        options = {
+            'page-size': 'A4',
+            'margin-top': '0.75in',
+            'margin-right': '0.75in',
+            'margin-bottom': '0.75in',
+            'margin-left': '0.75in',
+            'encoding': "UTF-8",
+        }
+        pdf_bytes = pdfkit.from_string(html_template, False, options=options)
+        pdf_buffer = BytesIO(pdf_bytes)
+        pdf_buffer.seek(0)
+        return pdf_buffer
     else:
-        raise ImportError(
-            "Chưa có thư viện để tạo PDF. Vui lòng cài đặt một trong các thư viện sau:\n"
-            "- weasyprint: pip install weasyprint\n"
-            "- pdfkit: pip install pdfkit (cần cài thêm wkhtmltopdf)"
-        )
+        raise ImportError("Chưa có thư viện để tạo PDF từ HTML.")
 
 
 def generate_word_document(title: str, content: str, model_name: str) -> BytesIO:
@@ -2129,7 +2293,7 @@ with doc_tabs[0]:
                 help="Tải xuống tài liệu đầy đủ về thuật toán GNN (LightGCN) dưới dạng PDF. PDF hỗ trợ hiển thị công thức toán học tốt hơn Word."
             )
         except ImportError as e:
-            st.warning(f"⚠️ Để tải xuống file PDF, vui lòng cài đặt:\n- `pip install markdown weasyprint`\n\nHoặc:\n- `pip install markdown pdfkit`\n(và cài thêm wkhtmltopdf)")
+            st.warning(f"⚠️ Để tải xuống file PDF, vui lòng cài đặt:\n- `pip install reportlab` (khuyến nghị cho Windows)\n\nHoặc:\n- `pip install markdown weasyprint` (có thể không hoạt động trên Windows)\n- `pip install markdown pdfkit` (cần cài thêm wkhtmltopdf)")
         except Exception as e:
             st.error(f"❌ Lỗi khi tạo file PDF: {str(e)}")
     
@@ -2757,7 +2921,7 @@ with doc_tabs[1]:
                 help="Tải xuống tài liệu đầy đủ về thuật toán Content-based Filtering dưới dạng PDF. PDF hỗ trợ hiển thị công thức toán học tốt hơn Word."
             )
         except ImportError as e:
-            st.warning(f"⚠️ Để tải xuống file PDF, vui lòng cài đặt:\n- `pip install markdown weasyprint`\n\nHoặc:\n- `pip install markdown pdfkit`\n(và cài thêm wkhtmltopdf)")
+            st.warning(f"⚠️ Để tải xuống file PDF, vui lòng cài đặt:\n- `pip install reportlab` (khuyến nghị cho Windows)\n\nHoặc:\n- `pip install markdown weasyprint` (có thể không hoạt động trên Windows)\n- `pip install markdown pdfkit` (cần cài thêm wkhtmltopdf)")
         except Exception as e:
             st.error(f"❌ Lỗi khi tạo file PDF: {str(e)}")
     
