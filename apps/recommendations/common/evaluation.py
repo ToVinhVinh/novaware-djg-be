@@ -7,6 +7,24 @@ import time
 from typing import Any
 
 
+def _normalize_id(id_value: Any) -> int | str:
+    """
+    Normalize an ID to a consistent format for comparison.
+    Tries to convert to int if possible, otherwise keeps as string.
+    """
+    if id_value is None:
+        return None
+    id_str = str(id_value).strip()
+    if not id_str:
+        return None
+    try:
+        # Try to convert to int for numeric IDs
+        return int(id_str)
+    except (ValueError, TypeError):
+        # Keep as string for non-numeric IDs (e.g., ObjectId strings)
+        return id_str
+
+
 def calculate_evaluation_metrics(
     recommendations: list[Any],
     ground_truth: list[Any] | None = None,
@@ -142,31 +160,30 @@ def calculate_evaluation_metrics(
             
             # Convert recommended IDs to normalized set
             for id in recommended_ids:
-                if id and str(id).strip():
-                    try:
-                        # Try int conversion first
-                        rec_ids_set.add(int(str(id).strip()))
-                    except (ValueError, TypeError):
-                        # Keep as string if not numeric
-                        rec_ids_set.add(str(id).strip())
+                normalized = _normalize_id(id)
+                if normalized is not None:
+                    rec_ids_set.add(normalized)
             
             # Convert ground truth IDs to normalized set
             for id in ground_truth_ids:
-                if id and str(id).strip():
-                    try:
-                        # Try int conversion first
-                        gt_ids_set.add(int(str(id).strip()))
-                    except (ValueError, TypeError):
-                        # Keep as string if not numeric
-                        gt_ids_set.add(str(id).strip())
+                normalized = _normalize_id(id)
+                if normalized is not None:
+                    gt_ids_set.add(normalized)
             
             # Find overlap
             overlap = rec_ids_set & gt_ids_set
             
+            # Debug: log normalized sets
+            logger.info(
+                f"Normalized recommended IDs (first 5): {list(rec_ids_set)[:5] if rec_ids_set else []}, "
+                f"Normalized ground truth IDs (first 5): {list(gt_ids_set)[:5] if gt_ids_set else []}"
+            )
+            
             if len(overlap) > 0:
-                logger.info(f"Found {len(overlap)} overlapping items between recommendations and ground truth")
+                logger.info(f"Found {len(overlap)} overlapping items between recommendations and ground truth: {list(overlap)[:10]}")
                 metrics["_debug"]["overlap_found"] = True
                 metrics["_debug"]["overlap_count"] = len(overlap)
+                metrics["_debug"]["overlap_ids"] = [str(x) for x in list(overlap)[:10]]
             else:
                 logger.warning(
                     f"No overlap between recommendations ({len(recommended_ids)} items) "
@@ -177,6 +194,8 @@ def calculate_evaluation_metrics(
                 metrics["_debug"]["overlap_found"] = False
                 metrics["_debug"]["sample_recommended_ids"] = recommended_ids[:5] if recommended_ids else []
                 metrics["_debug"]["sample_ground_truth_ids"] = ground_truth_ids[:5] if ground_truth_ids else []
+                metrics["_debug"]["normalized_rec_ids"] = [str(x) for x in list(rec_ids_set)[:5]] if rec_ids_set else []
+                metrics["_debug"]["normalized_gt_ids"] = [str(x) for x in list(gt_ids_set)[:5]] if gt_ids_set else []
             
             # Calculate Recall@K
             # Recall@K = (number of relevant items in top K) / (total number of relevant items)
@@ -187,13 +206,7 @@ def calculate_evaluation_metrics(
                 
                 # Normalize recommended_ids to same format as sets
                 for i, id in enumerate(recommended_ids):
-                    normalized_id = None
-                    if id and str(id).strip():
-                        try:
-                            normalized_id = int(str(id).strip())
-                        except (ValueError, TypeError):
-                            normalized_id = str(id).strip()
-                    
+                    normalized_id = _normalize_id(id)
                     if normalized_id is not None:
                         if i < 10:
                             top_10_ids.add(normalized_id)
@@ -227,13 +240,9 @@ def calculate_evaluation_metrics(
                 # ground_truth_ratings uses string keys from ground_truth_ids
                 normalized_to_string = {}
                 for orig_id in ground_truth_ids:
-                    if orig_id and str(orig_id).strip():
-                        try:
-                            normalized_id = int(str(orig_id).strip())
-                            normalized_to_string[normalized_id] = str(orig_id).strip()
-                        except (ValueError, TypeError):
-                            normalized_id = str(orig_id).strip()
-                            normalized_to_string[normalized_id] = str(orig_id).strip()
+                    normalized_id = _normalize_id(orig_id)
+                    if normalized_id is not None:
+                        normalized_to_string[normalized_id] = str(orig_id).strip()
                 
                 # Build relevance lists for top 10 and top 20
                 # Relevance = 1 if item is in ground truth, 0 otherwise
@@ -242,13 +251,7 @@ def calculate_evaluation_metrics(
                 relevance_list_20 = []
                 
                 for i, id in enumerate(recommended_ids):
-                    normalized_id = None
-                    if id and str(id).strip():
-                        try:
-                            normalized_id = int(str(id).strip())
-                        except (ValueError, TypeError):
-                            normalized_id = str(id).strip()
-                    
+                    normalized_id = _normalize_id(id)
                     if normalized_id is not None:
                         # Check if in ground truth
                         if normalized_id in gt_ids_set:
@@ -277,8 +280,8 @@ def calculate_evaluation_metrics(
                 # Get all relevance scores from ground truth, sort descending
                 ideal_relevance = []
                 for normalized_id in gt_ids_set:
-                    string_key = normalized_to_string.get(normalized_id, str(normalized_id))
-                    if string_key in ground_truth_ratings:
+                    string_key = normalized_to_string.get(normalized_id)
+                    if string_key and string_key in ground_truth_ratings:
                         rel = float(ground_truth_ratings[string_key])
                         rel = min(rel / 5.0, 1.0)
                     else:

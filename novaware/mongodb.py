@@ -19,8 +19,8 @@ def connect_mongodb() -> None:
             host=mongo_uri,
             alias="default",
         )
-        print(f"✅ Connected to MongoDB: {db_name}")
+        print(f"Connected to MongoDB: {db_name}")
     except Exception as e:
-        print(f"⚠️ MongoDB connection error: {e}")
+        print(f"MongoDB connection error: {e}")
         raise
 

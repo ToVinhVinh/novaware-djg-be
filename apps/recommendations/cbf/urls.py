@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from django.urls import path
+from django.urls import re_path
 
 from .views import RecommendCBFView, TrainCBFView
 
 app_name = "recommendations-cbf"
 
 urlpatterns = [
-    path("train", TrainCBFView.as_view(), name="train"),
-    path("recommend", RecommendCBFView.as_view(), name="recommend"),
+    re_path(r"^train/?$", TrainCBFView.as_view(), name="train"),
+    re_path(r"^recommend/?$", RecommendCBFView.as_view(), name="recommend"),
 ]
 
