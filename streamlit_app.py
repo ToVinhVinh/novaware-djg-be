@@ -21,6 +21,15 @@ try:
 except ImportError:
     load_dotenv = None
 
+# Try to import python-docx for Word document generation
+try:
+    from docx import Document
+    from docx.shared import Pt, Inches, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    DOCX_AVAILABLE = True
+except ImportError:
+    DOCX_AVAILABLE = False
+
 if load_dotenv:
     load_dotenv()
 
@@ -500,6 +509,345 @@ def apply_precision_formatting(metrics_dict: Dict[str, Any]) -> Dict[str, Any]:
     for key in PRECISION_FORMAT_KEYS:
         metrics_dict[key] = format_metric_value(metrics_dict.get(key))
     return metrics_dict
+
+
+def generate_word_document(title: str, content: str, model_name: str) -> BytesIO:
+    """Generate Word document from markdown content."""
+    if not DOCX_AVAILABLE:
+        raise ImportError("python-docx chưa được cài đặt. Vui lòng chạy: pip install python-docx")
+    
+    doc = Document()
+    
+    # Set document margins
+    sections = doc.sections
+    for section in sections:
+        section.top_margin = Inches(1)
+        section.bottom_margin = Inches(1)
+        section.left_margin = Inches(1)
+        section.right_margin = Inches(1)
+    
+    # Add title
+    title_para = doc.add_heading(title, level=0)
+    title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    # Add model name subtitle
+    subtitle = doc.add_heading(model_name, level=1)
+    subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    # Process content line by line
+    lines = content.split('\n')
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        if not line:
+            doc.add_paragraph()
+            i += 1
+            continue
+        
+        # Handle headers
+        if line.startswith('###'):
+            text = line.replace('###', '').strip()
+            doc.add_heading(text, level=2)
+        elif line.startswith('##'):
+            text = line.replace('##', '').strip()
+            doc.add_heading(text, level=1)
+        elif line.startswith('#'):
+            text = line.replace('#', '').strip()
+            doc.add_heading(text, level=1)
+        # Handle tables (markdown format)
+        elif line.startswith('|') and '---' not in line:
+            # Collect table rows
+            table_rows = []
+            while i < len(lines) and lines[i].strip().startswith('|'):
+                if '---' not in lines[i]:
+                    table_rows.append(lines[i].strip())
+                i += 1
+            i -= 1  # Adjust for outer loop increment
+            
+            if table_rows:
+                # Parse table
+                headers = [cell.strip() for cell in table_rows[0].split('|')[1:-1]]
+                table = doc.add_table(rows=1, cols=len(headers))
+                table.style = 'Light Grid Accent 1'
+                
+                # Add headers
+                header_cells = table.rows[0].cells
+                for j, header in enumerate(headers):
+                    header_cells[j].text = header
+                    header_cells[j].paragraphs[0].runs[0].font.bold = True
+                
+                # Add data rows
+                for row_data in table_rows[1:]:
+                    cells = [cell.strip() for cell in row_data.split('|')[1:-1]]
+                    row = table.add_row()
+                    for j, cell in enumerate(cells):
+                        row.cells[j].text = cell
+        # Handle code blocks
+        elif line.startswith('```'):
+            # Collect code block
+            code_lines = []
+            i += 1
+            while i < len(lines) and not lines[i].strip().startswith('```'):
+                code_lines.append(lines[i])
+                i += 1
+            
+            if code_lines:
+                code_para = doc.add_paragraph(''.join(code_lines))
+                code_para.style = 'Intense Quote'
+                for run in code_para.runs:
+                    run.font.name = 'Courier New'
+                    run.font.size = Pt(9)
+        # Handle bullet points
+        elif line.startswith('- ') or line.startswith('* '):
+            text = line[2:].strip()
+            # Remove markdown formatting
+            text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)  # Bold
+            text = re.sub(r'\*(.*?)\*', r'\1', text)  # Italic
+            text = re.sub(r'`(.*?)`', r'\1', text)  # Code
+            para = doc.add_paragraph(text, style='List Bullet')
+        # Handle numbered lists
+        elif re.match(r'^\d+\.\s', line):
+            text = re.sub(r'^\d+\.\s', '', line)
+            text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+            text = re.sub(r'\*(.*?)\*', r'\1', text)
+            text = re.sub(r'`(.*?)`', r'\1', text)
+            para = doc.add_paragraph(text, style='List Number')
+        # Handle LaTeX formulas (simplified - just show as text)
+        elif '$' in line:
+            # Replace LaTeX with readable text
+            text = line
+            text = re.sub(r'\$([^$]+)\$', r'[\1]', text)  # Inline math
+            text = re.sub(r'\$\$([^$]+)\$\$', r'[\1]', text)  # Block math
+            text = re.sub(r'\\mathbb\{R\}', 'R', text)
+            text = re.sub(r'\\times', 'x', text)
+            text = re.sub(r'\\frac\{([^}]+)\}\{([^}]+)\}', r'(\1)/(\2)', text)
+            text = re.sub(r'\\sum', 'sum', text)
+            text = re.sub(r'\\sqrt', 'sqrt', text)
+            text = re.sub(r'\\log', 'log', text)
+            text = re.sub(r'\\cos', 'cos', text)
+            text = re.sub(r'\\sin', 'sin', text)
+            text = re.sub(r'\\theta', 'theta', text)
+            text = re.sub(r'\\alpha', 'alpha', text)
+            text = re.sub(r'\\lambda', 'lambda', text)
+            text = re.sub(r'\\sigma', 'sigma', text)
+            text = re.sub(r'\\in', 'in', text)
+            text = re.sub(r'\\cap', 'cap', text)
+            text = re.sub(r'\\cup', 'cup', text)
+            text = re.sub(r'\\cdot', '·', text)
+            text = re.sub(r'\\leq', '<=', text)
+            text = re.sub(r'\\geq', '>=', text)
+            text = re.sub(r'\\neq', '!=', text)
+            text = re.sub(r'\\approx', '≈', text)
+            text = re.sub(r'\\partial', 'partial', text)
+            text = re.sub(r'\\Delta', 'Delta', text)
+            text = re.sub(r'\\nabla', 'nabla', text)
+            text = re.sub(r'\\infty', 'infinity', text)
+            text = re.sub(r'\\pi', 'pi', text)
+            text = re.sub(r'\\int', 'integral', text)
+            text = re.sub(r'\\sum', 'sum', text)
+            text = re.sub(r'\\prod', 'product', text)
+            text = re.sub(r'\\exp', 'exp', text)
+            text = re.sub(r'\\ln', 'ln', text)
+            text = re.sub(r'\\log', 'log', text)
+            text = re.sub(r'\\max', 'max', text)
+            text = re.sub(r'\\min', 'min', text)
+            text = re.sub(r'\\sup', 'sup', text)
+            text = re.sub(r'\\inf', 'inf', text)
+            text = re.sub(r'\\lim', 'lim', text)
+            text = re.sub(r'\\to', '->', text)
+            text = re.sub(r'\\left', '', text)
+            text = re.sub(r'\\right', '', text)
+            text = re.sub(r'\\{', '{', text)
+            text = re.sub(r'\\}', '}', text)
+            text = re.sub(r'\\[', '[', text)
+            text = re.sub(r'\\]', ']', text)
+            text = re.sub(r'\\^', '^', text)
+            text = re.sub(r'\\_', '_', text)
+            text = re.sub(r'\\text\{([^}]+)\}', r'\1', text)
+            text = re.sub(r'\\mathrm\{([^}]+)\}', r'\1', text)
+            text = re.sub(r'\\mathbf\{([^}]+)\}', r'\1', text)
+            text = re.sub(r'\\mathit\{([^}]+)\}', r'\1', text)
+            text = re.sub(r'\\mathcal\{([^}]+)\}', r'\1', text)
+            text = re.sub(r'\\mathbb\{([^}]+)\}', r'\1', text)
+            text = re.sub(r'\\mathfrak\{([^}]+)\}', r'\1', text)
+            text = re.sub(r'\\mathscr\{([^}]+)\}', r'\1', text)
+            text = re.sub(r'\\mathsf\{([^}]+)\}', r'\1', text)
+            text = re.sub(r'\\mathtt\{([^}]+)\}', r'\1', text)
+            text = re.sub(r'\\mathrm\{([^}]+)\}', r'\1', text)
+            text = re.sub(r'\\boldsymbol\{([^}]+)\}', r'\1', text)
+            text = re.sub(r'\\vec\{([^}]+)\}', r'\1', text)
+            text = re.sub(r'\\hat\{([^}]+)\}', r'^\1', text)
+            text = re.sub(r'\\bar\{([^}]+)\}', r'-\1', text)
+            text = re.sub(r'\\tilde\{([^}]+)\}', r'~\1', text)
+            text = re.sub(r'\\dot\{([^}]+)\}', r'.\1', text)
+            text = re.sub(r'\\ddot\{([^}]+)\}', r'..\1', text)
+            text = re.sub(r'\\prime', "'", text)
+            text = re.sub(r'\\backslash', '\\', text)
+            text = re.sub(r'\\&', '&', text)
+            text = re.sub(r'\\%', '%', text)
+            text = re.sub(r'\\#', '#', text)
+            text = re.sub(r'\\$', '$', text)
+            text = re.sub(r'\\{', '{', text)
+            text = re.sub(r'\\}', '}', text)
+            text = re.sub(r'\\[', '[', text)
+            text = re.sub(r'\\]', ']', text)
+            text = re.sub(r'\\|', '|', text)
+            text = re.sub(r'\\~', '~', text)
+            text = re.sub(r'\\^', '^', text)
+            text = re.sub(r'\\_', '_', text)
+            text = re.sub(r'\\`', '`', text)
+            text = re.sub(r'\\"', '"', text)
+            text = re.sub(r"\\'", "'", text)
+            text = re.sub(r'\\<', '<', text)
+            text = re.sub(r'\\>', '>', text)
+            text = re.sub(r'\\=', '=', text)
+            text = re.sub(r'\\!', '!', text)
+            text = re.sub(r'\\?', '?', text)
+            text = re.sub(r'\\@', '@', text)
+            text = re.sub(r'\\#', '#', text)
+            text = re.sub(r'\\$', '$', text)
+            text = re.sub(r'\\%', '%', text)
+            text = re.sub(r'\\&', '&', text)
+            text = re.sub(r'\\*', '*', text)
+            text = re.sub(r'\\+', '+', text)
+            text = re.sub(r'\\-', '-', text)
+            text = re.sub(r'\\.', '.', text)
+            text = re.sub(r'\\/', '/', text)
+            text = re.sub(r'\\:', ':', text)
+            text = re.sub(r'\\;', ';', text)
+            text = re.sub(r'\\<', '<', text)
+            text = re.sub(r'\\=', '=', text)
+            text = re.sub(r'\\>', '>', text)
+            text = re.sub(r'\\?', '?', text)
+            text = re.sub(r'\\@', '@', text)
+            text = re.sub(r'\\[', '[', text)
+            text = re.sub(r'\\]', ']', text)
+            text = re.sub(r'\\^', '^', text)
+            text = re.sub(r'\\_', '_', text)
+            text = re.sub(r'\\`', '`', text)
+            text = re.sub(r'\\{', '{', text)
+            text = re.sub(r'\\}', '}', text)
+            text = re.sub(r'\\|', '|', text)
+            text = re.sub(r'\\~', '~', text)
+            para = doc.add_paragraph(text)
+        else:
+            # Regular paragraph
+            text = line
+            # Remove markdown formatting but keep structure
+            text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)  # Bold
+            text = re.sub(r'\*(.*?)\*', r'\1', text)  # Italic
+            text = re.sub(r'`(.*?)`', r'\1', text)  # Code
+            para = doc.add_paragraph(text)
+        
+        i += 1
+    
+    # Save to BytesIO
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
+def collect_gnn_content(gnn_doc: str, metrics: Dict[str, Any]) -> str:
+    """Collect all GNN documentation content including step-by-step."""
+    content = gnn_doc + "\n\n"
+    
+    # Add step-by-step content
+    content += "# Thuật toán LightGCN từng bước (A-Z)\n\n"
+    content += "Trình bày chi tiết từng bước của thuật toán LightGCN với công thức, tính toán số liệu thực tế, ma trận và giải thích\n\n"
+    
+    # Step 1
+    content += "## Bước 1: Xây dựng User-Item Interaction Matrix\n\n"
+    content += "**Mục đích**: Tạo ma trận tương tác giữa người dùng và sản phẩm từ dữ liệu interaction.\n\n"
+    content += f"- Số người dùng: |U| = {metrics.get('num_users', 'N/A')}\n"
+    content += f"- Số sản phẩm: |I| = {metrics.get('num_products', 'N/A')}\n"
+    content += f"- Số tương tác: |E| = {metrics.get('num_interactions', 'N/A')}\n\n"
+    
+    # Step 2
+    content += "## Bước 2: Xây dựng Graph Structure (Bipartite Graph)\n\n"
+    content += "**Mục đích**: Chuyển đổi ma trận tương tác thành đồ thị hai phía (bipartite graph) để áp dụng Graph Neural Network.\n\n"
+    
+    # Step 3
+    content += "## Bước 3: Công thức LightGCN Layer\n\n"
+    content += "**Công thức LightGCN**:\n"
+    content += "E^(k) = (D^(-1/2) A D^(-1/2)) E^(k-1)\n\n"
+    content += f"- Embedding dimension: d = {metrics.get('embed_dim', 'N/A')}\n\n"
+    
+    # Step 4
+    content += "## Bước 4: Tính Final Embedding (Average)\n\n"
+    content += "E = (1/(K+1)) * sum(k=0 to K) E^(k)\n\n"
+    
+    # Step 5
+    content += "## Bước 5: Tính Similarity Score\n\n"
+    content += "score(u, i) = e_u^T · e_i\n\n"
+    
+    # Step 6
+    content += "## Bước 6: Quá trình Training (BPR Loss)\n\n"
+    content += "L = -sum((u,i,j) in D) ln σ(score(u,i) - score(u,j)) + λ ||Θ||^2\n\n"
+    content += f"- Epochs: {metrics.get('epochs', 'N/A')}\n"
+    content += f"- Batch size: {metrics.get('batch_size', 'N/A')}\n"
+    content += f"- Learning rate: {metrics.get('learning_rate', 'N/A')}\n\n"
+    
+    # Step 7
+    content += "## Bước 7: Đánh giá Metrics (Recall@K, NDCG@K)\n\n"
+    content += "**Recall@K**:\n"
+    content += "Recall@K = |Recommended@K ∩ Ground Truth| / |Ground Truth|\n\n"
+    content += "**NDCG@K**:\n"
+    content += "DCG@K = sum(i=1 to K) rel_i / log2(i+1)\n"
+    content += "NDCG@K = DCG@K / IDCG@K\n\n"
+    content += f"- Recall@10: {metrics.get('recall_at_10', 'N/A')}\n"
+    content += f"- Recall@20: {metrics.get('recall_at_20', 'N/A')}\n"
+    content += f"- NDCG@10: {metrics.get('ndcg_at_10', 'N/A')}\n"
+    content += f"- NDCG@20: {metrics.get('ndcg_at_20', 'N/A')}\n"
+    content += f"- Inference time: {metrics.get('inference_time', 'N/A')} ms\n\n"
+    
+    return content
+
+
+def collect_cbf_content(cbf_doc: str, metrics: Dict[str, Any]) -> str:
+    """Collect all CBF documentation content including step-by-step."""
+    content = cbf_doc + "\n\n"
+    
+    # Add step-by-step content
+    content += "# Thuật toán Content-based Filtering từng bước (A-Z)\n\n"
+    content += "Trình bày chi tiết từng bước của thuật toán CBF với công thức, tính toán số liệu thực tế, ma trận và giải thích\n\n"
+    
+    # Step 1
+    content += "## Bước 1: Tiền xử lý Text và Trích xuất Đặc trưng\n\n"
+    content += "**Mục đích**: Chuyển đổi thông tin sản phẩm (metadata) thành text để tạo embeddings.\n\n"
+    content += f"- Tổng số sản phẩm: |I| = {metrics.get('num_products', 'N/A')}\n\n"
+    
+    # Step 2
+    content += "## Bước 2: Tạo Embeddings bằng Sentence-BERT\n\n"
+    content += "**Công thức Sentence-BERT**:\n"
+    content += "E_i = SBERT(text_i) ∈ R^d\n\n"
+    content += f"- Embedding dimension: d = {metrics.get('embed_dim', 'N/A')}\n"
+    content += "- Model: all-MiniLM-L6-v2 (384 dimensions)\n\n"
+    
+    # Step 3
+    content += "## Bước 3: Tính Similarity Matrix (Cosine Similarity)\n\n"
+    content += "**Công thức Cosine Similarity**:\n"
+    content += "sim(i, j) = (E_i^T · E_j) / (||E_i|| · ||E_j||) = cos(θ_ij)\n\n"
+    
+    # Step 4
+    content += "## Bước 4: Quá trình Recommendation\n\n"
+    content += "score(c, i) = S_ci = sim(c, i)\n\n"
+    
+    # Step 5
+    content += "## Bước 5: Quá trình Training (Tạo Embeddings)\n\n"
+    content += f"- Training time: {metrics.get('training_time', 'N/A')}\n"
+    content += "- Không cần training: SBERT đã được pre-train, chỉ cần inference\n\n"
+    
+    # Step 6
+    content += "## Bước 6: Đánh giá Metrics (Recall@K, NDCG@K)\n\n"
+    content += f"- Recall@10: {metrics.get('recall_at_10', 'N/A')}\n"
+    content += f"- Recall@20: {metrics.get('recall_at_20', 'N/A')}\n"
+    content += f"- NDCG@10: {metrics.get('ndcg_at_10', 'N/A')}\n"
+    content += f"- NDCG@20: {metrics.get('ndcg_at_20', 'N/A')}\n"
+    content += f"- Inference time: {metrics.get('inference_time', 'N/A')} ms\n\n"
+    
+    return content
 
 # ----- Metric computation helpers (apply formulas) -----
 from math import log2
@@ -1594,6 +1942,29 @@ with doc_tabs[0]:
     # Copy button
     st.code(gnn_doc, language="markdown")
     
+    # Download Word document button
+    st.markdown("---")
+    col_download1, col_download2 = st.columns(2)
+    with col_download1:
+        try:
+            full_content = collect_gnn_content(gnn_doc, gnn_metrics_updated)
+            word_buffer = generate_word_document(
+                "Thuật toán GNN (LightGCN)",
+                full_content,
+                "GNN (Graph Neural Network - LightGCN)"
+            )
+            st.download_button(
+                label="📥 Tải xuống tài liệu GNN (Word)",
+                data=word_buffer,
+                file_name=f"GNN_LightGCN_Documentation_{time.strftime('%Y%m%d_%H%M%S')}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                help="Tải xuống tài liệu đầy đủ về thuật toán GNN (LightGCN) dưới dạng file Word"
+            )
+        except ImportError:
+            st.warning("⚠️ Để tải xuống file Word, vui lòng cài đặt: `pip install python-docx`")
+        except Exception as e:
+            st.error(f"❌ Lỗi khi tạo file Word: {str(e)}")
+    
     # ========== NEW SECTION: Step-by-step LightGCN Algorithm ==========
     st.markdown("---")
     st.subheader("🔬 Thuật toán LightGCN từng bước (A-Z)")
@@ -2176,6 +2547,29 @@ with doc_tabs[1]:
     
     # Copy button
     st.code(cbf_doc, language="markdown")
+    
+    # Download Word document button
+    st.markdown("---")
+    col_download1, col_download2 = st.columns(2)
+    with col_download1:
+        try:
+            full_content = collect_cbf_content(cbf_doc, cbf_metrics_updated)
+            word_buffer = generate_word_document(
+                "Thuật toán Content-based Filtering",
+                full_content,
+                "Content-based Filtering (CBF)"
+            )
+            st.download_button(
+                label="📥 Tải xuống tài liệu CBF (Word)",
+                data=word_buffer,
+                file_name=f"CBF_Documentation_{time.strftime('%Y%m%d_%H%M%S')}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                help="Tải xuống tài liệu đầy đủ về thuật toán Content-based Filtering dưới dạng file Word"
+            )
+        except ImportError:
+            st.warning("⚠️ Để tải xuống file Word, vui lòng cài đặt: `pip install python-docx`")
+        except Exception as e:
+            st.error(f"❌ Lỗi khi tạo file Word: {str(e)}")
     
     # ========== NEW SECTION: Step-by-step CBF Algorithm ==========
     st.markdown("---")
