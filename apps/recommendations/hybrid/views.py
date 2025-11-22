@@ -392,7 +392,7 @@ class RecommendHybridView(APIView):
         product_id = request.query_params.get('product_id')
         top_k_personal = int(request.query_params.get('top_k_personal', 5))
         top_k_outfit = int(request.query_params.get('top_k_outfit', 4))
-        alpha = float(request.query_params.get('alpha', 0.7))  # Default 0.7 for GNN (LightGCN)
+        alpha = float(request.query_params.get('alpha', 0.8))  # Default 0.8 for GNN (LightGCN)
         
         if not user_id or not product_id:
             return Response(

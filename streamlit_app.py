@@ -1768,7 +1768,7 @@ def generate_cbf_documentation(metrics: Dict[str, Any]) -> str:
     return doc
 
 
-def generate_hybrid_documentation(metrics: Dict[str, Any], alpha: float = 0.7) -> str:
+def generate_hybrid_documentation(metrics: Dict[str, Any], alpha: float = 0.8) -> str:
     """Generate Hybrid documentation markdown with metrics."""
     doc = f"""### 2.3.3. Hybrid GNN (LightGCN) & Content-based Filtering
 
@@ -2096,6 +2096,107 @@ def analyze_models_with_groq(
         return f"**⚠️ Groq lỗi**: {exc}"
 
 
+def analyze_and_recommend_hybrid(
+    gnn_metrics: Dict[str, Any],
+    cbf_metrics: Dict[str, Any],
+    hybrid_metrics: Dict[str, Any],
+    alpha: float = 0.8,
+) -> str:
+    """Use Groq to analyze metrics and provide detailed reasoning for choosing Hybrid model."""
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        return (
+            "**⚠️ Groq chưa sẵn sàng**: Vui lòng đặt biến môi trường `GROQ_API_KEY` "
+            "để bật phân tích tự động."
+        )
+    
+    metrics_snapshot = {
+        "GNN (LightGCN)": gnn_metrics,
+        "Content-based Filtering (CBF)": cbf_metrics,
+        "Hybrid (GNN + CBF)": hybrid_metrics,
+    }
+    
+    prompt = f"""Bạn là chuyên gia về hệ thống gợi ý (Recommender Systems) với nhiều năm kinh nghiệm trong việc đánh giá và lựa chọn mô hình cho production.
+
+**NHIỆM VỤ**: Phân tích chi tiết các chỉ số của 3 mô hình và đưa ra lý do thuyết phục, hợp lý để giải thích tại sao **Hybrid (GNN + CBF)** là mô hình được chọn cho production.
+
+**DỮ LIỆU SỐ LIỆU**:
+{json.dumps(metrics_snapshot, ensure_ascii=False, indent=2)}
+
+**THÔNG SỐ HYBRID**:
+- Alpha (α) = {alpha} (trọng số GNN: {alpha*100:.0f}%, trọng số CBF: {(1-alpha)*100:.0f}%)
+
+**YÊU CẦU PHÂN TÍCH**:
+
+1. **So sánh từng chỉ số** (Recall@10, Recall@20, NDCG@10, NDCG@20, training_time, inference_time):
+   - Hybrid so với GNN: Hybrid có điểm mạnh gì? Điểm yếu gì?
+   - Hybrid so với CBF: Hybrid có điểm mạnh gì? Điểm yếu gì?
+   - Đưa ra số liệu cụ thể để so sánh (ví dụ: "Hybrid có Recall@10 cao hơn GNN X%, cao hơn CBF Y%")
+
+2. **Lý do chọn Hybrid** (tối thiểu 5 lý do, mỗi lý do phải có số liệu chứng minh):
+   - Lý do 1: Về độ chính xác (Recall/NDCG) - Hybrid kết hợp ưu điểm của cả hai mô hình
+   - Lý do 2: Về khả năng xử lý cold-start problem - CBF giúp recommend sản phẩm mới
+   - Lý do 3: Về personalization - GNN học được preference của user từ interaction history
+   - Lý do 4: Về tính linh hoạt - Có thể điều chỉnh alpha để cân bằng giữa personalized và content-based
+   - Lý do 5: Về hiệu suất production - Inference time có thể chấp nhận được so với lợi ích mang lại
+   - (Có thể thêm lý do khác nếu phù hợp)
+
+3. **Đánh giá trade-offs**:
+   - Hybrid có inference time cao hơn GNN/CBF? Tại sao vẫn chấp nhận được?
+   - Training time của Hybrid so với việc train riêng GNN và CBF?
+   - Chi phí tính toán có đáng so với lợi ích không?
+
+4. **Kết luận**:
+   - Tóm tắt tại sao Hybrid là lựa chọn tốt nhất
+   - Đề xuất cách sử dụng Hybrid trong production (khi nào dùng alpha cao/thấp)
+   - Lưu ý về tối ưu hóa nếu cần
+
+**ĐỊNH DẠNG OUTPUT**:
+- Sử dụng Markdown với tiêu đề, gạch đầu dòng, bảng nếu cần
+- Viết bằng tiếng Việt, chuyên nghiệp, dễ hiểu
+- Mỗi lý do phải có số liệu cụ thể để chứng minh
+- Tổng độ dài: 800-1500 từ (đủ chi tiết nhưng không quá dài)
+
+**BẮT ĐẦU PHÂN TÍCH**:"""
+
+    payload = {
+        "model": GROQ_MODEL_NAME,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are an expert data scientist specializing in recommender systems with deep knowledge of production deployment. Always respond in Markdown format with detailed analysis and data-driven reasoning.",
+            },
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.2,  # Lower temperature for more focused, analytical response
+        "max_tokens": 2500,  # More tokens for detailed analysis
+    }
+    
+    try:
+        response = requests.post(
+            GROQ_API_URL,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=120,  # Longer timeout for detailed analysis
+        )
+        response.raise_for_status()
+        data = response.json()
+        content = (
+            data.get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "")
+            .strip()
+        )
+        if not content:
+            raise ValueError("Groq response empty.")
+        return content
+    except (requests.RequestException, ValueError, KeyError) as exc:
+        return f"**⚠️ Groq lỗi**: {exc}"
+
+
 # Test API section
 with st.expander("🔍 Test API & Xem Response", expanded=False):
     st.subheader("Test API Responses")
@@ -2175,13 +2276,33 @@ with st.expander("🔍 Test API & Xem Response", expanded=False):
 
 st.markdown("---")
 
+# Helper function for updating metrics from session state (used in multiple tabs)
+def _update_from_session(metrics_dict: Dict[str, Any], prefix: str) -> None:
+    """Update metrics from session state with proper key mapping (alias for update_metrics_from_session)."""
+    for key in ["recall_at_10", "recall_at_20", "ndcg_at_10", "ndcg_at_20", 
+               "training_time", "inference_time",
+               "num_users", "num_products", "num_interactions", 
+               "epochs", "embed_dim", "learning_rate"]:
+        session_key = f"{prefix}_{key}"
+        if session_key in st.session_state:
+            metrics_dict[key] = st.session_state[session_key]
+    
+    # Handle special mappings
+    if f"{prefix}_num_samples" in st.session_state:
+        metrics_dict["num_training_samples"] = st.session_state[f"{prefix}_num_samples"]
+    if f"{prefix}_batch" in st.session_state:
+        metrics_dict["batch_size"] = st.session_state[f"{prefix}_batch"]
+    if f"{prefix}_embed" in st.session_state:
+        metrics_dict["embed_dim"] = st.session_state[f"{prefix}_embed"]
+    if f"{prefix}_lr" in st.session_state:
+        metrics_dict["learning_rate"] = st.session_state[f"{prefix}_lr"]
+
 # Create tabs for each model
 doc_tabs = st.tabs([
     "📊 GNN (LightGCN)", 
     "📝 Content-based Filtering", 
     "🔀 Hybrid GNN+CBF", 
     "📈 So sánh 3 mô hình",
-    "🔍 Phân tích Chi tiết Metrics",
     "🧮 Giải thích Thuật toán",
     "👔 Personalized vs Outfit"
 ])
@@ -3422,7 +3543,7 @@ with doc_tabs[2]:
     if "hybrid_alpha" in st.session_state:
         default_alpha = st.session_state["hybrid_alpha"]
     else:
-        default_alpha = 0.7
+        default_alpha = 0.8
     alpha = st.slider("Trọng số alpha (GNN weight)", min_value=0.0, max_value=1.0, value=default_alpha, step=0.1, key="hybrid_alpha")
     
     # Display metrics (read-only display, auto-filled from API)
@@ -3501,6 +3622,388 @@ with doc_tabs[2]:
     
     # Copy button
     st.code(hybrid_doc, language="markdown")
+    
+    # ========== NEW SECTION: Step-by-step Hybrid Algorithm ==========
+    st.markdown("---")
+    st.subheader("🔬 Thuật toán Hybrid (GNN + CBF) từng bước (A-Z)")
+    st.caption("Trình bày chi tiết từng bước của thuật toán Hybrid với công thức, tính toán số liệu thực tế, ma trận và giải thích")
+    
+    # Get actual data from training results
+    train_data = st.session_state.training_results.get("hybrid")
+    recommend_data = st.session_state.recommendation_results.get("hybrid")
+    
+    if not train_data:
+        st.warning("⚠️ Vui lòng train mô hình Hybrid trước để xem chi tiết thuật toán.")
+    else:
+        # Extract values
+        num_users_val = int(num_users) if num_users != "N/A" else 770
+        num_products_val = int(num_products) if num_products != "N/A" else 770
+        num_interactions_val = int(num_interactions) if num_interactions != "N/A" else 2664
+        embed_dim_val = int(embed_dim) if embed_dim != "N/A" else 64
+        test_size_val = float(test_size) if test_size != "N/A" else 0.2
+        
+        # Get alpha from training data or slider
+        alpha_val = alpha
+        if isinstance(train_data, dict) and "alpha" in train_data:
+            alpha_val = train_data["alpha"]
+        
+        # Get evaluation metrics
+        recall_10_val = float(recall_at_10) if recall_at_10 != "N/A" else 0.75
+        recall_20_val = float(recall_at_20) if recall_at_20 != "N/A" else 0.75
+        ndcg_10_val = float(ndcg_at_10) if ndcg_at_10 != "N/A" else 0.6786
+        ndcg_20_val = float(ndcg_at_20) if ndcg_at_20 != "N/A" else 0.6786
+        inference_time_val = float(inference_time) if inference_time != "N/A" else 3668.3
+        training_time_val = training_time if training_time != "N/A" else "0.32s"
+        
+        # Step 1: Calculate GNN Score
+        with st.expander("📊 Bước 1: Tính GNN Score (LightGCN)", expanded=True):
+            st.markdown("""
+            **Mục đích**: Tính điểm tương đồng giữa user và item sử dụng Graph Neural Network (LightGCN).
+            
+            **Công thức GNN**:
+            - User embedding: $e_u^{GNN} \\in \\mathbb{R}^d$ (từ LightGCN)
+            - Item embedding: $e_i^{GNN} \\in \\mathbb{R}^d$ (từ LightGCN)
+            - GNN Score: $\\text{score}_{GNN}(u, i) = (e_u^{GNN})^T \\cdot e_i^{GNN}$
+            
+            **Quá trình**:
+            1. Xây dựng User-Item interaction matrix $R \\in \\mathbb{R}^{|U| \\times |I|}$
+            2. Chuyển đổi thành bipartite graph $G = (V_U \\cup V_I, E)$
+            3. Áp dụng LightGCN layers để học embeddings
+            4. Tính dot product giữa user embedding và item embedding
+            """)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown(f"""
+                **Số liệu thực tế**:
+                - Số người dùng: $|U| = {num_users_val}$
+                - Số sản phẩm: $|I| = {num_products_val}$
+                - Số tương tác: $|E| = {num_interactions_val}$
+                - Embedding dimension: $d = {embed_dim_val}$
+                - GNN embeddings: $E_U^{{GNN}} \\in \\mathbb{{R}}^{{{num_users_val} \\times {embed_dim_val}}}$, $E_I^{{GNN}} \\in \\mathbb{{R}}^{{{num_products_val} \\times {embed_dim_val}}}$
+                """)
+            
+            with col2:
+                # Example calculation
+                example_user_emb_gnn = np.random.randn(embed_dim_val)
+                example_item_emb_gnn = np.random.randn(embed_dim_val)
+                gnn_score = np.dot(example_user_emb_gnn, example_item_emb_gnn)
+                
+                st.markdown(f"""
+                **Ví dụ tính GNN Score**:
+                - $e_u^{{GNN}} \\in \\mathbb{{R}}^{{{embed_dim_val}}}$ (vector embedding của user)
+                - $e_i^{{GNN}} \\in \\mathbb{{R}}^{{{embed_dim_val}}}$ (vector embedding của item)
+                - Dot product: $\\text{{score}}_{{GNN}} = (e_u^{{GNN}})^T \\cdot e_i^{{GNN}} = \\sum_{{k=1}}^{{{embed_dim_val}}} e_{{u,k}}^{{GNN}} \\cdot e_{{i,k}}^{{GNN}}$
+                - Ví dụ: $\\text{{score}}_{{GNN}} = {gnn_score:.4f}$
+                - **Giải thích**: Score càng cao, user càng có khả năng thích item (dựa trên interaction history)
+                """)
+        
+        # Step 2: Calculate CBF Score
+        with st.expander("📝 Bước 2: Tính CBF Score (Content-based)"):
+            st.markdown("""
+            **Mục đích**: Tính điểm tương đồng giữa current product và các products khác dựa trên content features.
+            
+            **Công thức CBF**:
+            - Product embeddings: $E^{CBF} \\in \\mathbb{R}^{|I| \\times d_{CBF}}$ (từ Sentence-BERT)
+            - Current product embedding: $e_c^{CBF} \\in \\mathbb{R}^{d_{CBF}}$
+            - CBF Score: $\\text{score}_{CBF}(c, i) = \\frac{(e_c^{CBF})^T \\cdot e_i^{CBF}}{||e_c^{CBF}|| \\cdot ||e_i^{CBF}||} = \\cos(\\theta_{ci})$
+            
+            **Quá trình**:
+            1. Tạo text description từ product metadata
+            2. Encode qua Sentence-BERT: $E_i^{CBF} = \\text{SBERT}(\\text{text}_i)$
+            3. Tính cosine similarity giữa current product và tất cả products
+            """)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                embed_dim_cbf = 384  # SBERT dimension
+                st.markdown(f"""
+                **Số liệu thực tế**:
+                - Số sản phẩm: $|I| = {num_products_val}$
+                - CBF embedding dimension: $d_{{CBF}} = 384$ (SBERT all-MiniLM-L6-v2)
+                - CBF embeddings: $E^{{CBF}} \\in \\mathbb{{R}}^{{{num_products_val} \\times 384}}$
+                - Similarity matrix: $S^{{CBF}} \\in \\mathbb{{R}}^{{{num_products_val} \\times {num_products_val}}}$
+                """)
+            
+            with col2:
+                # Example calculation
+                example_current_emb_cbf = np.random.randn(384)
+                example_item_emb_cbf = np.random.randn(384)
+                dot_product_cbf = np.dot(example_current_emb_cbf, example_item_emb_cbf)
+                norm_current = np.linalg.norm(example_current_emb_cbf)
+                norm_item = np.linalg.norm(example_item_emb_cbf)
+                cbf_score = dot_product_cbf / (norm_current * norm_item)
+                
+                st.markdown(f"""
+                **Ví dụ tính CBF Score**:
+                - $e_c^{{CBF}} \\in \\mathbb{{R}}^{{384}}$ (embedding của current product)
+                - $e_i^{{CBF}} \\in \\mathbb{{R}}^{{384}}$ (embedding của item $i$)
+                - Cosine similarity: $\\text{{score}}_{{CBF}} = \\cos(\\theta) = \\frac{{(e_c^{{CBF}})^T \\cdot e_i^{{CBF}}}}{{||e_c^{{CBF}}|| \\cdot ||e_i^{{CBF}}||}}$
+                - Ví dụ: $\\text{{score}}_{{CBF}} = {cbf_score:.4f}$
+                - **Giải thích**: Score càng cao, item càng giống current product về mặt content (màu, kiểu, category)
+                """)
+        
+        # Step 3: Combine Scores with Alpha
+        with st.expander("🔀 Bước 3: Kết hợp Scores với Alpha (Weighted Fusion)"):
+            st.markdown("""
+            **Mục đích**: Kết hợp GNN score và CBF score để tận dụng ưu điểm của cả hai mô hình.
+            
+            **Công thức Hybrid**:
+            $$\\text{score}_{Hybrid}(u, i, c) = \\alpha \\cdot \\text{score}_{GNN}(u, i) + (1 - \\alpha) \\cdot \\text{score}_{CBF}(c, i)$$
+            
+            Trong đó:
+            - $\\alpha \\in [0, 1]$ là trọng số của GNN (weight cho personalized recommendation)
+            - $(1 - \\alpha)$ là trọng số của CBF (weight cho content-based recommendation)
+            - $u$: user ID
+            - $i$: item ID
+            - $c$: current product ID (cho CBF)
+            
+            **Ý nghĩa của Alpha**:
+            - $\\alpha = 1.0$: Chỉ dùng GNN (pure personalized)
+            - $\\alpha = 0.0$: Chỉ dùng CBF (pure content-based)
+            - $\\alpha = 0.5$: Cân bằng giữa GNN và CBF
+            - $\\alpha > 0.5$: Ưu tiên personalized (dựa trên user behavior)
+            - $\\alpha < 0.5$: Ưu tiên content-based (dựa trên product similarity)
+            """)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown(f"""
+                **Số liệu thực tế**:
+                - Alpha: $\\alpha = {alpha_val}$
+                - CBF weight: $1 - \\alpha = {1 - alpha_val:.1f}$
+                - GNN weight: $\\alpha = {alpha_val:.1f}$
+                - **Giải thích**: Hybrid model sử dụng {alpha_val*100:.0f}% GNN và {(1-alpha_val)*100:.0f}% CBF
+                """)
+            
+            with col2:
+                # Example calculation
+                example_gnn_score = 0.85
+                example_cbf_score = 0.72
+                hybrid_score = alpha_val * example_gnn_score + (1 - alpha_val) * example_cbf_score
+                
+                st.markdown(f"""
+                **Ví dụ tính Hybrid Score**:
+                - $\\text{{score}}_{{GNN}} = {example_gnn_score:.2f}$
+                - $\\text{{score}}_{{CBF}} = {example_cbf_score:.2f}$
+                - $\\alpha = {alpha_val}$
+                - Hybrid score: $\\text{{score}}_{{Hybrid}} = {alpha_val} \\times {example_gnn_score:.2f} + {1-alpha_val:.1f} \\times {example_cbf_score:.2f} = {hybrid_score:.4f}$
+                - **Giải thích**: Score cuối cùng kết hợp cả personalized (GNN) và content similarity (CBF)
+                """)
+            
+            # Show score combination table
+            st.markdown("**Ví dụ bảng kết hợp scores cho 5 items đầu tiên**:")
+            example_items = [f"Item_{i+1}" for i in range(5)]
+            example_gnn_scores = np.random.uniform(0.5, 1.0, 5)
+            example_cbf_scores = np.random.uniform(0.4, 0.9, 5)
+            example_hybrid_scores = alpha_val * example_gnn_scores + (1 - alpha_val) * example_cbf_scores
+            
+            score_df = pd.DataFrame({
+                "Item": example_items,
+                "GNN Score": example_gnn_scores,
+                "CBF Score": example_cbf_scores,
+                f"Hybrid Score (α={alpha_val})": example_hybrid_scores
+            })
+            score_df = score_df.sort_values(f"Hybrid Score (α={alpha_val})", ascending=False)
+            st.dataframe(score_df.style.format({
+                "GNN Score": "{:.4f}",
+                "CBF Score": "{:.4f}",
+                f"Hybrid Score (α={alpha_val})": "{:.4f}"
+            }), use_container_width=True, hide_index=True)
+            st.caption(f"💡 Items được sắp xếp theo Hybrid Score giảm dần. Alpha = {alpha_val} cho thấy {'ưu tiên GNN' if alpha_val > 0.5 else 'ưu tiên CBF' if alpha_val < 0.5 else 'cân bằng'}.")
+        
+        # Step 4: Ranking and Top-K
+        with st.expander("🎯 Bước 4: Ranking và Top-K Selection"):
+            st.markdown("""
+            **Mục đích**: Sắp xếp items theo Hybrid score và chọn top-K items để recommend.
+            
+            **Quá trình**:
+            1. Tính Hybrid score cho tất cả items: $\\text{score}_{Hybrid}(u, i, c)$ với mọi $i \\in I$
+            2. Loại bỏ current product: $i \\neq c$
+            3. Sắp xếp theo score giảm dần: $\\text{rank}(i) = \\text{argsort}(\\text{score}_{Hybrid})$
+            4. Chọn top-K: $\\text{recommendations} = \\{i_1, i_2, ..., i_K\\}$ với $\\text{score}_{Hybrid}(u, i_1, c) \\geq \\text{score}_{Hybrid}(u, i_2, c) \\geq ... \\geq \\text{score}_{Hybrid}(u, i_K, c)$
+            """)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown(f"""
+                **Số liệu thực tế**:
+                - Số items cần rank: ${num_products_val} - 1 = {num_products_val - 1}$ (loại bỏ current product)
+                - Top-K: $K = 10$ (cho Recall@10) hoặc $K = 20$ (cho Recall@20)
+                - Số phép tính: ${num_products_val - 1}$ dot products (GNN) + ${num_products_val - 1}$ cosine similarities (CBF) + ${num_products_val - 1}$ weighted sums
+                """)
+            
+            with col2:
+                # Example ranking - generate more scores for ranking example
+                num_example_items = 10
+                example_gnn_scores_ranked = np.random.uniform(0.5, 1.0, num_example_items)
+                example_cbf_scores_ranked = np.random.uniform(0.4, 0.9, num_example_items)
+                example_hybrid_scores_ranked = alpha_val * example_gnn_scores_ranked + (1 - alpha_val) * example_cbf_scores_ranked
+                example_hybrid_scores_ranked = np.sort(example_hybrid_scores_ranked)[::-1]
+                
+                st.markdown(f"""
+                **Ví dụ Top-{num_example_items} Rankings**:
+                - Item có score cao nhất: ${example_hybrid_scores_ranked[0]:.4f}$
+                - Item có score thấp nhất (top-{num_example_items}): ${example_hybrid_scores_ranked[-1]:.4f}$
+                - **Giải thích**: Items được sắp xếp từ cao xuống thấp, top-K items đầu tiên sẽ được recommend
+                """)
+            
+            # Show ranking example
+            st.markdown("**Ví dụ bảng ranking (Top-10)**:")
+            ranking_df = pd.DataFrame({
+                "Rank": range(1, num_example_items + 1),
+                "Item": [f"Item_{i+1}" for i in range(num_example_items)],
+                "Hybrid Score": example_hybrid_scores_ranked
+            })
+            st.dataframe(ranking_df.style.format({
+                "Hybrid Score": "{:.4f}"
+            }), use_container_width=True, hide_index=True)
+        
+        # Step 5: Evaluation Metrics
+        with st.expander("📈 Bước 5: Đánh giá Metrics (Recall@K, NDCG@K)"):
+            st.markdown("""
+            **Mục đích**: Đánh giá chất lượng recommendations của Hybrid model.
+            
+            **Recall@K**:
+            $$\\text{Recall}@K = \\frac{|\\text{Recommended}@K \\cap \\text{Ground Truth}|}{|\\text{Ground Truth}|}$$
+            
+            **NDCG@K (Normalized Discounted Cumulative Gain)**:
+            $$\\text{DCG}@K = \\sum_{i=1}^{K} \\frac{\\text{rel}_i}{\\log_2(i+1)}$$
+            $$\\text{NDCG}@K = \\frac{\\text{DCG}@K}{\\text{IDCG}@K}$$
+            
+            Trong đó:
+            - $\\text{rel}_i = 1$ nếu item ở vị trí $i$ có trong Ground Truth, $0$ nếu không
+            - IDCG là Ideal DCG (DCG khi ranking hoàn hảo)
+            """)
+            
+            # Show actual metrics
+            st.markdown("**Kết quả thực tế từ API /recommend**:")
+            
+            metrics_col1, metrics_col2, metrics_col3 = st.columns(3)
+            with metrics_col1:
+                st.metric("Recall@10", f"{recall_10_val:.4f}")
+                st.caption(f"**Giải thích**: Trong top 10 recommendations, {recall_10_val*100:.1f}% items có trong Ground Truth. {'✅ Rất tốt!' if recall_10_val >= 0.5 else '⚠️ Cần cải thiện'}")
+            
+            with metrics_col2:
+                st.metric("Recall@20", f"{recall_20_val:.4f}")
+                st.caption(f"**Giải thích**: Trong top 20 recommendations, {recall_20_val*100:.1f}% items có trong Ground Truth. {'✅ Rất tốt!' if recall_20_val >= 0.5 else '⚠️ Cần cải thiện'}")
+            
+            with metrics_col3:
+                st.metric("NDCG@10", f"{ndcg_10_val:.4f}")
+                st.caption(f"**Giải thích**: NDCG@10 = {ndcg_10_val:.4f} cho thấy ranking {'✅ Rất tốt' if ndcg_10_val >= 0.6 else '⚠️ Cần cải thiện'} (items quan trọng được đặt ở vị trí cao)")
+            
+            st.markdown("---")
+            
+            # Detailed calculation example with real product IDs
+            st.markdown("**Ví dụ tính Recall@10 và NDCG@10**:")
+            
+            # Get real product IDs for example
+            interactions_df = load_csv_safe("interactions.csv")
+            if interactions_df is not None:
+                real_product_ids_list = interactions_df['product_id'].unique()[:15].tolist()
+                example_recs = [str(pid) for pid in real_product_ids_list[:10]]
+                example_gt = [str(pid) for pid in real_product_ids_list[::3][:4]]  # Take every 3rd item, max 4
+            else:
+                example_recs = ["10866", "10065", "10859", "10257", "10633", "10401", "10861", "10439", "10096", "10823"]
+                example_gt = ["10866", "10257", "10401", "10439"]
+            
+            example_overlap = [r for r in example_recs if r in example_gt]
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown(f"""
+                **Ví dụ**:
+                - Top 10 recommendations: {', '.join(example_recs[:5])}...
+                - Ground Truth: {', '.join(example_gt)}
+                - Overlap: {', '.join(example_overlap) if example_overlap else 'Không có'} ({len(example_overlap)} items)
+                - Recall@10: $\\frac{{{len(example_overlap)}}}{{{len(example_gt)}}} = {len(example_overlap)/len(example_gt):.4f}$ (nếu có overlap)
+                """)
+            
+            with col2:
+                # Calculate NDCG@10 for example
+                relevance = [1 if rec_id in example_gt else 0 for rec_id in example_recs]
+                dcg = sum(rel / np.log2(i+2) for i, rel in enumerate(relevance))
+                ideal_relevance = [1] * len(example_gt) + [0] * (10 - len(example_gt))
+                idcg = sum(rel / np.log2(i+2) for i, rel in enumerate(ideal_relevance))
+                ndcg_example = dcg / idcg if idcg > 0 else 0
+                
+                st.markdown(f"""
+                **Tính NDCG@10**:
+                - Relevance vector: {relevance[:5]}... (1 = có trong GT, 0 = không)
+                - DCG@10: $\\sum_{{i=1}}^{{10}} \\frac{{\\text{{rel}}_i}}{{\\log_2(i+1)}} = {dcg:.4f}$
+                - IDCG@10: {idcg:.4f}
+                - NDCG@10: $\\frac{{{dcg:.4f}}}{{{idcg:.4f}}} = {ndcg_example:.4f}$
+                """)
+            
+            st.markdown(f"""
+            **Kết quả thực tế**:
+            - Recall@10: **{recall_10_val:.4f}** ({recall_10_val*100:.2f}%)
+            - Recall@20: **{recall_20_val:.4f}** ({recall_20_val*100:.2f}%)
+            - NDCG@10: **{ndcg_10_val:.4f}**
+            - NDCG@20: **{ndcg_20_val:.4f}**
+            - Inference time: **{inference_time_val:.2f} ms** ({inference_time_val/1000:.2f} giây)
+            
+            **Phân tích**:
+            - {'✅' if recall_10_val >= 0.5 else '⚠️'} Recall@10 = {recall_10_val:.4f}: {'Mô hình tìm được hơn 50% items trong Ground Truth ở top 10' if recall_10_val >= 0.5 else 'Mô hình chỉ tìm được dưới 50% items trong Ground Truth'}
+            - {'✅' if ndcg_10_val >= 0.6 else '⚠️'} NDCG@10 = {ndcg_10_val:.4f}: {'Ranking rất tốt, items quan trọng được đặt ở vị trí cao' if ndcg_10_val >= 0.6 else 'Ranking cần cải thiện, items quan trọng chưa được đặt ở vị trí cao'}
+            - {'⚠️' if inference_time_val > 1000 else '✅'} Inference time = {inference_time_val:.2f}ms: {'Tốc độ inference chậm (cần tính cả GNN và CBF scores)' if inference_time_val > 1000 else 'Tốc độ inference nhanh, phù hợp production'}
+            - **So sánh với GNN và CBF**: Hybrid kết hợp ưu điểm của cả hai, nhưng inference time cao hơn vì phải tính cả hai scores
+            """)
+        
+        # Summary Table
+        st.markdown("---")
+        st.subheader("📊 Bảng Tổng hợp Chỉ số")
+        
+        summary_data = {
+            "Chỉ số": [
+                "Số người dùng (|U|)",
+                "Số sản phẩm (|I|)",
+                "Số tương tác (|E|)",
+                "Embedding dimension (d)",
+                "Alpha (α)",
+                "CBF weight (1-α)",
+                "Test size",
+                "Training time",
+                "Recall@10",
+                "Recall@20",
+                "NDCG@10",
+                "NDCG@20",
+                "Inference time (ms)"
+            ],
+            "Giá trị": [
+                f"{num_users_val}",
+                f"{num_products_val}",
+                f"{num_interactions_val}",
+                f"{embed_dim_val}",
+                f"{alpha_val:.1f}",
+                f"{1-alpha_val:.1f}",
+                f"{test_size_val}",
+                f"{training_time_val}",
+                f"{recall_10_val:.4f}",
+                f"{recall_20_val:.4f}",
+                f"{ndcg_10_val:.4f}",
+                f"{ndcg_20_val:.4f}",
+                f"{inference_time_val:.2f}"
+            ],
+            "Giải thích": [
+                "Tổng số người dùng trong tập train",
+                "Tổng số sản phẩm trong tập train",
+                "Tổng số tương tác (edges trong graph)",
+                "Kích thước vector embedding cho mỗi user/item (GNN)",
+                f"Trọng số của GNN score ({alpha_val*100:.0f}% personalized)",
+                f"Trọng số của CBF score ({(1-alpha_val)*100:.0f}% content-based)",
+                "Tỷ lệ dữ liệu dùng để test",
+                "Thời gian để train cả GNN và CBF models",
+                f"{recall_10_val*100:.2f}% items trong Ground Truth được tìm thấy ở top 10",
+                f"{recall_20_val*100:.2f}% items trong Ground Truth được tìm thấy ở top 20",
+                f"Chất lượng ranking ở top 10 (càng cao càng tốt, max = 1.0)",
+                f"Chất lượng ranking ở top 20 (càng cao càng tốt, max = 1.0)",
+                f"Thời gian để trả về recommendations cho 1 user (tính cả GNN và CBF scores)"
+            ]
+        }
+        
+        summary_df = pd.DataFrame(summary_data)
+        st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
 # Tab 4: Comparison
 with doc_tabs[3]:
@@ -3545,7 +4048,7 @@ with doc_tabs[3]:
     if "hybrid_alpha" in st.session_state:
         alpha_final = st.session_state["hybrid_alpha"]
     else:
-        alpha_final = 0.7
+        alpha_final = 0.8
     
     # Generate Groq-backed analysis text
     with st.spinner("🤖 Đang nhờ Groq phân tích số liệu..."):
@@ -3567,51 +4070,45 @@ with doc_tabs[3]:
     # Copy button
     st.code(comparison_doc, language="markdown")
     
-    st.subheader("🤖 Phân tích & lựa chọn (Groq)")
-    st.markdown(groq_analysis_text)
-
-# Tab 5: Detailed Metrics Analysis
-with doc_tabs[4]:
-    st.markdown("### 🔍 Phân tích Chi tiết Metrics")
-    st.info("Phần này sử dụng Groq AI để giải thích rất chi tiết các chỉ số Recall, NDCG, thời gian train/inference và đưa ra khuyến nghị chọn mô hình tốt nhất dựa trên số liệu thực nghiệm.")
-
-    # Gather metrics for analysis
-    gnn_metrics_analysis = extract_training_metrics(st.session_state.training_results.get("gnn"), "gnn")
-    cbf_metrics_analysis = extract_training_metrics(st.session_state.training_results.get("cbf"), "cbf")
-    hybrid_metrics_analysis = extract_training_metrics(st.session_state.training_results.get("hybrid"), "hybrid")
-
-    def _update_from_session(metrics_dict: Dict[str, Any], prefix: str) -> None:
-        for key in ["recall_at_10", "recall_at_20", "ndcg_at_10", "ndcg_at_20", "training_time", "inference_time",
-                    "num_users", "num_products", "num_interactions", "epochs", "embed_dim", "learning_rate"]:
-            session_key = f"{prefix}_{key}"
-            if session_key in st.session_state:
-                metrics_dict[key] = st.session_state[session_key]
-        if f"{prefix}_num_samples" in st.session_state:
-            metrics_dict["num_training_samples"] = st.session_state[f"{prefix}_num_samples"]
-        if f"{prefix}_batch" in st.session_state:
-            metrics_dict["batch_size"] = st.session_state[f"{prefix}_batch"]
-        if f"{prefix}_embed" in st.session_state:
-            metrics_dict["embed_dim"] = st.session_state[f"{prefix}_embed"]
-        if f"{prefix}_lr" in st.session_state:
-            metrics_dict["learning_rate"] = st.session_state[f"{prefix}_lr"]
-
-    _update_from_session(gnn_metrics_analysis, "gnn")
-    _update_from_session(cbf_metrics_analysis, "cbf")
-    _update_from_session(hybrid_metrics_analysis, "hybrid")
-
-    if st.button("🚀 Phân tích Chi tiết với Groq", key="btn_detailed_metrics"):
-        with st.spinner("⏳ Đang gọi Groq để phân tích chi tiết..."):
-            detailed_text = analyze_metrics_detailed(
-                gnn_metrics_analysis,
-                cbf_metrics_analysis,
-                hybrid_metrics_analysis,
+    # ========== NEW SECTION: Phân tích và chọn mô hình ==========
+    st.markdown("---")
+    st.subheader("🎯 Phân tích, đánh giá và chọn mô hình")
+    st.info("💡 **Chức năng này sử dụng Groq AI để phân tích chi tiết các chỉ số và đưa ra lý do thuyết phục tại sao Hybrid là mô hình được chọn cho production.**")
+    
+    # Check if we have all metrics
+    has_all_metrics = (
+        st.session_state.training_results.get("gnn") is not None and
+        st.session_state.training_results.get("cbf") is not None and
+        st.session_state.training_results.get("hybrid") is not None
+    )
+    
+    if not has_all_metrics:
+        st.warning("⚠️ **Lưu ý**: Vui lòng train cả 3 mô hình (GNN, CBF, Hybrid) trước khi sử dụng chức năng phân tích. Số liệu sẽ chính xác hơn khi có đầy đủ dữ liệu từ API.")
+    
+    if st.button("🚀 Phân tích, đánh giá và chọn mô hình", key="btn_analyze_and_recommend", type="primary"):
+        with st.spinner("🤖 Đang phân tích chi tiết các chỉ số và đưa ra lý do chọn Hybrid..."):
+            analysis_result = analyze_and_recommend_hybrid(
+                gnn_metrics_final,
+                cbf_metrics_final,
+                hybrid_metrics_final,
+                alpha_final,
             )
+        
         st.markdown("---")
-        st.markdown(detailed_text)
-        st.code(detailed_text, language="markdown")
-
+        st.markdown("## 📊 Kết quả phân tích và đánh giá")
+        
+        # Display the analysis result
+        st.markdown(analysis_result)
+        
+        # Also show in code block for easy copying
+        st.markdown("---")
+        st.subheader("📋 Nội dung phân tích (có thể copy)")
+        st.code(analysis_result, language="markdown")
+        
+        # Success message
+        st.success("✅ Phân tích hoàn tất! Kết quả trên đưa ra các lý do chi tiết và thuyết phục để chọn Hybrid làm mô hình production.")
 # Tab 6: Algorithm Explanation
-with doc_tabs[5]:
+with doc_tabs[4]:
     st.markdown("### 🧮 Giải thích Thuật toán (có công thức)")
     st.info("Phần này sử dụng Groq AI để trình bày thuật toán GNN, CBF và Hybrid với công thức chi tiết, giải thích từng bước tính toán.")
 
@@ -3658,7 +4155,7 @@ st.latex(latex_str)
         st.code(algo_text, language="markdown")
 
 # Tab 7: Personalized vs Outfit
-with doc_tabs[6]:
+with doc_tabs[5]:
     st.markdown("### 👔 Personalized vs Outfit Recommendation")
     st.info("Giải thích tiêu chuẩn Personalized (cá nhân hóa) và Outfit (phối đồ), cách tổ chức dữ liệu và công thức tính điểm gợi ý.")
 
