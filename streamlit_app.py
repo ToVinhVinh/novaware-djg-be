@@ -547,6 +547,35 @@ def apply_precision_formatting(metrics_dict: Dict[str, Any]) -> Dict[str, Any]:
     return metrics_dict
 
 
+def get_csv_path(filename: str) -> Optional[str]:
+    """Get absolute path to CSV file in exports directory."""
+    # Try multiple possible paths
+    possible_paths = [
+        os.path.join("exports", filename),
+        os.path.join(os.path.dirname(__file__), "exports", filename),
+        os.path.join(os.getcwd(), "exports", filename),
+        filename,  # Try direct path
+    ]
+    
+    for path in possible_paths:
+        if os.path.exists(path):
+            return path
+    
+    return None
+
+
+def load_csv_safe(filename: str) -> Optional[pd.DataFrame]:
+    """Safely load CSV file with error handling."""
+    try:
+        csv_path = get_csv_path(filename)
+        if csv_path is None:
+            return None
+        return pd.read_csv(csv_path)
+    except Exception as e:
+        st.warning(f"⚠️ Không thể load {filename}: {str(e)}")
+        return None
+
+
 def generate_pdf_document(title: str, content: str, model_name: str) -> BytesIO:
     """Generate PDF document from markdown content using reportlab (works on Windows)."""
     if not REPORTLAB_AVAILABLE:
@@ -2392,11 +2421,11 @@ with doc_tabs[0]:
             sample_size = min(5, num_users_val, num_products_val)
             
             # Load real user and product IDs from data
-            try:
-                interactions_df = pd.read_csv("exports/interactions.csv")
+            interactions_df = load_csv_safe("interactions.csv")
+            if interactions_df is not None:
                 real_user_ids = interactions_df['user_id'].unique()[:sample_size].tolist()
                 real_product_ids = interactions_df['product_id'].unique()[:sample_size].tolist()
-            except:
+            else:
                 # Fallback to default IDs from training data
                 real_user_ids = [f"690bf0f2d0c3753df0ecbdd{i}" for i in range(6, 6+sample_size)]
                 real_product_ids = [f"1006{i}" for i in range(5, 5+sample_size)]
@@ -2444,12 +2473,12 @@ with doc_tabs[0]:
             
             with col2:
                 # Get real edge examples
-                try:
-                    interactions_df = pd.read_csv("exports/interactions.csv")
+                interactions_df = load_csv_safe("interactions.csv")
+                if interactions_df is not None:
                     edge_examples = interactions_df.head(5)
                     real_user_ids_edge = edge_examples['user_id'].tolist()
                     real_product_ids_edge = edge_examples['product_id'].tolist()
-                except:
+                else:
                     real_user_ids_edge = ["690bf0f2d0c3753df0ecbdd6", "690bf0f2d0c3753df0ecbe31", "690bf0f2d0c3753df0ecbe31", "690bf0f2d0c3753df0ecbdd5", "690bf0f2d0c3753df0ecbddd"]
                     real_product_ids_edge = ["10866", "10019", "10225", "10418", "10885"]
                 
@@ -2520,12 +2549,12 @@ with doc_tabs[0]:
             
             with col2:
                 # Get real user and product IDs for example
-                try:
-                    interactions_df = pd.read_csv("exports/interactions.csv")
+                interactions_df = load_csv_safe("interactions.csv")
+                if interactions_df is not None:
                     example_user_id = str(interactions_df.iloc[0]['user_id'])
                     example_user_interactions = interactions_df[interactions_df['user_id'] == example_user_id]['product_id'].unique()[:3]
                     example_product_ids = [str(pid) for pid in example_user_interactions]
-                except:
+                else:
                     example_user_id = "690bf0f2d0c3753df0ecbdd6"
                     example_product_ids = ["10866", "10065", "10859"]
                 
@@ -2695,12 +2724,12 @@ with doc_tabs[0]:
             st.markdown("**Ví dụ tính Recall@10 và NDCG@10**:")
             
             # Get real product IDs for example
-            try:
-                interactions_df = pd.read_csv("exports/interactions.csv")
+            interactions_df = load_csv_safe("interactions.csv")
+            if interactions_df is not None:
                 real_product_ids_list = interactions_df['product_id'].unique()[:15].tolist()
                 example_recs = [str(pid) for pid in real_product_ids_list[:10]]
                 example_gt = [str(pid) for pid in real_product_ids_list[::3][:4]]  # Take every 3rd item, max 4
-            except:
+            else:
                 # Fallback to example IDs
                 example_recs = ["10866", "10065", "10859", "10257", "10633", "10401", "10861", "10439", "10096", "10823"]
                 example_gt = ["10866", "10257", "10401", "10439"]
@@ -2984,8 +3013,8 @@ with doc_tabs[1]:
             """)
             
             # Load real product data
-            try:
-                products_df = pd.read_csv("exports/products.csv")
+            products_df = load_csv_safe("products.csv")
+            if products_df is not None:
                 sample_products = products_df.head(5)
                 
                 col1, col2 = st.columns(2)
@@ -3003,8 +3032,12 @@ with doc_tabs[1]:
                     for idx, row in sample_products.iterrows():
                         text_desc = f"{row['gender']} {row['masterCategory']} {row['subCategory']} {row['articleType']} {row['baseColour']} {row['season']} {row['productDisplayName']}"
                         st.caption(f"**Product {row['id']}**: {text_desc[:80]}...")
-            except:
-                st.warning("Không thể load dữ liệu products.csv")
+            else:
+                csv_path = get_csv_path("products.csv")
+                if csv_path:
+                    st.warning(f"⚠️ Không thể đọc file: {csv_path}")
+                else:
+                    st.warning("⚠️ Không tìm thấy file exports/products.csv. Vui lòng đảm bảo file tồn tại trong thư mục exports/")
         
         # Step 2: Sentence-BERT Embeddings
         with st.expander("🧮 Bước 2: Tạo Embeddings bằng Sentence-BERT"):
@@ -3143,23 +3176,27 @@ with doc_tabs[1]:
             """)
             
             # Get real example from data
-            try:
-                products_df = pd.read_csv("exports/products.csv")
-                interactions_df = pd.read_csv("exports/interactions.csv")
-                
+            products_df = load_csv_safe("products.csv")
+            interactions_df = load_csv_safe("interactions.csv")
+            
+            if products_df is not None:
                 # Get a real current product example
                 example_current_product_id = "10068"
-                example_current_product = products_df[products_df['id'] == int(example_current_product_id)]
-                
-                if len(example_current_product) > 0:
-                    current_product_row = example_current_product.iloc[0]
-                    current_text = f"{current_product_row['gender']} {current_product_row['masterCategory']} {current_product_row['subCategory']} {current_product_row['articleType']} {current_product_row['baseColour']} {current_product_row['productDisplayName']}"
-                else:
+                try:
+                    example_current_product = products_df[products_df['id'] == int(example_current_product_id)]
+                    
+                    if len(example_current_product) > 0:
+                        current_product_row = example_current_product.iloc[0]
+                        current_text = f"{current_product_row['gender']} {current_product_row['masterCategory']} {current_product_row['subCategory']} {current_product_row['articleType']} {current_product_row['baseColour']} {current_product_row['productDisplayName']}"
+                    else:
+                        current_text = "Men Apparel Topwear Tshirts Red Product"
+                    
+                    # Get similar products (example)
+                    similar_products = products_df.head(5)
+                except Exception as e:
                     current_text = "Men Apparel Topwear Tshirts Red Product"
-                
-                # Get similar products (example)
-                similar_products = products_df.head(5)
-            except:
+                    similar_products = None
+            else:
                 current_text = "Men Apparel Topwear Tshirts Red Product"
                 similar_products = None
             
@@ -3262,12 +3299,12 @@ with doc_tabs[1]:
             st.markdown("**Ví dụ tính Recall@10 và NDCG@10**:")
             
             # Get real product IDs for example
-            try:
-                interactions_df = pd.read_csv("exports/interactions.csv")
+            interactions_df = load_csv_safe("interactions.csv")
+            if interactions_df is not None:
                 real_product_ids_list = interactions_df['product_id'].unique()[:15].tolist()
                 example_recs = [str(pid) for pid in real_product_ids_list[:10]]
                 example_gt = [str(pid) for pid in real_product_ids_list[::3][:5]]  # Take every 3rd item, max 5
-            except:
+            else:
                 example_recs = ["10866", "10065", "10859", "10257", "10633", "10401", "10861", "10439", "10096", "10823"]
                 example_gt = ["10866", "10257", "10401", "10439", "10096"]
             

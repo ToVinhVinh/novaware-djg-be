@@ -58,10 +58,7 @@ node_modules/
 
 # Large data files and artifacts
 *.pkl
-*.csv
 *.sqlite3
 artifacts/
 db.sqlite3
-products.csv
-users.csv
 theory.txt
