@@ -11,7 +11,7 @@ from .mongo_views import (
 )
 
 
-router = routers.DefaultRouter(trailing_slash=True)
+router = routers.DefaultRouter(trailing_slash=False)
 router.register(r"products", ProductViewSet, basename="product")
 router.register(r"categories", CategoryViewSet, basename="category")
 router.register(r"colors", ColorViewSet, basename="color")

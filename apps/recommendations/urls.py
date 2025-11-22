@@ -9,7 +9,7 @@ from .mongo_views import (
 )
 
 
-router = routers.DefaultRouter(trailing_slash=True)
+router = routers.DefaultRouter(trailing_slash=False)
 router.register(r"outfits", OutfitViewSet, basename="outfit")
 router.register(r"recommendations", RecommendationRequestViewSet, basename="recommendation-request")
 router.register(r"recommendation-results", RecommendationResultViewSet, basename="recommendation-result")

@@ -624,133 +624,68 @@ class RecommendGNNView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         
-        # Get ground truth: products that user has interacted with (excluding current product)
+        # Get ground truth: ONLY from test set (to avoid data leakage)
+        # This ensures we evaluate on interactions the model hasn't seen during training
         ground_truth = []
         try:
-            # Try Django ORM first
-            try:
-                user_interactions = UserInteraction.objects.filter(
-                    user_id=user_id
-                ).exclude(
-                    product_id=product_id
-                ).select_related('product').order_by('-timestamp')[:50]
+            from .models import engine
+            from bson import ObjectId
+            
+            # Get user index from engine
+            user_id_str = str(user_id)
+            if hasattr(engine, 'user_id_map') and user_id_str in engine.user_id_map:
+                user_idx = engine.user_id_map[user_id_str]
                 
-                if not user_interactions.exists():
-                    # Try with integer conversion
-                    try:
-                        user_id_int = int(user_id)
-                        user_interactions = UserInteraction.objects.filter(
-                            user_id=user_id_int
-                        ).exclude(
-                            product_id=product_id
-                        ).select_related('product').order_by('-timestamp')[:50]
-                    except (ValueError, TypeError):
-                        pass
-            except Exception:
-                user_interactions = UserInteraction.objects.none()
-            
-            # If Django ORM didn't find anything, try MongoDB
-            if not user_interactions.exists():
-                try:
-                    from apps.users.mongo_models import UserInteraction as MongoInteraction
-                    from bson import ObjectId
+                # Get test interactions for this user (test set only)
+                if hasattr(engine, 'test_interactions') and engine.test_interactions:
+                    test_products = engine.test_interactions.get(user_idx, set())
                     
-                    # Try to convert user_id to ObjectId if it's a MongoDB ID
-                    try:
-                        user_obj_id = ObjectId(user_id) if len(user_id) == 24 else user_id
-                        product_obj_id = ObjectId(product_id) if len(str(product_id)) == 24 else product_id
-                    except:
-                        user_obj_id = user_id
-                        product_obj_id = product_id
+                    # Convert product indices to product IDs
+                    if hasattr(engine, 'reverse_product_map'):
+                        for product_idx in test_products:
+                            # Skip current product
+                            product_id_str = str(product_id)
+                            if str(engine.reverse_product_map.get(product_idx)) == product_id_str:
+                                continue
+                            
+                            item = {"id": str(engine.reverse_product_map.get(product_idx))}
+                            # Default rating for test set items (can be improved with actual ratings)
+                            item["rating"] = 1.0  # Binary relevance for test set
+                            ground_truth.append(item)
+                            
+                            # Limit to 50
+                            if len(ground_truth) >= 50:
+                                break
                     
-                    mongo_interactions = MongoInteraction.objects(
-                        user_id=user_obj_id
-                    ).exclude(
-                        product_id=product_obj_id
-                    ).order_by('-timestamp').limit(50)
-                    
-                    for interaction in mongo_interactions:
-                        item = {"id": str(interaction.product_id)}
-                        if hasattr(interaction, 'rating') and interaction.rating is not None:
-                            item["rating"] = float(interaction.rating)
-                        ground_truth.append(item)
-                except Exception:
-                    pass
-            
-            # Get product IDs and ratings from Django ORM results
-            for interaction in user_interactions:
-                item = {"id": str(interaction.product_id)}
-                if interaction.rating is not None:
-                    item["rating"] = float(interaction.rating)
-                ground_truth.append(item)
-            
+                    logger.info(
+                        f"Using test set ground truth: {len(ground_truth)} items for user {user_id} "
+                        f"(user_idx={user_idx}, test_products={len(test_products)})"
+                    )
+                else:
+                    logger.warning(f"No test_interactions found in engine for user {user_id}")
+            else:
+                logger.warning(f"User {user_id} not found in engine.user_id_map")
+        
         except Exception as e:
             import logging
             logger = logging.getLogger(__name__)
-            logger.warning(f"Could not fetch ground truth for user {user_id}: {e}")
+            logger.warning(f"Could not fetch test set ground truth for user {user_id}: {e}")
             ground_truth = []
         
-        # If still no ground truth, try to get from user's interaction_history (fallback)
+        # Fallback: If no test set ground truth, use empty (don't use train set!)
+        # This ensures we don't have data leakage
         if not ground_truth:
-            try:
-                from apps.users.mongo_models import User as MongoUser
-                from bson import ObjectId
-                
-                # Try to get user by ID
-                try:
-                    user_obj_id = ObjectId(user_id) if len(user_id) == 24 else user_id
-                except:
-                    user_obj_id = user_id
-                
-                mongo_user = MongoUser.objects(id=user_obj_id).first()
-                if mongo_user and hasattr(mongo_user, 'interaction_history') and mongo_user.interaction_history:
-                    import logging
-                    logger = logging.getLogger(__name__)
-                    logger.info(f"Using interaction_history from user profile for user {user_id}")
-                    
-                    # Convert interaction_history to ground_truth format
-                    for interaction in mongo_user.interaction_history:
-                        # Skip current product
-                        if str(interaction.get('product_id')) == str(product_id):
-                            continue
-                        
-                        item = {"id": str(interaction.get('product_id'))}
-                        
-                        # Try to get rating if available (might be in rating field or inferred from interaction_type)
-                        rating = interaction.get('rating')
-                        if rating is not None:
-                            item["rating"] = float(rating)
-                        else:
-                            # Infer rating from interaction_type if no explicit rating
-                            interaction_type = interaction.get('interaction_type', '').lower()
-                            if interaction_type == 'purchase':
-                                item["rating"] = 5.0
-                            elif interaction_type == 'like':
-                                item["rating"] = 4.0
-                            elif interaction_type == 'cart':
-                                item["rating"] = 3.0
-                            elif interaction_type == 'view':
-                                item["rating"] = 2.0
-                        
-                        ground_truth.append(item)
-                        
-                        # Limit to 50 most recent
-                        if len(ground_truth) >= 50:
-                            break
-            except Exception as e:
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.warning(f"Could not fetch interaction_history from user profile: {e}")
-        
-        # Convert to None if empty for backward compatibility
-        if not ground_truth:
+            logger.warning(
+                f"No test set ground truth available for user {user_id}. "
+                f"Metrics will be calculated as 0.0 (no ground truth)."
+            )
             ground_truth = None
         else:
             # Log successful ground truth fetch
             import logging
             logger = logging.getLogger(__name__)
             logger.info(
-                f"Found {len(ground_truth)} ground truth items for user {user_id}, "
+                f"Found {len(ground_truth)} test set ground truth items for user {user_id}, "
                 f"product {product_id}"
             )
         
