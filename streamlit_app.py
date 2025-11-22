@@ -2210,7 +2210,7 @@ with doc_tabs[1]:
             
             **Công thức**:
             - Với mỗi sản phẩm $i$, tạo text description từ các thuộc tính:
-            $$\\text{text}_i = f(\\text{gender}_i, \\text{category}_i, \\text{type}_i, \\text{color}_i, \\text{season}_i, \\text{name}_i)$$
+            $$\\text{text}_{{i}} = f(\\text{gender}_{{i}}, \\text{category}_{{i}}, \\text{type}_{{i}}, \\text{color}_{{i}}, \\text{season}_{{i}}, \\text{name}_{{i}})$$
             
             - Ví dụ: `"Men Apparel Topwear Tshirts Red Fall Wrangler Men Motor Rider Red T-Shirts"`
             """)
@@ -2245,7 +2245,7 @@ with doc_tabs[1]:
             
             **Công thức Sentence-BERT**:
             - SBERT sử dụng siamese network để tạo embeddings:
-            $$E_i = \\text{SBERT}(\\text{text}_i) \\in \\mathbb{R}^d$$
+            $$E_i = \\text{SBERT}(\\text{text}_{{i}}) \\in \\mathbb{R}^d$$
             
             - Trong đó:
               - $E_i$ là embedding vector của sản phẩm $i$
@@ -2253,7 +2253,7 @@ with doc_tabs[1]:
               - SBERT sử dụng BERT architecture với mean pooling để tạo fixed-size embeddings
             
             **Mean Pooling**:
-            $$E_i = \\frac{1}{L} \\sum_{l=1}^{L} h_l$$
+            $$E_i = \\frac{1}{L} \\sum_{{l=1}}^{{L}} h_l$$
             
             Trong đó:
             - $L$ là số tokens trong text
@@ -2276,8 +2276,8 @@ with doc_tabs[1]:
                 **Ví dụ Embedding Vector**:
                 - Input text: `"Men Apparel Topwear Tshirts Red Fall Wrangler Men Motor Rider Red T-Shirts"`
                 - Tokenized: `["Men", "Apparel", "Topwear", "Tshirts", "Red", "Fall", "Wrangler", ...]`
-                - BERT hidden states: $h_1, h_2, ..., h_L$ (mỗi $h_l \\in \\mathbb{R}^{768}$)
-                - Mean pooling: $E_i = \\frac{1}{L} \\sum_{l=1}^{L} h_l$
+                - BERT hidden states: $h_1, h_2, ..., h_L$ (mỗi $h_l \\in \\mathbb{{R}}^{{768}}$)
+                - Mean pooling: $E_i = \\frac{1}{L} \\sum_{{l=1}}^{{L}} h_l$
                 - Final embedding: $E_i \\in \\mathbb{R}^{384}$ (projected từ 768 → 384)
                 """)
             
@@ -2299,7 +2299,7 @@ with doc_tabs[1]:
             **Mục đích**: Tính độ tương đồng giữa các sản phẩm dựa trên embeddings.
             
             **Công thức Cosine Similarity**:
-            $$\\text{sim}(i, j) = \\frac{E_i^T \\cdot E_j}{||E_i|| \\cdot ||E_j||} = \\cos(\\theta_{ij})$$
+            $$\\text{sim}(i, j) = \\frac{E_i^T \\cdot E_j}{||E_i|| \\cdot ||E_j||} = \\cos(\\theta_{{ij}})$$
             
             Trong đó:
             - $E_i, E_j$ là embeddings của sản phẩm $i$ và $j$
@@ -2307,7 +2307,7 @@ with doc_tabs[1]:
             - Kết quả: $\\text{sim}(i, j) \\in [-1, 1]$ (thường $\\in [0, 1]$ vì embeddings được normalize)
             
             **Similarity Matrix**:
-            $$S \\in \\mathbb{R}^{|I| \\times |I|}, \\quad S_{ij} = \\text{sim}(i, j)$$
+            $$S \\in \\mathbb{R}^{|I| \\times |I|}, \\quad S_{{ij}} = \\text{sim}(i, j)$$
             """)
             
             # Calculate similarity matrix statistics
@@ -2318,7 +2318,7 @@ with doc_tabs[1]:
                 - Số sản phẩm: $|I| = {num_products_val}$
                 - Similarity matrix size: $S \\in \\mathbb{{R}}^{{{num_products_val} \\times {num_products_val}}}$
                 - Tổng số phần tử: ${num_products_val}^2 = {num_products_val**2:,}$
-                - Đối xứng: $S_{ij} = S_{ji}$ (chỉ cần tính nửa ma trận)
+                - Đối xứng: $S_{{ij}} = S_{{ji}}$ (chỉ cần tính nửa ma trận)
                 - Phần tử cần tính: $\\frac{{{num_products_val} \\times ({num_products_val} - 1)}}{{2}} = {(num_products_val * (num_products_val - 1)) // 2:,}$
                 """)
             
@@ -2364,7 +2364,7 @@ with doc_tabs[1]:
             
             **Công thức**:
             - Cho current product $c$, tính similarity scores với tất cả sản phẩm khác:
-            $$\\text{score}(c, i) = S_{ci} = \\text{sim}(c, i)$$
+            $$\\text{score}(c, i) = S_{{ci}} = \\text{sim}(c, i)$$
             
             - Ranking: Sắp xếp các sản phẩm theo score giảm dần
             - Top-K: Lấy $K$ sản phẩm có score cao nhất
@@ -2464,11 +2464,11 @@ with doc_tabs[1]:
             $$\\text{Recall}@K = \\frac{|\\text{Recommended}@K \\cap \\text{Ground Truth}|}{|\\text{Ground Truth}|}$$
             
             **NDCG@K (Normalized Discounted Cumulative Gain)**:
-            $$\\text{DCG}@K = \\sum_{i=1}^{K} \\frac{\\text{rel}_i}{\\log_2(i+1)}$$
-            $$\\text{NDCG}@K = \\frac{\\text{DCG}@K}{\\text{IDCG}@K}$$
+            $$\\text{DCG}@K = \\sum_{{i=1}}^{{K}} \\frac{{\\text{{rel}}_{{i}}}}{{\\log_2(i+1)}}$$
+            $$\\text{NDCG}@K = \\frac{{\\text{DCG}}@K}{{\\text{IDCG}}@K}$$
             
             Trong đó:
-            - $\\text{rel}_i = 1$ nếu item ở vị trí $i$ có trong Ground Truth, $0$ nếu không
+            - $\\text{{rel}}_{{i}} = 1$ nếu item ở vị trí $i$ có trong Ground Truth, $0$ nếu không
             - IDCG là Ideal DCG (DCG khi ranking hoàn hảo)
             """)
             
@@ -2526,7 +2526,7 @@ with doc_tabs[1]:
                 st.markdown(f"""
                 **Tính NDCG@10**:
                 - Relevance vector: {relevance[:5]}... (1 = có trong GT, 0 = không)
-                - DCG@10: $\\sum_{{i=1}}^{{10}} \\frac{{\\text{{rel}}_i}}{{\\log_2(i+1)}} = {dcg:.4f}$
+                - DCG@10: $\\sum_{{i=1}}^{{10}} \\frac{{\\text{{rel}}_{{i}}}}{{\\log_2(i+1)}} = {dcg:.4f}$
                 - IDCG@10: {idcg:.4f}
                 - NDCG@10: $\\frac{{{dcg:.4f}}}{{{idcg:.4f}}} = {ndcg_example:.4f}$
                 """)
