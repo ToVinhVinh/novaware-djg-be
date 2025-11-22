@@ -30,6 +30,26 @@ try:
 except ImportError:
     DOCX_AVAILABLE = False
 
+# Try to import libraries for PDF generation
+try:
+    import markdown
+    PDF_AVAILABLE = True
+except ImportError:
+    PDF_AVAILABLE = False
+
+# Try to import weasyprint for HTML to PDF conversion
+try:
+    from weasyprint import HTML, CSS
+    WEASYPRINT_AVAILABLE = True
+except ImportError:
+    WEASYPRINT_AVAILABLE = False
+    # Fallback to pdfkit if weasyprint not available
+    try:
+        import pdfkit
+        PDFKIT_AVAILABLE = True
+    except ImportError:
+        PDFKIT_AVAILABLE = False
+
 if load_dotenv:
     load_dotenv()
 
@@ -509,6 +529,152 @@ def apply_precision_formatting(metrics_dict: Dict[str, Any]) -> Dict[str, Any]:
     for key in PRECISION_FORMAT_KEYS:
         metrics_dict[key] = format_metric_value(metrics_dict.get(key))
     return metrics_dict
+
+
+def generate_pdf_document(title: str, content: str, model_name: str) -> BytesIO:
+    """Generate PDF document from markdown content with proper LaTeX rendering."""
+    if not PDF_AVAILABLE:
+        raise ImportError("markdown chưa được cài đặt. Vui lòng chạy: pip install markdown")
+    
+    # Convert markdown to HTML
+    md = markdown.Markdown(extensions=['tables', 'fenced_code', 'codehilite'])
+    html_content = md.convert(content)
+    
+    # Create full HTML document with MathJax for LaTeX rendering
+    html_template = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>{title}</title>
+        <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+        <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+        <script>
+            window.MathJax = {{
+                tex: {{
+                    inlineMath: [['$', '$'], ['\\(', '\\)']],
+                    displayMath: [['$$', '$$'], ['\\[', '\\]']],
+                    processEscapes: true,
+                    processEnvironments: true
+                }},
+                options: {{
+                    skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre']
+                }}
+            }};
+        </script>
+        <style>
+            body {{
+                font-family: 'Times New Roman', serif;
+                line-height: 1.6;
+                max-width: 800px;
+                margin: 0 auto;
+                padding: 20px;
+            }}
+            h1 {{
+                text-align: center;
+                color: #2c3e50;
+                border-bottom: 3px solid #3498db;
+                padding-bottom: 10px;
+            }}
+            h2 {{
+                color: #34495e;
+                border-bottom: 2px solid #95a5a6;
+                padding-bottom: 5px;
+                margin-top: 30px;
+            }}
+            h3 {{
+                color: #7f8c8d;
+                margin-top: 20px;
+            }}
+            table {{
+                border-collapse: collapse;
+                width: 100%;
+                margin: 20px 0;
+            }}
+            th, td {{
+                border: 1px solid #ddd;
+                padding: 8px;
+                text-align: left;
+            }}
+            th {{
+                background-color: #3498db;
+                color: white;
+                font-weight: bold;
+            }}
+            tr:nth-child(even) {{
+                background-color: #f2f2f2;
+            }}
+            code {{
+                background-color: #f4f4f4;
+                padding: 2px 4px;
+                border-radius: 3px;
+                font-family: 'Courier New', monospace;
+            }}
+            pre {{
+                background-color: #f4f4f4;
+                padding: 10px;
+                border-radius: 5px;
+                overflow-x: auto;
+            }}
+            ul, ol {{
+                margin-left: 20px;
+            }}
+            .math-display {{
+                margin: 20px 0;
+                text-align: center;
+            }}
+        </style>
+    </head>
+    <body>
+        <h1>{title}</h1>
+        <h2 style="text-align: center; color: #7f8c8d;">{model_name}</h2>
+        {html_content}
+        <script>
+            // Wait for MathJax to render
+            window.addEventListener('load', function() {{
+                if (window.MathJax) {{
+                    MathJax.typesetPromise().then(function() {{
+                        console.log('MathJax rendering complete');
+                    }});
+                }}
+            }});
+        </script>
+    </body>
+    </html>
+    """
+    
+    # Convert HTML to PDF
+    if WEASYPRINT_AVAILABLE:
+        # Use weasyprint (better for production)
+        pdf_buffer = BytesIO()
+        HTML(string=html_template).write_pdf(pdf_buffer)
+        pdf_buffer.seek(0)
+        return pdf_buffer
+    elif PDFKIT_AVAILABLE:
+        # Fallback to pdfkit (requires wkhtmltopdf installed)
+        try:
+            options = {
+                'page-size': 'A4',
+                'margin-top': '0.75in',
+                'margin-right': '0.75in',
+                'margin-bottom': '0.75in',
+                'margin-left': '0.75in',
+                'encoding': "UTF-8",
+                'no-outline': None,
+                'enable-local-file-access': None
+            }
+            pdf_bytes = pdfkit.from_string(html_template, False, options=options)
+            pdf_buffer = BytesIO(pdf_bytes)
+            pdf_buffer.seek(0)
+            return pdf_buffer
+        except Exception as e:
+            raise Exception(f"Lỗi khi tạo PDF với pdfkit: {str(e)}. Đảm bảo đã cài đặt wkhtmltopdf.")
+    else:
+        raise ImportError(
+            "Chưa có thư viện để tạo PDF. Vui lòng cài đặt một trong các thư viện sau:\n"
+            "- weasyprint: pip install weasyprint\n"
+            "- pdfkit: pip install pdfkit (cần cài thêm wkhtmltopdf)"
+        )
 
 
 def generate_word_document(title: str, content: str, model_name: str) -> BytesIO:
@@ -1942,10 +2108,32 @@ with doc_tabs[0]:
     # Copy button
     st.code(gnn_doc, language="markdown")
     
-    # Download Word document button
+    # Download buttons (PDF and Word)
     st.markdown("---")
+    st.subheader("📥 Tải xuống tài liệu")
     col_download1, col_download2 = st.columns(2)
+    
     with col_download1:
+        try:
+            full_content = collect_gnn_content(gnn_doc, gnn_metrics_updated)
+            pdf_buffer = generate_pdf_document(
+                "Thuật toán GNN (LightGCN)",
+                full_content,
+                "GNN (Graph Neural Network - LightGCN)"
+            )
+            st.download_button(
+                label="📄 Tải xuống PDF (Khuyến nghị)",
+                data=pdf_buffer,
+                file_name=f"GNN_LightGCN_Documentation_{time.strftime('%Y%m%d_%H%M%S')}.pdf",
+                mime="application/pdf",
+                help="Tải xuống tài liệu đầy đủ về thuật toán GNN (LightGCN) dưới dạng PDF. PDF hỗ trợ hiển thị công thức toán học tốt hơn Word."
+            )
+        except ImportError as e:
+            st.warning(f"⚠️ Để tải xuống file PDF, vui lòng cài đặt:\n- `pip install markdown weasyprint`\n\nHoặc:\n- `pip install markdown pdfkit`\n(và cài thêm wkhtmltopdf)")
+        except Exception as e:
+            st.error(f"❌ Lỗi khi tạo file PDF: {str(e)}")
+    
+    with col_download2:
         try:
             full_content = collect_gnn_content(gnn_doc, gnn_metrics_updated)
             word_buffer = generate_word_document(
@@ -1954,11 +2142,11 @@ with doc_tabs[0]:
                 "GNN (Graph Neural Network - LightGCN)"
             )
             st.download_button(
-                label="📥 Tải xuống tài liệu GNN (Word)",
+                label="📝 Tải xuống Word",
                 data=word_buffer,
                 file_name=f"GNN_LightGCN_Documentation_{time.strftime('%Y%m%d_%H%M%S')}.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                help="Tải xuống tài liệu đầy đủ về thuật toán GNN (LightGCN) dưới dạng file Word"
+                help="Tải xuống tài liệu đầy đủ về thuật toán GNN (LightGCN) dưới dạng file Word. Lưu ý: Công thức toán học có thể hiển thị không đúng trong Word."
             )
         except ImportError:
             st.warning("⚠️ Để tải xuống file Word, vui lòng cài đặt: `pip install python-docx`")
@@ -2548,10 +2736,32 @@ with doc_tabs[1]:
     # Copy button
     st.code(cbf_doc, language="markdown")
     
-    # Download Word document button
+    # Download buttons (PDF and Word)
     st.markdown("---")
+    st.subheader("📥 Tải xuống tài liệu")
     col_download1, col_download2 = st.columns(2)
+    
     with col_download1:
+        try:
+            full_content = collect_cbf_content(cbf_doc, cbf_metrics_updated)
+            pdf_buffer = generate_pdf_document(
+                "Thuật toán Content-based Filtering",
+                full_content,
+                "Content-based Filtering (CBF)"
+            )
+            st.download_button(
+                label="📄 Tải xuống PDF (Khuyến nghị)",
+                data=pdf_buffer,
+                file_name=f"CBF_Documentation_{time.strftime('%Y%m%d_%H%M%S')}.pdf",
+                mime="application/pdf",
+                help="Tải xuống tài liệu đầy đủ về thuật toán Content-based Filtering dưới dạng PDF. PDF hỗ trợ hiển thị công thức toán học tốt hơn Word."
+            )
+        except ImportError as e:
+            st.warning(f"⚠️ Để tải xuống file PDF, vui lòng cài đặt:\n- `pip install markdown weasyprint`\n\nHoặc:\n- `pip install markdown pdfkit`\n(và cài thêm wkhtmltopdf)")
+        except Exception as e:
+            st.error(f"❌ Lỗi khi tạo file PDF: {str(e)}")
+    
+    with col_download2:
         try:
             full_content = collect_cbf_content(cbf_doc, cbf_metrics_updated)
             word_buffer = generate_word_document(
@@ -2560,11 +2770,11 @@ with doc_tabs[1]:
                 "Content-based Filtering (CBF)"
             )
             st.download_button(
-                label="📥 Tải xuống tài liệu CBF (Word)",
+                label="📝 Tải xuống Word",
                 data=word_buffer,
                 file_name=f"CBF_Documentation_{time.strftime('%Y%m%d_%H%M%S')}.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                help="Tải xuống tài liệu đầy đủ về thuật toán Content-based Filtering dưới dạng file Word"
+                help="Tải xuống tài liệu đầy đủ về thuật toán Content-based Filtering dưới dạng file Word. Lưu ý: Công thức toán học có thể hiển thị không đúng trong Word."
             )
         except ImportError:
             st.warning("⚠️ Để tải xuống file Word, vui lòng cài đặt: `pip install python-docx`")
