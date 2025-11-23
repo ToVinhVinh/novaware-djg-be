@@ -8,11 +8,11 @@
       "NDCG@20": 0.5896918237758785,
       "Precision@10": 0.24,
       "Precision@20": 0.24,
-      "Training Time (s)": 0.11152458190917969,
-      "Inference Time (ms)": 0.6723880767822266,
+      "Training Time (s)": 0.10559201240539551,
+      "Inference Time (ms)": 2.6303768157958984,
       "Coverage (%)": 0.6493506493506493,
       "Diversity (ArticleTypes)": 1,
-      "Avg Score": 0.20446051586241948,
+      "Avg Score": 0.18245421137128556,
       "_num_pairs_evaluated": 5,
       "_num_recommendations": 5,
       "_num_article_types": 1
@@ -25,58 +25,58 @@
       "NDCG@20": 0.2890648263178879,
       "Precision@10": 0.1,
       "Precision@20": 0.05,
-      "Training Time (s)": 0.06487488746643066,
-      "Inference Time (ms)": 3.977441787719726,
-      "Coverage (%)": 5.584415584415584,
+      "Training Time (s)": 0.058481454849243164,
+      "Inference Time (ms)": 3.875446319580078,
+      "Coverage (%)": 5.0649350649350655,
       "Diversity (ArticleTypes)": 1,
-      "Avg Score": 0.5167646081248387,
+      "Avg Score": 0.5064474187766222,
       "_num_pairs_evaluated": 5,
-      "_num_recommendations": 43,
+      "_num_recommendations": 39,
       "_num_article_types": 1
     },
     {
       "Model": "Hybrid",
       "Recall@10": 0.4,
       "Recall@20": 0.4,
-      "NDCG@10": 0.26309297535714576,
-      "NDCG@20": 0.26309297535714576,
+      "NDCG@10": 0.25781296526357755,
+      "NDCG@20": 0.25781296526357755,
       "Precision@10": 0.04,
       "Precision@20": 0.02,
-      "Training Time (s)": 0.17708659172058105,
-      "Inference Time (ms)": 3.6812782287597656,
-      "Coverage (%)": 5.194805194805195,
+      "Training Time (s)": 0.1645958423614502,
+      "Inference Time (ms)": 3.3439159393310547,
+      "Coverage (%)": 4.285714285714286,
       "Diversity (ArticleTypes)": 1,
-      "Avg Score": 0.35878018522155974,
+      "Avg Score": 0.35776604827425934,
       "_num_pairs_evaluated": 5,
-      "_num_recommendations": 40,
+      "_num_recommendations": 33,
       "_num_article_types": 1
     }
   ],
   "weighted_scores": [
     {
       "Model": "Hybrid",
-      "Weighted Score": 0.5874363475326344,
-      "Accuracy Component": 0.13561859507142918,
-      "Performance Component": 0.006701473391437774,
-      "Coverage/Diversity Component": 0.09511627906976744
+      "Weighted Score": 0.5861371622687199,
+      "Accuracy Component": 0.13456259305271553,
+      "Performance Component": 0.012343799985235132,
+      "Coverage/Diversity Component": 0.08923076923076922
     },
     {
       "Model": "LightGCN",
-      "Weighted Score": 0.4890769075579422,
+      "Weighted Score": 0.44333575895348193,
       "Accuracy Component": 0.3539383647551757,
-      "Performance Component": 0.09699900791904553,
-      "Coverage/Diversity Component": 0.03813953488372093
+      "Performance Component": 0.050423035223947255,
+      "Coverage/Diversity Component": 0.03897435897435897
     },
     {
       "Model": "Content-Based",
-      "Weighted Score": 0.40333223137420626,
+      "Weighted Score": 0.40399476402220535,
       "Accuracy Component": 0.2653129652635776,
-      "Performance Component": 0.03801926611062867,
+      "Performance Component": 0.038681798758627685,
       "Coverage/Diversity Component": 0.1
     }
   ],
   "best_model": "Hybrid",
-  "best_score": 0.5874363475326344,
+  "best_score": 0.5861371622687199,
   "issues": [],
   "model_algorithms": {
     "LightGCN": {
@@ -90,13 +90,13 @@
         {
           "step": "Bước 2: Khởi tạo Embeddings",
           "formula": "e_u^(0) ~ N(0, 0.1²), e_i^(0) ~ N(0, 0.1²)",
-          "computation": "User embeddings shape: torch.Size([1, 64]), Product embeddings shape: torch.Size([4, 64])\nVí dụ e_u[0] = [0.12077154219150543, -0.014385554008185863, -0.06516893953084946]..., e_i[0] = [0.08779389411211014, 0.05576595664024353, -0.03229561820626259]...",
+          "computation": "User embeddings shape: torch.Size([1, 64]), Product embeddings shape: torch.Size([4, 64])\nVí dụ e_u[0] = [-0.08128084242343903, -0.11690421402454376, -0.07109326869249344]..., e_i[0] = [-0.1797647774219513, 0.06444522738456726, 0.08022930473089218]...",
           "meaning": "Mỗi user và product được biểu diễn bằng vector 64 chiều, khởi tạo ngẫu nhiên từ phân phối chuẩn"
         },
         {
           "step": "Bước 3: LightGCN Propagation",
           "formula": "e_u^(l+1) = Σ (e_i^(l) / √(deg(u) * deg(i)))",
-          "computation": "Ví dụ với user 0:\n  deg(user_0) = 4 (số edges từ user này)\n  e_user_0^(0) = [0.12077154219150543, -0.014385554008185863, -0.06516893953084946]...\n  Sau propagation qua 3 layers, embedding được cập nhật",
+          "computation": "Ví dụ với user 0:\n  deg(user_0) = 4 (số edges từ user này)\n  e_user_0^(0) = [-0.08128084242343903, -0.11690421402454376, -0.07109326869249344]...\n  Sau propagation qua 3 layers, embedding được cập nhật",
           "meaning": "Embedding của user được cập nhật bằng cách tổng hợp thông tin từ các products mà user đã tương tác, với normalization theo bậc của node"
         },
         {
@@ -108,19 +108,19 @@
         {
           "step": "Bước 5: Dự đoán Rating (với interaction weights)",
           "formula": "r̂_ui = w_type * (e_u^T · e_i)",
-          "computation": "Ví dụ: r̂_pos = 4.0 * (0.1230) = 0.4920\nr̂_neg = 0.1286",
+          "computation": "Ví dụ: r̂_pos = 4.0 * (0.1438) = 0.5751\nr̂_neg = 0.1692",
           "meaning": "Score được nhân với weight theo interaction type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
         },
         {
           "step": "Bước 6: BPR Loss",
           "formula": "L_BPR = -Σ log(σ(w_type * (r̂_ui - r̂_uj)))",
-          "computation": "Ví dụ: diff = 0.4920 - 0.1286 = 0.3634\nsigmoid(diff) = 0.5899\nLoss = 0.6943",
+          "computation": "Ví dụ: diff = 0.5751 - 0.1692 = 0.4058\nsigmoid(diff) = 0.6001\nLoss = 0.6997",
           "meaning": "Loss càng nhỏ càng tốt, nghĩa là model phân biệt tốt giữa positive và negative pairs"
         },
         {
           "step": "Bước 7: Gradient Descent",
           "formula": "θ ← θ - α * ∇L_BPR",
-          "computation": "Learning rate α = 0.001, Số epochs = 20\nFinal loss = 0.6811",
+          "computation": "Learning rate α = 0.001, Số epochs = 20\nFinal loss = 0.6992",
           "meaning": "Model đã được train 20 epochs, embeddings đã được cập nhật để tối ưu BPR loss"
         },
         {
@@ -132,13 +132,13 @@
         {
           "step": "Bước 2: Khởi tạo Embeddings",
           "formula": "e_u^(0) ~ N(0, 0.1²), e_i^(0) ~ N(0, 0.1²)",
-          "computation": "User embeddings shape: torch.Size([1, 64]), Product embeddings shape: torch.Size([4, 64])\nVí dụ e_u[0] = [-0.18846020102500916, -0.20239797234535217, 0.16714732348918915]..., e_i[0] = [0.11666425317525864, -0.0892360508441925, 0.02530834451317787]...",
+          "computation": "User embeddings shape: torch.Size([1, 64]), Product embeddings shape: torch.Size([4, 64])\nVí dụ e_u[0] = [0.09963534772396088, 0.06145069748163223, 0.005937333684414625]..., e_i[0] = [-0.060677628964185715, -0.027005700394511223, 0.0940384715795517]...",
           "meaning": "Mỗi user và product được biểu diễn bằng vector 64 chiều, khởi tạo ngẫu nhiên từ phân phối chuẩn"
         },
         {
           "step": "Bước 3: LightGCN Propagation",
           "formula": "e_u^(l+1) = Σ (e_i^(l) / √(deg(u) * deg(i)))",
-          "computation": "Ví dụ với user 0:\n  deg(user_0) = 4 (số edges từ user này)\n  e_user_0^(0) = [-0.18846020102500916, -0.20239797234535217, 0.16714732348918915]...\n  Sau propagation qua 3 layers, embedding được cập nhật",
+          "computation": "Ví dụ với user 0:\n  deg(user_0) = 4 (số edges từ user này)\n  e_user_0^(0) = [0.09963534772396088, 0.06145069748163223, 0.005937333684414625]...\n  Sau propagation qua 3 layers, embedding được cập nhật",
           "meaning": "Embedding của user được cập nhật bằng cách tổng hợp thông tin từ các products mà user đã tương tác, với normalization theo bậc của node"
         },
         {
@@ -150,157 +150,157 @@
         {
           "step": "Bước 5: Dự đoán Rating (với interaction weights)",
           "formula": "r̂_ui = w_type * (e_u^T · e_i)",
-          "computation": "Ví dụ: r̂_pos = 1.0 * (0.1598) = 0.1598\nr̂_neg = 0.1708",
+          "computation": "Ví dụ: r̂_pos = 3.0 * (0.1376) = 0.4128\nr̂_neg = 0.1271",
           "meaning": "Score được nhân với weight theo interaction type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
         },
         {
           "step": "Bước 6: BPR Loss",
           "formula": "L_BPR = -Σ log(σ(w_type * (r̂_ui - r̂_uj)))",
-          "computation": "Ví dụ: diff = 0.1598 - 0.1708 = -0.0110\nsigmoid(diff) = 0.4972\nLoss = 0.6993",
+          "computation": "Ví dụ: diff = 0.4128 - 0.1271 = 0.2857\nsigmoid(diff) = 0.5709\nLoss = 0.6873",
           "meaning": "Loss càng nhỏ càng tốt, nghĩa là model phân biệt tốt giữa positive và negative pairs"
         },
         {
           "step": "Bước 7: Gradient Descent",
           "formula": "θ ← θ - α * ∇L_BPR",
-          "computation": "Learning rate α = 0.001, Số epochs = 30\nFinal loss = 0.6880",
+          "computation": "Learning rate α = 0.001, Số epochs = 30\nFinal loss = 0.6994",
           "meaning": "Model đã được train 30 epochs, embeddings đã được cập nhật để tối ưu BPR loss"
         }
       ],
       "matrices": {
         "initial_user_embeddings": [
           [
-            -0.18846020102500916,
-            -0.20239797234535217,
-            0.16714732348918915,
-            0.07743873447179794,
-            0.02012442983686924,
-            0.06533992290496826,
-            -0.057898182421922684,
-            -0.07597088068723679,
-            0.08732300251722336,
-            -0.038137760013341904
+            0.09963534772396088,
+            0.06145069748163223,
+            0.005937333684414625,
+            -0.08907821774482727,
+            0.2869645059108734,
+            0.005220442544668913,
+            0.035114552825689316,
+            -0.10096025466918945,
+            -0.011163364164531231,
+            0.0827915295958519
           ]
         ],
         "initial_product_embeddings": [
           [
-            0.11666425317525864,
-            -0.0892360508441925,
-            0.02530834451317787,
-            -0.011922111734747887,
-            -0.04505776986479759,
-            0.043116822838783264,
-            0.04712482914328575,
-            -0.06896278262138367,
-            0.054997533559799194,
-            -0.06692278385162354
+            -0.060677628964185715,
+            -0.027005700394511223,
+            0.0940384715795517,
+            -0.04765096679329872,
+            -0.12260681390762329,
+            0.030716434121131897,
+            -0.018185464665293694,
+            0.013883610256016254,
+            -0.07153346389532089,
+            0.07414238899946213
           ],
           [
-            0.03521358594298363,
-            -0.1653403639793396,
-            -0.0940631851553917,
-            -0.06493079662322998,
-            0.1539645791053772,
-            0.17329342663288116,
-            -0.012535897083580494,
-            0.06311952322721481,
-            0.06552440673112869,
-            -0.0004453062720131129
+            -0.12759678065776825,
+            -0.019467685371637344,
+            0.0740610659122467,
+            0.07167471945285797,
+            0.013825207017362118,
+            -0.02311701886355877,
+            -0.017048431560397148,
+            -0.17670270800590515,
+            0.1024068221449852,
+            0.00029741355683654547
           ],
           [
-            0.01749483309686184,
-            -0.03763618320226669,
-            0.09417550265789032,
-            0.00475421454757452,
-            -0.06732126325368881,
-            0.024889560416340828,
-            0.03457285091280937,
-            -0.12439723312854767,
-            0.012319310568273067,
-            -0.11214294284582138
+            0.20656132698059082,
+            -0.02002735249698162,
+            -0.05079624056816101,
+            -0.08713538199663162,
+            0.17095783352851868,
+            -0.07797833532094955,
+            -0.0012766756117343903,
+            -0.017689308151602745,
+            -0.09934089332818985,
+            -0.02790701761841774
           ],
           [
-            -0.029835766181349754,
-            -0.07644005864858627,
-            0.053750306367874146,
-            0.026440728455781937,
-            -0.0004305418988224119,
-            0.046273041516542435,
-            0.01179537083953619,
-            -0.03430710732936859,
-            0.05432720109820366,
-            0.03441586345434189
+            0.04877219721674919,
+            0.09787237644195557,
+            -0.004573707468807697,
+            -0.02440188266336918,
+            -0.10309558361768723,
+            -0.05582037568092346,
+            0.04983510449528694,
+            0.02030857466161251,
+            -0.21464471518993378,
+            -0.158311128616333
           ]
         ],
         "final_user_embeddings": [
           [
-            -0.04843805730342865,
-            -0.21061763167381287,
-            0.08682338148355484,
-            0.0017104875296354294,
-            0.05367157980799675,
-            0.12421853840351105,
-            -0.03106197714805603,
-            -0.06124407798051834,
-            0.10552720725536346,
-            -0.05131629481911659
+            0.0646352618932724,
+            0.05580931529402733,
+            0.026036540046334267,
+            -0.05641976743936539,
+            0.13501688838005066,
+            -0.0421818345785141,
+            0.03691717982292175,
+            -0.10234766453504562,
+            -0.07865260541439056,
+            -0.014287356287240982
           ]
         ],
         "final_product_embeddings": [
           [
-            -0.005493465811014175,
-            -0.10763142257928848,
-            0.04593004286289215,
-            0.0007880381308495998,
-            0.014381087385118008,
-            0.05809766799211502,
-            -0.012427550740540028,
-            -0.03865790367126465,
-            0.05778437480330467,
-            -0.03563683480024338
+            0.008372412994503975,
+            0.013650097884237766,
+            0.02660040743649006,
+            -0.030236415565013885,
+            0.03394940868020058,
+            0.0007776549318805337,
+            0.0073149362578988075,
+            -0.03250768780708313,
+            -0.034403908997774124,
+            0.01839616894721985
           ],
           [
-            -0.029692374169826508,
-            -0.12894408404827118,
-            0.021563103422522545,
-            -0.00948348082602024,
-            0.06405331194400787,
-            0.09215563535690308,
-            -0.027441348880529404,
-            -0.010732058435678482,
-            0.06301595270633698,
-            -0.02198859676718712
+            -2.627633512020111e-05,
+            0.02430901676416397,
+            0.026788167655467987,
+            -0.008542905561625957,
+            0.076870396733284,
+            -0.022572623565793037,
+            0.016848722472786903,
+            -0.08775497227907181,
+            -0.0007690801285207272,
+            0.00019081123173236847
           ],
           [
-            -0.024244438856840134,
-            -0.08710083365440369,
-            0.05772198736667633,
-            0.002470834646373987,
-            0.0063803778029978275,
-            0.046178679913282394,
-            -0.007965127006173134,
-            -0.047968100756406784,
-            0.03930751234292984,
-            -0.04204539209604263
+            0.07816063612699509,
+            0.020485201850533485,
+            -0.010421168990433216,
+            -0.04200563579797745,
+            0.11083195358514786,
+            -0.03228286653757095,
+            0.01674487069249153,
+            -0.044129274785518646,
+            -0.0442938394844532,
+            -0.007351900450885296
           ],
           [
-            -0.03744583576917648,
-            -0.09755893051624298,
-            0.0484316311776638,
-            0.009645583108067513,
-            0.022528376430273056,
-            0.052005089819431305,
-            -0.01428992860019207,
-            -0.02513008750975132,
-            0.05094657093286514,
-            -0.0029617687687277794
+            0.042763758450746536,
+            0.05317431688308716,
+            0.009105672128498554,
+            -0.03205457702279091,
+            0.04838202893733978,
+            -0.03028583712875843,
+            0.03292582929134369,
+            -0.04030337929725647,
+            -0.07783836871385574,
+            -0.03980979323387146
           ]
         ],
         "similarity_matrix": [
           [
-            0.20353266596794128,
-            0.22132623195648193,
-            0.17801246047019958,
-            0.15586280822753906
+            0.11964099109172821,
+            0.18285542726516724,
+            0.1535455286502838,
+            0.21026574075222015
           ]
         ]
       }
@@ -334,79 +334,43 @@
         {
           "step": "Bước 3: Xây dựng User Profile (với interaction weights)",
           "formula": "u = (1/Σw_i) * Σ(w_i * v_i)",
-          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10065': np.float64(0.6), '10861': np.float64(0.2), '10439': np.float64(0.2)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
+          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10861': np.float64(0.16666666666666666), '10065': np.float64(0.5), '10859': np.float64(0.3333333333333333)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
           "meaning": "User profile là trung bình có trọng số của 3 sản phẩm đã tương tác, với weight theo type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
         },
         {
           "step": "Bước 4: Tính Cosine Similarity",
           "formula": "sim(u, i) = (u · v_i) / (||u|| * ||v_i||)",
-          "computation": "Ví dụ với sản phẩm 1:\n  u · v_i = 0.2221\n  ||u|| = 0.2434\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.2221 / (0.2434 * 1.0000) = 0.9127",
-          "meaning": "Similarity = 0.9127 nghĩa là sản phẩm này giống 91.3% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
+          "computation": "Ví dụ với sản phẩm 1:\n  u · v_i = 0.1875\n  ||u|| = 0.2297\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.1875 / (0.2297 * 1.0000) = 0.8161",
+          "meaning": "Similarity = 0.8161 nghĩa là sản phẩm này giống 81.6% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
         },
         {
           "step": "Bước 5: Ranking và Recommendation",
           "formula": "Rank products by sim(u, i) descending",
-          "computation": "Top 5 sản phẩm:\n  Product 1: similarity = 0.9127\n  Product 479: similarity = 0.7453\n  Product 70: similarity = 0.6781\n  Product 278: similarity = 0.6710\n  Product 401: similarity = 0.6710",
+          "computation": "Top 5 sản phẩm:\n  Product 1: similarity = 0.8161\n  Product 479: similarity = 0.6684\n  Product 410: similarity = 0.6207\n  Product 2: similarity = 0.6198\n  Product 70: similarity = 0.6096",
           "meaning": "Sắp xếp sản phẩm theo similarity giảm dần, chọn top-K sản phẩm có similarity cao nhất để recommend"
         },
         {
           "step": "Bước 3: Xây dựng User Profile (với interaction weights)",
           "formula": "u = (1/Σw_i) * Σ(w_i * v_i)",
-          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10866': np.float64(0.6666666666666666), '10861': np.float64(0.16666666666666666), '10439': np.float64(0.16666666666666666)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
+          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10861': np.float64(0.14285714285714285), '10859': np.float64(0.2857142857142857), '10866': np.float64(0.5714285714285714)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
           "meaning": "User profile là trung bình có trọng số của 3 sản phẩm đã tương tác, với weight theo type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
         },
         {
           "step": "Bước 4: Tính Cosine Similarity",
           "formula": "sim(u, i) = (u · v_i) / (||u|| * ||v_i||)",
-          "computation": "Ví dụ với sản phẩm 0:\n  u · v_i = 0.2452\n  ||u|| = 0.2584\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.2452 / (0.2584 * 1.0000) = 0.9486",
-          "meaning": "Similarity = 0.9486 nghĩa là sản phẩm này giống 94.9% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
+          "computation": "Ví dụ với sản phẩm 0:\n  u · v_i = 0.2220\n  ||u|| = 0.2481\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.2220 / (0.2481 * 1.0000) = 0.8948",
+          "meaning": "Similarity = 0.8948 nghĩa là sản phẩm này giống 89.5% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
         },
         {
           "step": "Bước 5: Ranking và Recommendation",
           "formula": "Rank products by sim(u, i) descending",
-          "computation": "Top 5 sản phẩm:\n  Product 0: similarity = 0.9486\n  Product 731: similarity = 0.6970\n  Product 341: similarity = 0.6220\n  Product 418: similarity = 0.6131\n  Product 473: similarity = 0.5909",
+          "computation": "Top 5 sản phẩm:\n  Product 0: similarity = 0.8948\n  Product 731: similarity = 0.6580\n  Product 418: similarity = 0.5922\n  Product 2: similarity = 0.5830\n  Product 300: similarity = 0.5642",
           "meaning": "Sắp xếp sản phẩm theo similarity giảm dần, chọn top-K sản phẩm có similarity cao nhất để recommend"
         },
         {
           "step": "Bước 3: Xây dựng User Profile (với interaction weights)",
           "formula": "u = (1/Σw_i) * Σ(w_i * v_i)",
-          "computation": "Số sản phẩm user đã tương tác: 4\nWeights: {'10065': np.float64(0.3333333333333333), '10866': np.float64(0.4444444444444444), '10861': np.float64(0.1111111111111111)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
-          "meaning": "User profile là trung bình có trọng số của 4 sản phẩm đã tương tác, với weight theo type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
-        },
-        {
-          "step": "Bước 4: Tính Cosine Similarity",
-          "formula": "sim(u, i) = (u · v_i) / (||u|| * ||v_i||)",
-          "computation": "Ví dụ với sản phẩm 0:\n  u · v_i = 0.1340\n  ||u|| = 0.1665\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.1340 / (0.1665 * 1.0000) = 0.8049",
-          "meaning": "Similarity = 0.8049 nghĩa là sản phẩm này giống 80.5% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
-        },
-        {
-          "step": "Bước 5: Ranking và Recommendation",
-          "formula": "Rank products by sim(u, i) descending",
-          "computation": "Top 5 sản phẩm:\n  Product 0: similarity = 0.8049\n  Product 418: similarity = 0.7353\n  Product 731: similarity = 0.6525\n  Product 1: similarity = 0.6474\n  Product 718: similarity = 0.6387",
-          "meaning": "Sắp xếp sản phẩm theo similarity giảm dần, chọn top-K sản phẩm có similarity cao nhất để recommend"
-        },
-        {
-          "step": "Bước 3: Xây dựng User Profile (với interaction weights)",
-          "formula": "u = (1/Σw_i) * Σ(w_i * v_i)",
-          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10065': np.float64(0.375), '10866': np.float64(0.5), '10439': np.float64(0.125)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
-          "meaning": "User profile là trung bình có trọng số của 3 sản phẩm đã tương tác, với weight theo type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
-        },
-        {
-          "step": "Bước 4: Tính Cosine Similarity",
-          "formula": "sim(u, i) = (u · v_i) / (||u|| * ||v_i||)",
-          "computation": "Ví dụ với sản phẩm 0:\n  u · v_i = 0.1906\n  ||u|| = 0.2347\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.1906 / (0.2347 * 1.0000) = 0.8120",
-          "meaning": "Similarity = 0.8120 nghĩa là sản phẩm này giống 81.2% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
-        },
-        {
-          "step": "Bước 5: Ranking và Recommendation",
-          "formula": "Rank products by sim(u, i) descending",
-          "computation": "Top 5 sản phẩm:\n  Product 0: similarity = 0.8120\n  Product 418: similarity = 0.7408\n  Product 1: similarity = 0.6636\n  Product 718: similarity = 0.6554\n  Product 731: similarity = 0.6456",
-          "meaning": "Sắp xếp sản phẩm theo similarity giảm dần, chọn top-K sản phẩm có similarity cao nhất để recommend"
-        },
-        {
-          "step": "Bước 3: Xây dựng User Profile (với interaction weights)",
-          "formula": "u = (1/Σw_i) * Σ(w_i * v_i)",
-          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10065': np.float64(0.375), '10866': np.float64(0.5), '10861': np.float64(0.125)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
+          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10861': np.float64(0.125), '10065': np.float64(0.375), '10866': np.float64(0.5)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
           "meaning": "User profile là trung bình có trọng số của 3 sản phẩm đã tương tác, với weight theo type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
         },
         {
@@ -424,79 +388,79 @@
         {
           "step": "Bước 3: Xây dựng User Profile (với interaction weights)",
           "formula": "u = (1/Σw_i) * Σ(w_i * v_i)",
-          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10065': np.float64(0.6), '10861': np.float64(0.2), '10439': np.float64(0.2)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
+          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10065': np.float64(0.3333333333333333), '10859': np.float64(0.2222222222222222), '10866': np.float64(0.4444444444444444)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
           "meaning": "User profile là trung bình có trọng số của 3 sản phẩm đã tương tác, với weight theo type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
         },
         {
           "step": "Bước 4: Tính Cosine Similarity",
           "formula": "sim(u, i) = (u · v_i) / (||u|| * ||v_i||)",
-          "computation": "Ví dụ với sản phẩm 1:\n  u · v_i = 0.2221\n  ||u|| = 0.2434\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.2221 / (0.2434 * 1.0000) = 0.9127",
-          "meaning": "Similarity = 0.9127 nghĩa là sản phẩm này giống 91.3% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
+          "computation": "Ví dụ với sản phẩm 0:\n  u · v_i = 0.1787\n  ||u|| = 0.2253\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.1787 / (0.2253 * 1.0000) = 0.7931",
+          "meaning": "Similarity = 0.7931 nghĩa là sản phẩm này giống 79.3% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
         },
         {
           "step": "Bước 5: Ranking và Recommendation",
           "formula": "Rank products by sim(u, i) descending",
-          "computation": "Top 5 sản phẩm:\n  Product 1: similarity = 0.9127\n  Product 479: similarity = 0.7453\n  Product 70: similarity = 0.6781\n  Product 278: similarity = 0.6710\n  Product 401: similarity = 0.6710",
+          "computation": "Top 5 sản phẩm:\n  Product 0: similarity = 0.7931\n  Product 418: similarity = 0.7246\n  Product 731: similarity = 0.6287\n  Product 1: similarity = 0.6218\n  Product 718: similarity = 0.6138",
           "meaning": "Sắp xếp sản phẩm theo similarity giảm dần, chọn top-K sản phẩm có similarity cao nhất để recommend"
         },
         {
           "step": "Bước 3: Xây dựng User Profile (với interaction weights)",
           "formula": "u = (1/Σw_i) * Σ(w_i * v_i)",
-          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10866': np.float64(0.6666666666666666), '10861': np.float64(0.16666666666666666), '10439': np.float64(0.16666666666666666)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
-          "meaning": "User profile là trung bình có trọng số của 3 sản phẩm đã tương tác, với weight theo type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
-        },
-        {
-          "step": "Bước 4: Tính Cosine Similarity",
-          "formula": "sim(u, i) = (u · v_i) / (||u|| * ||v_i||)",
-          "computation": "Ví dụ với sản phẩm 0:\n  u · v_i = 0.2452\n  ||u|| = 0.2584\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.2452 / (0.2584 * 1.0000) = 0.9486",
-          "meaning": "Similarity = 0.9486 nghĩa là sản phẩm này giống 94.9% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
-        },
-        {
-          "step": "Bước 5: Ranking và Recommendation",
-          "formula": "Rank products by sim(u, i) descending",
-          "computation": "Top 5 sản phẩm:\n  Product 0: similarity = 0.9486\n  Product 731: similarity = 0.6970\n  Product 341: similarity = 0.6220\n  Product 418: similarity = 0.6131\n  Product 473: similarity = 0.5909",
-          "meaning": "Sắp xếp sản phẩm theo similarity giảm dần, chọn top-K sản phẩm có similarity cao nhất để recommend"
-        },
-        {
-          "step": "Bước 3: Xây dựng User Profile (với interaction weights)",
-          "formula": "u = (1/Σw_i) * Σ(w_i * v_i)",
-          "computation": "Số sản phẩm user đã tương tác: 4\nWeights: {'10065': np.float64(0.3333333333333333), '10866': np.float64(0.4444444444444444), '10861': np.float64(0.1111111111111111)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
+          "computation": "Số sản phẩm user đã tương tác: 4\nWeights: {'10861': np.float64(0.1), '10065': np.float64(0.3), '10859': np.float64(0.2)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
           "meaning": "User profile là trung bình có trọng số của 4 sản phẩm đã tương tác, với weight theo type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
         },
         {
           "step": "Bước 4: Tính Cosine Similarity",
           "formula": "sim(u, i) = (u · v_i) / (||u|| * ||v_i||)",
-          "computation": "Ví dụ với sản phẩm 0:\n  u · v_i = 0.1340\n  ||u|| = 0.1665\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.1340 / (0.1665 * 1.0000) = 0.8049",
-          "meaning": "Similarity = 0.8049 nghĩa là sản phẩm này giống 80.5% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
+          "computation": "Ví dụ với sản phẩm 0:\n  u · v_i = 0.1268\n  ||u|| = 0.1614\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.1268 / (0.1614 * 1.0000) = 0.7858",
+          "meaning": "Similarity = 0.7858 nghĩa là sản phẩm này giống 78.6% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
         },
         {
           "step": "Bước 5: Ranking và Recommendation",
           "formula": "Rank products by sim(u, i) descending",
-          "computation": "Top 5 sản phẩm:\n  Product 0: similarity = 0.8049\n  Product 418: similarity = 0.7353\n  Product 731: similarity = 0.6525\n  Product 1: similarity = 0.6474\n  Product 718: similarity = 0.6387",
+          "computation": "Top 5 sản phẩm:\n  Product 0: similarity = 0.7858\n  Product 418: similarity = 0.7187\n  Product 731: similarity = 0.6346\n  Product 1: similarity = 0.6076\n  Product 718: similarity = 0.5993",
           "meaning": "Sắp xếp sản phẩm theo similarity giảm dần, chọn top-K sản phẩm có similarity cao nhất để recommend"
         },
         {
           "step": "Bước 3: Xây dựng User Profile (với interaction weights)",
           "formula": "u = (1/Σw_i) * Σ(w_i * v_i)",
-          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10065': np.float64(0.375), '10866': np.float64(0.5), '10439': np.float64(0.125)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
+          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10861': np.float64(0.16666666666666666), '10065': np.float64(0.5), '10859': np.float64(0.3333333333333333)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
           "meaning": "User profile là trung bình có trọng số của 3 sản phẩm đã tương tác, với weight theo type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
         },
         {
           "step": "Bước 4: Tính Cosine Similarity",
           "formula": "sim(u, i) = (u · v_i) / (||u|| * ||v_i||)",
-          "computation": "Ví dụ với sản phẩm 0:\n  u · v_i = 0.1906\n  ||u|| = 0.2347\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.1906 / (0.2347 * 1.0000) = 0.8120",
-          "meaning": "Similarity = 0.8120 nghĩa là sản phẩm này giống 81.2% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
+          "computation": "Ví dụ với sản phẩm 1:\n  u · v_i = 0.1875\n  ||u|| = 0.2297\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.1875 / (0.2297 * 1.0000) = 0.8161",
+          "meaning": "Similarity = 0.8161 nghĩa là sản phẩm này giống 81.6% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
         },
         {
           "step": "Bước 5: Ranking và Recommendation",
           "formula": "Rank products by sim(u, i) descending",
-          "computation": "Top 5 sản phẩm:\n  Product 0: similarity = 0.8120\n  Product 418: similarity = 0.7408\n  Product 1: similarity = 0.6636\n  Product 718: similarity = 0.6554\n  Product 731: similarity = 0.6456",
+          "computation": "Top 5 sản phẩm:\n  Product 1: similarity = 0.8161\n  Product 479: similarity = 0.6684\n  Product 410: similarity = 0.6207\n  Product 2: similarity = 0.6198\n  Product 70: similarity = 0.6096",
           "meaning": "Sắp xếp sản phẩm theo similarity giảm dần, chọn top-K sản phẩm có similarity cao nhất để recommend"
         },
         {
           "step": "Bước 3: Xây dựng User Profile (với interaction weights)",
           "formula": "u = (1/Σw_i) * Σ(w_i * v_i)",
-          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10065': np.float64(0.375), '10866': np.float64(0.5), '10861': np.float64(0.125)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
+          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10861': np.float64(0.14285714285714285), '10859': np.float64(0.2857142857142857), '10866': np.float64(0.5714285714285714)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
+          "meaning": "User profile là trung bình có trọng số của 3 sản phẩm đã tương tác, với weight theo type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
+        },
+        {
+          "step": "Bước 4: Tính Cosine Similarity",
+          "formula": "sim(u, i) = (u · v_i) / (||u|| * ||v_i||)",
+          "computation": "Ví dụ với sản phẩm 0:\n  u · v_i = 0.2220\n  ||u|| = 0.2481\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.2220 / (0.2481 * 1.0000) = 0.8948",
+          "meaning": "Similarity = 0.8948 nghĩa là sản phẩm này giống 89.5% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
+        },
+        {
+          "step": "Bước 5: Ranking và Recommendation",
+          "formula": "Rank products by sim(u, i) descending",
+          "computation": "Top 5 sản phẩm:\n  Product 0: similarity = 0.8948\n  Product 731: similarity = 0.6580\n  Product 418: similarity = 0.5922\n  Product 2: similarity = 0.5830\n  Product 300: similarity = 0.5642",
+          "meaning": "Sắp xếp sản phẩm theo similarity giảm dần, chọn top-K sản phẩm có similarity cao nhất để recommend"
+        },
+        {
+          "step": "Bước 3: Xây dựng User Profile (với interaction weights)",
+          "formula": "u = (1/Σw_i) * Σ(w_i * v_i)",
+          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10861': np.float64(0.125), '10065': np.float64(0.375), '10866': np.float64(0.5)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
           "meaning": "User profile là trung bình có trọng số của 3 sản phẩm đã tương tác, với weight theo type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
         },
         {
@@ -509,6 +473,42 @@
           "step": "Bước 5: Ranking và Recommendation",
           "formula": "Rank products by sim(u, i) descending",
           "computation": "Top 5 sản phẩm:\n  Product 0: similarity = 0.8222\n  Product 418: similarity = 0.7505\n  Product 1: similarity = 0.6508\n  Product 731: similarity = 0.6430\n  Product 718: similarity = 0.6429",
+          "meaning": "Sắp xếp sản phẩm theo similarity giảm dần, chọn top-K sản phẩm có similarity cao nhất để recommend"
+        },
+        {
+          "step": "Bước 3: Xây dựng User Profile (với interaction weights)",
+          "formula": "u = (1/Σw_i) * Σ(w_i * v_i)",
+          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10065': np.float64(0.3333333333333333), '10859': np.float64(0.2222222222222222), '10866': np.float64(0.4444444444444444)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
+          "meaning": "User profile là trung bình có trọng số của 3 sản phẩm đã tương tác, với weight theo type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
+        },
+        {
+          "step": "Bước 4: Tính Cosine Similarity",
+          "formula": "sim(u, i) = (u · v_i) / (||u|| * ||v_i||)",
+          "computation": "Ví dụ với sản phẩm 0:\n  u · v_i = 0.1787\n  ||u|| = 0.2253\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.1787 / (0.2253 * 1.0000) = 0.7931",
+          "meaning": "Similarity = 0.7931 nghĩa là sản phẩm này giống 79.3% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
+        },
+        {
+          "step": "Bước 5: Ranking và Recommendation",
+          "formula": "Rank products by sim(u, i) descending",
+          "computation": "Top 5 sản phẩm:\n  Product 0: similarity = 0.7931\n  Product 418: similarity = 0.7246\n  Product 731: similarity = 0.6287\n  Product 1: similarity = 0.6218\n  Product 718: similarity = 0.6138",
+          "meaning": "Sắp xếp sản phẩm theo similarity giảm dần, chọn top-K sản phẩm có similarity cao nhất để recommend"
+        },
+        {
+          "step": "Bước 3: Xây dựng User Profile (với interaction weights)",
+          "formula": "u = (1/Σw_i) * Σ(w_i * v_i)",
+          "computation": "Số sản phẩm user đã tương tác: 4\nWeights: {'10861': np.float64(0.1), '10065': np.float64(0.3), '10859': np.float64(0.2)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
+          "meaning": "User profile là trung bình có trọng số của 4 sản phẩm đã tương tác, với weight theo type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
+        },
+        {
+          "step": "Bước 4: Tính Cosine Similarity",
+          "formula": "sim(u, i) = (u · v_i) / (||u|| * ||v_i||)",
+          "computation": "Ví dụ với sản phẩm 0:\n  u · v_i = 0.1268\n  ||u|| = 0.1614\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.1268 / (0.1614 * 1.0000) = 0.7858",
+          "meaning": "Similarity = 0.7858 nghĩa là sản phẩm này giống 78.6% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
+        },
+        {
+          "step": "Bước 5: Ranking và Recommendation",
+          "formula": "Rank products by sim(u, i) descending",
+          "computation": "Top 5 sản phẩm:\n  Product 0: similarity = 0.7858\n  Product 418: similarity = 0.7187\n  Product 731: similarity = 0.6346\n  Product 1: similarity = 0.6076\n  Product 718: similarity = 0.5993",
           "meaning": "Sắp xếp sản phẩm theo similarity giảm dần, chọn top-K sản phẩm có similarity cao nhất để recommend"
         }
       ],
@@ -1557,64 +1557,64 @@
         ],
         "similarity_matrix": [
           [
-            0.8221978470290819
+            0.7857865084164
           ],
           [
-            0.7504883952006588
+            0.7187315680321897
           ],
           [
-            0.6508351729770462
+            0.6345768929473945
           ],
           [
-            0.6430406271956725
+            0.6075738985084314
           ],
           [
-            0.6429416273851217
+            0.5992678309621375
           ],
           [
-            0.5523535767199524
+            0.5341168652838784
           ],
           [
-            0.5430679569431078
+            0.5331758834138035
           ],
           [
-            0.5421089664618155
+            0.5247306639028462
           ],
           [
-            0.518318911740092
+            0.5177645687793414
           ],
           [
-            0.5135647424129608
+            0.5129555653190923
           ],
           [
-            0.5030875097547388
+            0.49793216554179626
           ],
           [
-            0.495788797018222
+            0.49793216554179626
           ],
           [
-            0.4922891994579217
+            0.49366241415232726
           ],
           [
-            0.49086363523980237
+            0.4922865137672058
           ],
           [
-            0.4853831692148929
+            0.48696050188931345
           ],
           [
-            0.4853831692148929
+            0.48664144232497797
           ],
           [
-            0.4845968744403366
+            0.48664144232497797
           ],
           [
-            0.48242265575179
+            0.48664144232497797
           ],
           [
-            0.47722103133678545
+            0.4826230677147334
           ],
           [
-            0.4756673962297847
+            0.48244353696687564
           ]
         ]
       }
@@ -1631,13 +1631,13 @@
         {
           "step": "Bước 2: Khởi tạo Embeddings",
           "formula": "e_u^(0) ~ N(0, 0.1²), e_i^(0) ~ N(0, 0.1²)",
-          "computation": "User embeddings shape: torch.Size([1, 64]), Product embeddings shape: torch.Size([4, 64])\nVí dụ e_u[0] = [0.12077154219150543, -0.014385554008185863, -0.06516893953084946]..., e_i[0] = [0.08779389411211014, 0.05576595664024353, -0.03229561820626259]...",
+          "computation": "User embeddings shape: torch.Size([1, 64]), Product embeddings shape: torch.Size([4, 64])\nVí dụ e_u[0] = [-0.08128084242343903, -0.11690421402454376, -0.07109326869249344]..., e_i[0] = [-0.1797647774219513, 0.06444522738456726, 0.08022930473089218]...",
           "meaning": "Mỗi user và product được biểu diễn bằng vector 64 chiều, khởi tạo ngẫu nhiên từ phân phối chuẩn"
         },
         {
           "step": "Bước 3: LightGCN Propagation",
           "formula": "e_u^(l+1) = Σ (e_i^(l) / √(deg(u) * deg(i)))",
-          "computation": "Ví dụ với user 0:\n  deg(user_0) = 4 (số edges từ user này)\n  e_user_0^(0) = [0.12077154219150543, -0.014385554008185863, -0.06516893953084946]...\n  Sau propagation qua 3 layers, embedding được cập nhật",
+          "computation": "Ví dụ với user 0:\n  deg(user_0) = 4 (số edges từ user này)\n  e_user_0^(0) = [-0.08128084242343903, -0.11690421402454376, -0.07109326869249344]...\n  Sau propagation qua 3 layers, embedding được cập nhật",
           "meaning": "Embedding của user được cập nhật bằng cách tổng hợp thông tin từ các products mà user đã tương tác, với normalization theo bậc của node"
         },
         {
@@ -1649,19 +1649,19 @@
         {
           "step": "Bước 5: Dự đoán Rating (với interaction weights)",
           "formula": "r̂_ui = w_type * (e_u^T · e_i)",
-          "computation": "Ví dụ: r̂_pos = 4.0 * (0.1230) = 0.4920\nr̂_neg = 0.1286",
+          "computation": "Ví dụ: r̂_pos = 4.0 * (0.1438) = 0.5751\nr̂_neg = 0.1692",
           "meaning": "Score được nhân với weight theo interaction type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
         },
         {
           "step": "Bước 6: BPR Loss",
           "formula": "L_BPR = -Σ log(σ(w_type * (r̂_ui - r̂_uj)))",
-          "computation": "Ví dụ: diff = 0.4920 - 0.1286 = 0.3634\nsigmoid(diff) = 0.5899\nLoss = 0.6943",
+          "computation": "Ví dụ: diff = 0.5751 - 0.1692 = 0.4058\nsigmoid(diff) = 0.6001\nLoss = 0.6997",
           "meaning": "Loss càng nhỏ càng tốt, nghĩa là model phân biệt tốt giữa positive và negative pairs"
         },
         {
           "step": "Bước 7: Gradient Descent",
           "formula": "θ ← θ - α * ∇L_BPR",
-          "computation": "Learning rate α = 0.001, Số epochs = 20\nFinal loss = 0.6811",
+          "computation": "Learning rate α = 0.001, Số epochs = 20\nFinal loss = 0.6992",
           "meaning": "Model đã được train 20 epochs, embeddings đã được cập nhật để tối ưu BPR loss"
         },
         {
@@ -1673,13 +1673,13 @@
         {
           "step": "Bước 2: Khởi tạo Embeddings",
           "formula": "e_u^(0) ~ N(0, 0.1²), e_i^(0) ~ N(0, 0.1²)",
-          "computation": "User embeddings shape: torch.Size([1, 64]), Product embeddings shape: torch.Size([4, 64])\nVí dụ e_u[0] = [-0.18846020102500916, -0.20239797234535217, 0.16714732348918915]..., e_i[0] = [0.11666425317525864, -0.0892360508441925, 0.02530834451317787]...",
+          "computation": "User embeddings shape: torch.Size([1, 64]), Product embeddings shape: torch.Size([4, 64])\nVí dụ e_u[0] = [0.09963534772396088, 0.06145069748163223, 0.005937333684414625]..., e_i[0] = [-0.060677628964185715, -0.027005700394511223, 0.0940384715795517]...",
           "meaning": "Mỗi user và product được biểu diễn bằng vector 64 chiều, khởi tạo ngẫu nhiên từ phân phối chuẩn"
         },
         {
           "step": "Bước 3: LightGCN Propagation",
           "formula": "e_u^(l+1) = Σ (e_i^(l) / √(deg(u) * deg(i)))",
-          "computation": "Ví dụ với user 0:\n  deg(user_0) = 4 (số edges từ user này)\n  e_user_0^(0) = [-0.18846020102500916, -0.20239797234535217, 0.16714732348918915]...\n  Sau propagation qua 3 layers, embedding được cập nhật",
+          "computation": "Ví dụ với user 0:\n  deg(user_0) = 4 (số edges từ user này)\n  e_user_0^(0) = [0.09963534772396088, 0.06145069748163223, 0.005937333684414625]...\n  Sau propagation qua 3 layers, embedding được cập nhật",
           "meaning": "Embedding của user được cập nhật bằng cách tổng hợp thông tin từ các products mà user đã tương tác, với normalization theo bậc của node"
         },
         {
@@ -1691,157 +1691,157 @@
         {
           "step": "Bước 5: Dự đoán Rating (với interaction weights)",
           "formula": "r̂_ui = w_type * (e_u^T · e_i)",
-          "computation": "Ví dụ: r̂_pos = 1.0 * (0.1598) = 0.1598\nr̂_neg = 0.1708",
+          "computation": "Ví dụ: r̂_pos = 3.0 * (0.1376) = 0.4128\nr̂_neg = 0.1271",
           "meaning": "Score được nhân với weight theo interaction type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
         },
         {
           "step": "Bước 6: BPR Loss",
           "formula": "L_BPR = -Σ log(σ(w_type * (r̂_ui - r̂_uj)))",
-          "computation": "Ví dụ: diff = 0.1598 - 0.1708 = -0.0110\nsigmoid(diff) = 0.4972\nLoss = 0.6993",
+          "computation": "Ví dụ: diff = 0.4128 - 0.1271 = 0.2857\nsigmoid(diff) = 0.5709\nLoss = 0.6873",
           "meaning": "Loss càng nhỏ càng tốt, nghĩa là model phân biệt tốt giữa positive và negative pairs"
         },
         {
           "step": "Bước 7: Gradient Descent",
           "formula": "θ ← θ - α * ∇L_BPR",
-          "computation": "Learning rate α = 0.001, Số epochs = 30\nFinal loss = 0.6880",
+          "computation": "Learning rate α = 0.001, Số epochs = 30\nFinal loss = 0.6994",
           "meaning": "Model đã được train 30 epochs, embeddings đã được cập nhật để tối ưu BPR loss"
         }
       ],
       "lightgcn_matrices": {
         "initial_user_embeddings": [
           [
-            -0.18846020102500916,
-            -0.20239797234535217,
-            0.16714732348918915,
-            0.07743873447179794,
-            0.02012442983686924,
-            0.06533992290496826,
-            -0.057898182421922684,
-            -0.07597088068723679,
-            0.08732300251722336,
-            -0.038137760013341904
+            0.09963534772396088,
+            0.06145069748163223,
+            0.005937333684414625,
+            -0.08907821774482727,
+            0.2869645059108734,
+            0.005220442544668913,
+            0.035114552825689316,
+            -0.10096025466918945,
+            -0.011163364164531231,
+            0.0827915295958519
           ]
         ],
         "initial_product_embeddings": [
           [
-            0.11666425317525864,
-            -0.0892360508441925,
-            0.02530834451317787,
-            -0.011922111734747887,
-            -0.04505776986479759,
-            0.043116822838783264,
-            0.04712482914328575,
-            -0.06896278262138367,
-            0.054997533559799194,
-            -0.06692278385162354
+            -0.060677628964185715,
+            -0.027005700394511223,
+            0.0940384715795517,
+            -0.04765096679329872,
+            -0.12260681390762329,
+            0.030716434121131897,
+            -0.018185464665293694,
+            0.013883610256016254,
+            -0.07153346389532089,
+            0.07414238899946213
           ],
           [
-            0.03521358594298363,
-            -0.1653403639793396,
-            -0.0940631851553917,
-            -0.06493079662322998,
-            0.1539645791053772,
-            0.17329342663288116,
-            -0.012535897083580494,
-            0.06311952322721481,
-            0.06552440673112869,
-            -0.0004453062720131129
+            -0.12759678065776825,
+            -0.019467685371637344,
+            0.0740610659122467,
+            0.07167471945285797,
+            0.013825207017362118,
+            -0.02311701886355877,
+            -0.017048431560397148,
+            -0.17670270800590515,
+            0.1024068221449852,
+            0.00029741355683654547
           ],
           [
-            0.01749483309686184,
-            -0.03763618320226669,
-            0.09417550265789032,
-            0.00475421454757452,
-            -0.06732126325368881,
-            0.024889560416340828,
-            0.03457285091280937,
-            -0.12439723312854767,
-            0.012319310568273067,
-            -0.11214294284582138
+            0.20656132698059082,
+            -0.02002735249698162,
+            -0.05079624056816101,
+            -0.08713538199663162,
+            0.17095783352851868,
+            -0.07797833532094955,
+            -0.0012766756117343903,
+            -0.017689308151602745,
+            -0.09934089332818985,
+            -0.02790701761841774
           ],
           [
-            -0.029835766181349754,
-            -0.07644005864858627,
-            0.053750306367874146,
-            0.026440728455781937,
-            -0.0004305418988224119,
-            0.046273041516542435,
-            0.01179537083953619,
-            -0.03430710732936859,
-            0.05432720109820366,
-            0.03441586345434189
+            0.04877219721674919,
+            0.09787237644195557,
+            -0.004573707468807697,
+            -0.02440188266336918,
+            -0.10309558361768723,
+            -0.05582037568092346,
+            0.04983510449528694,
+            0.02030857466161251,
+            -0.21464471518993378,
+            -0.158311128616333
           ]
         ],
         "final_user_embeddings": [
           [
-            -0.04843805730342865,
-            -0.21061763167381287,
-            0.08682338148355484,
-            0.0017104875296354294,
-            0.05367157980799675,
-            0.12421853840351105,
-            -0.03106197714805603,
-            -0.06124407798051834,
-            0.10552720725536346,
-            -0.05131629481911659
+            0.0646352618932724,
+            0.05580931529402733,
+            0.026036540046334267,
+            -0.05641976743936539,
+            0.13501688838005066,
+            -0.0421818345785141,
+            0.03691717982292175,
+            -0.10234766453504562,
+            -0.07865260541439056,
+            -0.014287356287240982
           ]
         ],
         "final_product_embeddings": [
           [
-            -0.005493465811014175,
-            -0.10763142257928848,
-            0.04593004286289215,
-            0.0007880381308495998,
-            0.014381087385118008,
-            0.05809766799211502,
-            -0.012427550740540028,
-            -0.03865790367126465,
-            0.05778437480330467,
-            -0.03563683480024338
+            0.008372412994503975,
+            0.013650097884237766,
+            0.02660040743649006,
+            -0.030236415565013885,
+            0.03394940868020058,
+            0.0007776549318805337,
+            0.0073149362578988075,
+            -0.03250768780708313,
+            -0.034403908997774124,
+            0.01839616894721985
           ],
           [
-            -0.029692374169826508,
-            -0.12894408404827118,
-            0.021563103422522545,
-            -0.00948348082602024,
-            0.06405331194400787,
-            0.09215563535690308,
-            -0.027441348880529404,
-            -0.010732058435678482,
-            0.06301595270633698,
-            -0.02198859676718712
+            -2.627633512020111e-05,
+            0.02430901676416397,
+            0.026788167655467987,
+            -0.008542905561625957,
+            0.076870396733284,
+            -0.022572623565793037,
+            0.016848722472786903,
+            -0.08775497227907181,
+            -0.0007690801285207272,
+            0.00019081123173236847
           ],
           [
-            -0.024244438856840134,
-            -0.08710083365440369,
-            0.05772198736667633,
-            0.002470834646373987,
-            0.0063803778029978275,
-            0.046178679913282394,
-            -0.007965127006173134,
-            -0.047968100756406784,
-            0.03930751234292984,
-            -0.04204539209604263
+            0.07816063612699509,
+            0.020485201850533485,
+            -0.010421168990433216,
+            -0.04200563579797745,
+            0.11083195358514786,
+            -0.03228286653757095,
+            0.01674487069249153,
+            -0.044129274785518646,
+            -0.0442938394844532,
+            -0.007351900450885296
           ],
           [
-            -0.03744583576917648,
-            -0.09755893051624298,
-            0.0484316311776638,
-            0.009645583108067513,
-            0.022528376430273056,
-            0.052005089819431305,
-            -0.01428992860019207,
-            -0.02513008750975132,
-            0.05094657093286514,
-            -0.0029617687687277794
+            0.042763758450746536,
+            0.05317431688308716,
+            0.009105672128498554,
+            -0.03205457702279091,
+            0.04838202893733978,
+            -0.03028583712875843,
+            0.03292582929134369,
+            -0.04030337929725647,
+            -0.07783836871385574,
+            -0.03980979323387146
           ]
         ],
         "similarity_matrix": [
           [
-            0.20353266596794128,
-            0.22132623195648193,
-            0.17801246047019958,
-            0.15586280822753906
+            0.11964099109172821,
+            0.18285542726516724,
+            0.1535455286502838,
+            0.21026574075222015
           ]
         ]
       },
@@ -1873,79 +1873,43 @@
         {
           "step": "Bước 3: Xây dựng User Profile (với interaction weights)",
           "formula": "u = (1/Σw_i) * Σ(w_i * v_i)",
-          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10065': np.float64(0.6), '10861': np.float64(0.2), '10439': np.float64(0.2)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
+          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10861': np.float64(0.16666666666666666), '10065': np.float64(0.5), '10859': np.float64(0.3333333333333333)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
           "meaning": "User profile là trung bình có trọng số của 3 sản phẩm đã tương tác, với weight theo type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
         },
         {
           "step": "Bước 4: Tính Cosine Similarity",
           "formula": "sim(u, i) = (u · v_i) / (||u|| * ||v_i||)",
-          "computation": "Ví dụ với sản phẩm 1:\n  u · v_i = 0.2221\n  ||u|| = 0.2434\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.2221 / (0.2434 * 1.0000) = 0.9127",
-          "meaning": "Similarity = 0.9127 nghĩa là sản phẩm này giống 91.3% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
+          "computation": "Ví dụ với sản phẩm 1:\n  u · v_i = 0.1875\n  ||u|| = 0.2297\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.1875 / (0.2297 * 1.0000) = 0.8161",
+          "meaning": "Similarity = 0.8161 nghĩa là sản phẩm này giống 81.6% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
         },
         {
           "step": "Bước 5: Ranking và Recommendation",
           "formula": "Rank products by sim(u, i) descending",
-          "computation": "Top 5 sản phẩm:\n  Product 1: similarity = 0.9127\n  Product 479: similarity = 0.7453\n  Product 70: similarity = 0.6781\n  Product 278: similarity = 0.6710\n  Product 401: similarity = 0.6710",
+          "computation": "Top 5 sản phẩm:\n  Product 1: similarity = 0.8161\n  Product 479: similarity = 0.6684\n  Product 410: similarity = 0.6207\n  Product 2: similarity = 0.6198\n  Product 70: similarity = 0.6096",
           "meaning": "Sắp xếp sản phẩm theo similarity giảm dần, chọn top-K sản phẩm có similarity cao nhất để recommend"
         },
         {
           "step": "Bước 3: Xây dựng User Profile (với interaction weights)",
           "formula": "u = (1/Σw_i) * Σ(w_i * v_i)",
-          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10866': np.float64(0.6666666666666666), '10861': np.float64(0.16666666666666666), '10439': np.float64(0.16666666666666666)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
+          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10861': np.float64(0.14285714285714285), '10859': np.float64(0.2857142857142857), '10866': np.float64(0.5714285714285714)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
           "meaning": "User profile là trung bình có trọng số của 3 sản phẩm đã tương tác, với weight theo type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
         },
         {
           "step": "Bước 4: Tính Cosine Similarity",
           "formula": "sim(u, i) = (u · v_i) / (||u|| * ||v_i||)",
-          "computation": "Ví dụ với sản phẩm 0:\n  u · v_i = 0.2452\n  ||u|| = 0.2584\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.2452 / (0.2584 * 1.0000) = 0.9486",
-          "meaning": "Similarity = 0.9486 nghĩa là sản phẩm này giống 94.9% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
+          "computation": "Ví dụ với sản phẩm 0:\n  u · v_i = 0.2220\n  ||u|| = 0.2481\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.2220 / (0.2481 * 1.0000) = 0.8948",
+          "meaning": "Similarity = 0.8948 nghĩa là sản phẩm này giống 89.5% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
         },
         {
           "step": "Bước 5: Ranking và Recommendation",
           "formula": "Rank products by sim(u, i) descending",
-          "computation": "Top 5 sản phẩm:\n  Product 0: similarity = 0.9486\n  Product 731: similarity = 0.6970\n  Product 341: similarity = 0.6220\n  Product 418: similarity = 0.6131\n  Product 473: similarity = 0.5909",
+          "computation": "Top 5 sản phẩm:\n  Product 0: similarity = 0.8948\n  Product 731: similarity = 0.6580\n  Product 418: similarity = 0.5922\n  Product 2: similarity = 0.5830\n  Product 300: similarity = 0.5642",
           "meaning": "Sắp xếp sản phẩm theo similarity giảm dần, chọn top-K sản phẩm có similarity cao nhất để recommend"
         },
         {
           "step": "Bước 3: Xây dựng User Profile (với interaction weights)",
           "formula": "u = (1/Σw_i) * Σ(w_i * v_i)",
-          "computation": "Số sản phẩm user đã tương tác: 4\nWeights: {'10065': np.float64(0.3333333333333333), '10866': np.float64(0.4444444444444444), '10861': np.float64(0.1111111111111111)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
-          "meaning": "User profile là trung bình có trọng số của 4 sản phẩm đã tương tác, với weight theo type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
-        },
-        {
-          "step": "Bước 4: Tính Cosine Similarity",
-          "formula": "sim(u, i) = (u · v_i) / (||u|| * ||v_i||)",
-          "computation": "Ví dụ với sản phẩm 0:\n  u · v_i = 0.1340\n  ||u|| = 0.1665\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.1340 / (0.1665 * 1.0000) = 0.8049",
-          "meaning": "Similarity = 0.8049 nghĩa là sản phẩm này giống 80.5% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
-        },
-        {
-          "step": "Bước 5: Ranking và Recommendation",
-          "formula": "Rank products by sim(u, i) descending",
-          "computation": "Top 5 sản phẩm:\n  Product 0: similarity = 0.8049\n  Product 418: similarity = 0.7353\n  Product 731: similarity = 0.6525\n  Product 1: similarity = 0.6474\n  Product 718: similarity = 0.6387",
-          "meaning": "Sắp xếp sản phẩm theo similarity giảm dần, chọn top-K sản phẩm có similarity cao nhất để recommend"
-        },
-        {
-          "step": "Bước 3: Xây dựng User Profile (với interaction weights)",
-          "formula": "u = (1/Σw_i) * Σ(w_i * v_i)",
-          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10065': np.float64(0.375), '10866': np.float64(0.5), '10439': np.float64(0.125)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
-          "meaning": "User profile là trung bình có trọng số của 3 sản phẩm đã tương tác, với weight theo type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
-        },
-        {
-          "step": "Bước 4: Tính Cosine Similarity",
-          "formula": "sim(u, i) = (u · v_i) / (||u|| * ||v_i||)",
-          "computation": "Ví dụ với sản phẩm 0:\n  u · v_i = 0.1906\n  ||u|| = 0.2347\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.1906 / (0.2347 * 1.0000) = 0.8120",
-          "meaning": "Similarity = 0.8120 nghĩa là sản phẩm này giống 81.2% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
-        },
-        {
-          "step": "Bước 5: Ranking và Recommendation",
-          "formula": "Rank products by sim(u, i) descending",
-          "computation": "Top 5 sản phẩm:\n  Product 0: similarity = 0.8120\n  Product 418: similarity = 0.7408\n  Product 1: similarity = 0.6636\n  Product 718: similarity = 0.6554\n  Product 731: similarity = 0.6456",
-          "meaning": "Sắp xếp sản phẩm theo similarity giảm dần, chọn top-K sản phẩm có similarity cao nhất để recommend"
-        },
-        {
-          "step": "Bước 3: Xây dựng User Profile (với interaction weights)",
-          "formula": "u = (1/Σw_i) * Σ(w_i * v_i)",
-          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10065': np.float64(0.375), '10866': np.float64(0.5), '10861': np.float64(0.125)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
+          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10861': np.float64(0.125), '10065': np.float64(0.375), '10866': np.float64(0.5)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
           "meaning": "User profile là trung bình có trọng số của 3 sản phẩm đã tương tác, với weight theo type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
         },
         {
@@ -1963,79 +1927,79 @@
         {
           "step": "Bước 3: Xây dựng User Profile (với interaction weights)",
           "formula": "u = (1/Σw_i) * Σ(w_i * v_i)",
-          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10065': np.float64(0.6), '10861': np.float64(0.2), '10439': np.float64(0.2)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
+          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10065': np.float64(0.3333333333333333), '10859': np.float64(0.2222222222222222), '10866': np.float64(0.4444444444444444)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
           "meaning": "User profile là trung bình có trọng số của 3 sản phẩm đã tương tác, với weight theo type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
         },
         {
           "step": "Bước 4: Tính Cosine Similarity",
           "formula": "sim(u, i) = (u · v_i) / (||u|| * ||v_i||)",
-          "computation": "Ví dụ với sản phẩm 1:\n  u · v_i = 0.2221\n  ||u|| = 0.2434\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.2221 / (0.2434 * 1.0000) = 0.9127",
-          "meaning": "Similarity = 0.9127 nghĩa là sản phẩm này giống 91.3% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
+          "computation": "Ví dụ với sản phẩm 0:\n  u · v_i = 0.1787\n  ||u|| = 0.2253\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.1787 / (0.2253 * 1.0000) = 0.7931",
+          "meaning": "Similarity = 0.7931 nghĩa là sản phẩm này giống 79.3% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
         },
         {
           "step": "Bước 5: Ranking và Recommendation",
           "formula": "Rank products by sim(u, i) descending",
-          "computation": "Top 5 sản phẩm:\n  Product 1: similarity = 0.9127\n  Product 479: similarity = 0.7453\n  Product 70: similarity = 0.6781\n  Product 278: similarity = 0.6710\n  Product 401: similarity = 0.6710",
+          "computation": "Top 5 sản phẩm:\n  Product 0: similarity = 0.7931\n  Product 418: similarity = 0.7246\n  Product 731: similarity = 0.6287\n  Product 1: similarity = 0.6218\n  Product 718: similarity = 0.6138",
           "meaning": "Sắp xếp sản phẩm theo similarity giảm dần, chọn top-K sản phẩm có similarity cao nhất để recommend"
         },
         {
           "step": "Bước 3: Xây dựng User Profile (với interaction weights)",
           "formula": "u = (1/Σw_i) * Σ(w_i * v_i)",
-          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10866': np.float64(0.6666666666666666), '10861': np.float64(0.16666666666666666), '10439': np.float64(0.16666666666666666)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
-          "meaning": "User profile là trung bình có trọng số của 3 sản phẩm đã tương tác, với weight theo type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
-        },
-        {
-          "step": "Bước 4: Tính Cosine Similarity",
-          "formula": "sim(u, i) = (u · v_i) / (||u|| * ||v_i||)",
-          "computation": "Ví dụ với sản phẩm 0:\n  u · v_i = 0.2452\n  ||u|| = 0.2584\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.2452 / (0.2584 * 1.0000) = 0.9486",
-          "meaning": "Similarity = 0.9486 nghĩa là sản phẩm này giống 94.9% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
-        },
-        {
-          "step": "Bước 5: Ranking và Recommendation",
-          "formula": "Rank products by sim(u, i) descending",
-          "computation": "Top 5 sản phẩm:\n  Product 0: similarity = 0.9486\n  Product 731: similarity = 0.6970\n  Product 341: similarity = 0.6220\n  Product 418: similarity = 0.6131\n  Product 473: similarity = 0.5909",
-          "meaning": "Sắp xếp sản phẩm theo similarity giảm dần, chọn top-K sản phẩm có similarity cao nhất để recommend"
-        },
-        {
-          "step": "Bước 3: Xây dựng User Profile (với interaction weights)",
-          "formula": "u = (1/Σw_i) * Σ(w_i * v_i)",
-          "computation": "Số sản phẩm user đã tương tác: 4\nWeights: {'10065': np.float64(0.3333333333333333), '10866': np.float64(0.4444444444444444), '10861': np.float64(0.1111111111111111)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
+          "computation": "Số sản phẩm user đã tương tác: 4\nWeights: {'10861': np.float64(0.1), '10065': np.float64(0.3), '10859': np.float64(0.2)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
           "meaning": "User profile là trung bình có trọng số của 4 sản phẩm đã tương tác, với weight theo type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
         },
         {
           "step": "Bước 4: Tính Cosine Similarity",
           "formula": "sim(u, i) = (u · v_i) / (||u|| * ||v_i||)",
-          "computation": "Ví dụ với sản phẩm 0:\n  u · v_i = 0.1340\n  ||u|| = 0.1665\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.1340 / (0.1665 * 1.0000) = 0.8049",
-          "meaning": "Similarity = 0.8049 nghĩa là sản phẩm này giống 80.5% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
+          "computation": "Ví dụ với sản phẩm 0:\n  u · v_i = 0.1268\n  ||u|| = 0.1614\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.1268 / (0.1614 * 1.0000) = 0.7858",
+          "meaning": "Similarity = 0.7858 nghĩa là sản phẩm này giống 78.6% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
         },
         {
           "step": "Bước 5: Ranking và Recommendation",
           "formula": "Rank products by sim(u, i) descending",
-          "computation": "Top 5 sản phẩm:\n  Product 0: similarity = 0.8049\n  Product 418: similarity = 0.7353\n  Product 731: similarity = 0.6525\n  Product 1: similarity = 0.6474\n  Product 718: similarity = 0.6387",
+          "computation": "Top 5 sản phẩm:\n  Product 0: similarity = 0.7858\n  Product 418: similarity = 0.7187\n  Product 731: similarity = 0.6346\n  Product 1: similarity = 0.6076\n  Product 718: similarity = 0.5993",
           "meaning": "Sắp xếp sản phẩm theo similarity giảm dần, chọn top-K sản phẩm có similarity cao nhất để recommend"
         },
         {
           "step": "Bước 3: Xây dựng User Profile (với interaction weights)",
           "formula": "u = (1/Σw_i) * Σ(w_i * v_i)",
-          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10065': np.float64(0.375), '10866': np.float64(0.5), '10439': np.float64(0.125)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
+          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10861': np.float64(0.16666666666666666), '10065': np.float64(0.5), '10859': np.float64(0.3333333333333333)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
           "meaning": "User profile là trung bình có trọng số của 3 sản phẩm đã tương tác, với weight theo type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
         },
         {
           "step": "Bước 4: Tính Cosine Similarity",
           "formula": "sim(u, i) = (u · v_i) / (||u|| * ||v_i||)",
-          "computation": "Ví dụ với sản phẩm 0:\n  u · v_i = 0.1906\n  ||u|| = 0.2347\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.1906 / (0.2347 * 1.0000) = 0.8120",
-          "meaning": "Similarity = 0.8120 nghĩa là sản phẩm này giống 81.2% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
+          "computation": "Ví dụ với sản phẩm 1:\n  u · v_i = 0.1875\n  ||u|| = 0.2297\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.1875 / (0.2297 * 1.0000) = 0.8161",
+          "meaning": "Similarity = 0.8161 nghĩa là sản phẩm này giống 81.6% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
         },
         {
           "step": "Bước 5: Ranking và Recommendation",
           "formula": "Rank products by sim(u, i) descending",
-          "computation": "Top 5 sản phẩm:\n  Product 0: similarity = 0.8120\n  Product 418: similarity = 0.7408\n  Product 1: similarity = 0.6636\n  Product 718: similarity = 0.6554\n  Product 731: similarity = 0.6456",
+          "computation": "Top 5 sản phẩm:\n  Product 1: similarity = 0.8161\n  Product 479: similarity = 0.6684\n  Product 410: similarity = 0.6207\n  Product 2: similarity = 0.6198\n  Product 70: similarity = 0.6096",
           "meaning": "Sắp xếp sản phẩm theo similarity giảm dần, chọn top-K sản phẩm có similarity cao nhất để recommend"
         },
         {
           "step": "Bước 3: Xây dựng User Profile (với interaction weights)",
           "formula": "u = (1/Σw_i) * Σ(w_i * v_i)",
-          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10065': np.float64(0.375), '10866': np.float64(0.5), '10861': np.float64(0.125)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
+          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10861': np.float64(0.14285714285714285), '10859': np.float64(0.2857142857142857), '10866': np.float64(0.5714285714285714)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
+          "meaning": "User profile là trung bình có trọng số của 3 sản phẩm đã tương tác, với weight theo type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
+        },
+        {
+          "step": "Bước 4: Tính Cosine Similarity",
+          "formula": "sim(u, i) = (u · v_i) / (||u|| * ||v_i||)",
+          "computation": "Ví dụ với sản phẩm 0:\n  u · v_i = 0.2220\n  ||u|| = 0.2481\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.2220 / (0.2481 * 1.0000) = 0.8948",
+          "meaning": "Similarity = 0.8948 nghĩa là sản phẩm này giống 89.5% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
+        },
+        {
+          "step": "Bước 5: Ranking và Recommendation",
+          "formula": "Rank products by sim(u, i) descending",
+          "computation": "Top 5 sản phẩm:\n  Product 0: similarity = 0.8948\n  Product 731: similarity = 0.6580\n  Product 418: similarity = 0.5922\n  Product 2: similarity = 0.5830\n  Product 300: similarity = 0.5642",
+          "meaning": "Sắp xếp sản phẩm theo similarity giảm dần, chọn top-K sản phẩm có similarity cao nhất để recommend"
+        },
+        {
+          "step": "Bước 3: Xây dựng User Profile (với interaction weights)",
+          "formula": "u = (1/Σw_i) * Σ(w_i * v_i)",
+          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10861': np.float64(0.125), '10065': np.float64(0.375), '10866': np.float64(0.5)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
           "meaning": "User profile là trung bình có trọng số của 3 sản phẩm đã tương tác, với weight theo type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
         },
         {
@@ -2048,6 +2012,42 @@
           "step": "Bước 5: Ranking và Recommendation",
           "formula": "Rank products by sim(u, i) descending",
           "computation": "Top 5 sản phẩm:\n  Product 0: similarity = 0.8222\n  Product 418: similarity = 0.7505\n  Product 1: similarity = 0.6508\n  Product 731: similarity = 0.6430\n  Product 718: similarity = 0.6429",
+          "meaning": "Sắp xếp sản phẩm theo similarity giảm dần, chọn top-K sản phẩm có similarity cao nhất để recommend"
+        },
+        {
+          "step": "Bước 3: Xây dựng User Profile (với interaction weights)",
+          "formula": "u = (1/Σw_i) * Σ(w_i * v_i)",
+          "computation": "Số sản phẩm user đã tương tác: 3\nWeights: {'10065': np.float64(0.3333333333333333), '10859': np.float64(0.2222222222222222), '10866': np.float64(0.4444444444444444)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
+          "meaning": "User profile là trung bình có trọng số của 3 sản phẩm đã tương tác, với weight theo type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
+        },
+        {
+          "step": "Bước 4: Tính Cosine Similarity",
+          "formula": "sim(u, i) = (u · v_i) / (||u|| * ||v_i||)",
+          "computation": "Ví dụ với sản phẩm 0:\n  u · v_i = 0.1787\n  ||u|| = 0.2253\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.1787 / (0.2253 * 1.0000) = 0.7931",
+          "meaning": "Similarity = 0.7931 nghĩa là sản phẩm này giống 79.3% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
+        },
+        {
+          "step": "Bước 5: Ranking và Recommendation",
+          "formula": "Rank products by sim(u, i) descending",
+          "computation": "Top 5 sản phẩm:\n  Product 0: similarity = 0.7931\n  Product 418: similarity = 0.7246\n  Product 731: similarity = 0.6287\n  Product 1: similarity = 0.6218\n  Product 718: similarity = 0.6138",
+          "meaning": "Sắp xếp sản phẩm theo similarity giảm dần, chọn top-K sản phẩm có similarity cao nhất để recommend"
+        },
+        {
+          "step": "Bước 3: Xây dựng User Profile (với interaction weights)",
+          "formula": "u = (1/Σw_i) * Σ(w_i * v_i)",
+          "computation": "Số sản phẩm user đã tương tác: 4\nWeights: {'10861': np.float64(0.1), '10065': np.float64(0.3), '10859': np.float64(0.2)}...\nUser profile shape: (645,)\nVí dụ user profile (5 giá trị đầu): [0.0, 0.0, 0.0, 0.0, 0.0]",
+          "meaning": "User profile là trung bình có trọng số của 4 sản phẩm đã tương tác, với weight theo type: view=1.0, like=2.0, cart=3.0, purchase=4.0"
+        },
+        {
+          "step": "Bước 4: Tính Cosine Similarity",
+          "formula": "sim(u, i) = (u · v_i) / (||u|| * ||v_i||)",
+          "computation": "Ví dụ với sản phẩm 0:\n  u · v_i = 0.1268\n  ||u|| = 0.1614\n  ||v_i|| = 1.0000\n  sim(u, i) = 0.1268 / (0.1614 * 1.0000) = 0.7858",
+          "meaning": "Similarity = 0.7858 nghĩa là sản phẩm này giống 78.6% với sở thích của user (giá trị từ -1 đến 1, 1 = giống nhất)"
+        },
+        {
+          "step": "Bước 5: Ranking và Recommendation",
+          "formula": "Rank products by sim(u, i) descending",
+          "computation": "Top 5 sản phẩm:\n  Product 0: similarity = 0.7858\n  Product 418: similarity = 0.7187\n  Product 731: similarity = 0.6346\n  Product 1: similarity = 0.6076\n  Product 718: similarity = 0.5993",
           "meaning": "Sắp xếp sản phẩm theo similarity giảm dần, chọn top-K sản phẩm có similarity cao nhất để recommend"
         }
       ],
@@ -3096,64 +3096,64 @@
         ],
         "similarity_matrix": [
           [
-            0.8221978470290819
+            0.7857865084164
           ],
           [
-            0.7504883952006588
+            0.7187315680321897
           ],
           [
-            0.6508351729770462
+            0.6345768929473945
           ],
           [
-            0.6430406271956725
+            0.6075738985084314
           ],
           [
-            0.6429416273851217
+            0.5992678309621375
           ],
           [
-            0.5523535767199524
+            0.5341168652838784
           ],
           [
-            0.5430679569431078
+            0.5331758834138035
           ],
           [
-            0.5421089664618155
+            0.5247306639028462
           ],
           [
-            0.518318911740092
+            0.5177645687793414
           ],
           [
-            0.5135647424129608
+            0.5129555653190923
           ],
           [
-            0.5030875097547388
+            0.49793216554179626
           ],
           [
-            0.495788797018222
+            0.49793216554179626
           ],
           [
-            0.4922891994579217
+            0.49366241415232726
           ],
           [
-            0.49086363523980237
+            0.4922865137672058
           ],
           [
-            0.4853831692148929
+            0.48696050188931345
           ],
           [
-            0.4853831692148929
+            0.48664144232497797
           ],
           [
-            0.4845968744403366
+            0.48664144232497797
           ],
           [
-            0.48242265575179
+            0.48664144232497797
           ],
           [
-            0.47722103133678545
+            0.4826230677147334
           ],
           [
-            0.4756673962297847
+            0.48244353696687564
           ]
         ]
       }
@@ -3208,30 +3208,30 @@
   "sample_train_data": [
     {
       "user_id": "690bf0f2d0c3753df0ecbdd6",
-      "product_id": "10065",
-      "interaction_type": "cart"
-    },
-    {
-      "user_id": "690bf0f2d0c3753df0ecbdd6",
-      "product_id": "10866",
-      "interaction_type": "purchase"
-    },
-    {
-      "user_id": "690bf0f2d0c3753df0ecbdd6",
       "product_id": "10861",
       "interaction_type": "view"
     },
     {
       "user_id": "690bf0f2d0c3753df0ecbdd6",
-      "product_id": "10439",
-      "interaction_type": "view"
+      "product_id": "10065",
+      "interaction_type": "cart"
+    },
+    {
+      "user_id": "690bf0f2d0c3753df0ecbdd6",
+      "product_id": "10859",
+      "interaction_type": "like"
+    },
+    {
+      "user_id": "690bf0f2d0c3753df0ecbdd6",
+      "product_id": "10866",
+      "interaction_type": "purchase"
     }
   ],
   "sample_test_data": [
     {
       "user_id": "690bf0f2d0c3753df0ecbdd6",
-      "product_id": "10859",
-      "interaction_type": "like"
+      "product_id": "10439",
+      "interaction_type": "view"
     }
   ]
 }

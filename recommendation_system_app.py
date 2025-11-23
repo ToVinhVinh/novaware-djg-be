@@ -1893,58 +1893,58 @@ def main():
                             st.code(step_info['computation'], language='text')
                             st.markdown(f"**Giải thích ý nghĩa:** {step_info['meaning']}")
                             
-                        # Hiển thị ma trận nếu có - cả bảng và đồ thị
-                        if 'LightGCN' in model_algorithms and 'matrices' in model_algorithms['LightGCN']:
+                            # Hiển thị ma trận nếu có - cả bảng và đồ thị
+                            if 'LightGCN' in model_algorithms and 'matrices' in model_algorithms['LightGCN']:
                                 if 'Bước 2: Khởi tạo Embeddings' in step_info['step'] and 'initial_user_embeddings' in model_algorithms['LightGCN']['matrices']:
                                     st.markdown("**📈 Ma trận User Embeddings ban đầu:**")
                                     matrix_data = np.array(model_algorithms['LightGCN']['matrices']['initial_user_embeddings'])
-                                
-                                # Hiển thị bảng
-                                matrix_df = pd.DataFrame(matrix_data, 
-                                                         index=[f'User {i+1}' for i in range(matrix_data.shape[0])],
-                                                         columns=[f'Dim {j+1}' for j in range(matrix_data.shape[1])])
-                                st.dataframe(matrix_df.style.format("{:.3f}"), use_container_width=True, height=300)
-                                
-                                # Hiển thị đồ thị
-                                fig, ax = plt.subplots(figsize=(8, 6))
-                                sns.heatmap(matrix_data, annot=True, fmt='.3f', cmap='viridis', ax=ax,
-                                           xticklabels=False, yticklabels=False)
-                                ax.set_title('Initial User Embeddings Matrix (Heatmap)')
-                                st.pyplot(fig)
+                                    
+                                    # Hiển thị bảng
+                                    matrix_df = pd.DataFrame(matrix_data, 
+                                                             index=[f'User {i+1}' for i in range(matrix_data.shape[0])],
+                                                             columns=[f'Dim {j+1}' for j in range(matrix_data.shape[1])])
+                                    st.dataframe(matrix_df.style.format("{:.3f}"), use_container_width=True, height=300)
+                                    
+                                    # Hiển thị đồ thị
+                                    fig, ax = plt.subplots(figsize=(8, 6))
+                                    sns.heatmap(matrix_data, annot=True, fmt='.3f', cmap='viridis', ax=ax,
+                                               xticklabels=False, yticklabels=False)
+                                    ax.set_title('Initial User Embeddings Matrix (Heatmap)')
+                                    st.pyplot(fig)
                                 
                                 elif 'Bước 7: Gradient Descent' in step_info['step'] and 'final_user_embeddings' in model_algorithms['LightGCN']['matrices']:
                                     st.markdown("**📈 Ma trận User Embeddings sau training:**")
                                     matrix_data = np.array(model_algorithms['LightGCN']['matrices']['final_user_embeddings'])
-                                
-                                # Hiển thị bảng
-                                matrix_df = pd.DataFrame(matrix_data,
-                                                         index=[f'User {i+1}' for i in range(matrix_data.shape[0])],
-                                                         columns=[f'Dim {j+1}' for j in range(matrix_data.shape[1])])
-                                st.dataframe(matrix_df.style.format("{:.3f}"), use_container_width=True, height=300)
-                                
-                                # Hiển thị đồ thị
-                                fig, ax = plt.subplots(figsize=(8, 6))
-                                sns.heatmap(matrix_data, annot=True, fmt='.3f', cmap='viridis', ax=ax,
-                                           xticklabels=False, yticklabels=False)
-                                ax.set_title('Final User Embeddings Matrix (Heatmap)')
-                                st.pyplot(fig)
+                                    
+                                    # Hiển thị bảng
+                                    matrix_df = pd.DataFrame(matrix_data,
+                                                             index=[f'User {i+1}' for i in range(matrix_data.shape[0])],
+                                                             columns=[f'Dim {j+1}' for j in range(matrix_data.shape[1])])
+                                    st.dataframe(matrix_df.style.format("{:.3f}"), use_container_width=True, height=300)
+                                    
+                                    # Hiển thị đồ thị
+                                    fig, ax = plt.subplots(figsize=(8, 6))
+                                    sns.heatmap(matrix_data, annot=True, fmt='.3f', cmap='viridis', ax=ax,
+                                               xticklabels=False, yticklabels=False)
+                                    ax.set_title('Final User Embeddings Matrix (Heatmap)')
+                                    st.pyplot(fig)
                                 
                                 elif 'Bước 5: Dự đoán' in step_info['step'] and 'similarity_matrix' in model_algorithms['LightGCN']['matrices']:
                                     st.markdown("**📈 Ma trận Similarity (User x Product):**")
                                     matrix_data = np.array(model_algorithms['LightGCN']['matrices']['similarity_matrix'])
-                                
-                                # Hiển thị bảng
-                                matrix_df = pd.DataFrame(matrix_data,
-                                                         index=[f'User {i+1}' for i in range(matrix_data.shape[0])],
-                                                         columns=[f'Product {j+1}' for j in range(matrix_data.shape[1])])
-                                st.dataframe(matrix_df.style.format("{:.3f}"), use_container_width=True, height=300)
-                                
-                                # Hiển thị đồ thị
-                                fig, ax = plt.subplots(figsize=(10, 8))
-                                sns.heatmap(matrix_data, annot=True, fmt='.3f', cmap='coolwarm', ax=ax,
-                                           xticklabels=False, yticklabels=False)
-                                ax.set_title('User-Product Similarity Matrix (Heatmap)')
-                                st.pyplot(fig)
+                                    
+                                    # Hiển thị bảng
+                                    matrix_df = pd.DataFrame(matrix_data,
+                                                             index=[f'User {i+1}' for i in range(matrix_data.shape[0])],
+                                                             columns=[f'Product {j+1}' for j in range(matrix_data.shape[1])])
+                                    st.dataframe(matrix_df.style.format("{:.3f}"), use_container_width=True, height=300)
+                                    
+                                    # Hiển thị đồ thị
+                                    fig, ax = plt.subplots(figsize=(10, 8))
+                                    sns.heatmap(matrix_data, annot=True, fmt='.3f', cmap='coolwarm', ax=ax,
+                                               xticklabels=False, yticklabels=False)
+                                    ax.set_title('User-Product Similarity Matrix (Heatmap)')
+                                    st.pyplot(fig)
             
             # Content-Based Algorithm
             with st.expander("🔷 Content-Based Filtering - Algorithm (A-Z)", expanded=False):
@@ -2057,8 +2057,8 @@ def main():
                                         sns.heatmap(matrix_data.reshape(-1, 1), annot=True, fmt='.3f', cmap='coolwarm', ax=ax,
                                                    xticklabels=False, yticklabels=False)
                                     else:
-                                    sns.heatmap(matrix_data, annot=True, fmt='.3f', cmap='coolwarm', ax=ax,
-                                               xticklabels=False, yticklabels=False)
+                                        sns.heatmap(matrix_data, annot=True, fmt='.3f', cmap='coolwarm', ax=ax,
+                                                   xticklabels=False, yticklabels=False)
                                     ax.set_title('User-Product Similarity Matrix - Heatmap')
                                     st.pyplot(fig)
                 
