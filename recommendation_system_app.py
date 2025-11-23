@@ -12,9 +12,15 @@ sys.path.insert(0, str(project_root))
 
 import ast
 import math
+import os
+import re
+import subprocess
+import json
 import time
 from collections import defaultdict
 from typing import Dict, List, Tuple
+from datetime import datetime
+from bson import ObjectId
 
 import numpy as np
 import pandas as pd
@@ -202,12 +208,12 @@ class LightGCNRecommender:
     
     def build_graph(self, interactions_df: pd.DataFrame):
         """Build bipartite graph from interactions with interaction type weights."""
-        # Create mappings
-        unique_users = interactions_df['user_id'].unique()
-        unique_products = interactions_df['product_id'].unique()
+        # Create mappings - ensure all IDs are strings for consistency
+        unique_users = [str(uid) for uid in interactions_df['user_id'].unique()]
+        unique_products = [str(pid) for pid in interactions_df['product_id'].unique()]
         
-        self.user_id_map = {uid: idx for idx, uid in enumerate(unique_users)}
-        self.product_id_map = {pid: idx for idx, pid in enumerate(unique_products)}
+        self.user_id_map = {str(uid): idx for idx, uid in enumerate(unique_users)}
+        self.product_id_map = {str(pid): idx for idx, pid in enumerate(unique_products)}
         self.reverse_user_map = {v: k for k, v in self.user_id_map.items()}
         self.reverse_product_map = {v: k for k, v in self.product_id_map.items()}
         
@@ -216,8 +222,10 @@ class LightGCNRecommender:
         edge_weights = []  # Store weights for visualization
         
         for _, row in interactions_df.iterrows():
-            user_idx = self.user_id_map[row['user_id']]
-            product_idx = self.product_id_map[row['product_id']] + len(self.user_id_map)
+            user_id = str(row['user_id'])
+            product_id = str(row['product_id'])
+            user_idx = self.user_id_map[user_id]
+            product_idx = self.product_id_map[product_id] + len(self.user_id_map)
             
             # Get interaction type weight (không dùng rating)
             interaction_type = str(row.get('interaction_type', 'view')).lower()
@@ -423,12 +431,22 @@ class LightGCNRecommender:
         status_text.empty()
     
     def recommend(self, user_id: str, product_dict: Dict, top_k: int = 20, 
-                  user_gender: str = None, user_age: int = None) -> Tuple[List[Tuple[str, float]], float]:
+                  user_gender: str = None, user_age: int = None,
+                  current_product_id: str = None) -> Tuple[List[Tuple[str, float]], float]:
         """Generate recommendations for a user."""
+        user_id = str(user_id)  # Ensure string format
         if self.model is None or user_id not in self.user_id_map:
             return [], 0.0
         
         start_time = time.time()
+        
+        # Get articleType from current product (most important constraint) - following API pattern
+        # Reference: apps/recommendations/common/filters.py CandidateFilter._build_candidate_pool()
+        normalized_article_type = None
+        if current_product_id and current_product_id in product_dict:
+            article_type = product_dict[current_product_id].get('articleType')
+            if article_type:
+                normalized_article_type = str(article_type).strip()
         
         self.model.eval()
         with torch.no_grad():
@@ -442,24 +460,54 @@ class LightGCNRecommender:
             # Get top-k products
             top_indices = torch.topk(scores, min(top_k * 3, len(scores))).indices.tolist()
             
-            # Filter by gender and age
             recommendations = []
             for idx in top_indices:
                 product_id = self.reverse_product_map[idx]
                 if product_id in product_dict:
                     product = product_dict[product_id]
                     
-                    # Gender filter
-                    if user_gender:
-                        product_gender = product.get('gender', '').lower()
-                        user_gender_lower = user_gender.lower()
-                        if product_gender not in [user_gender_lower, 'unisex', '']:
+                    if normalized_article_type:
+                        product_article = (product.get('articleType', '') or '').strip()
+                        if product_article and product_article != normalized_article_type:
                             continue
                     
-                    # Age filter (simplified)
-                    if user_age is not None and user_age <= 12:
-                        product_gender = product.get('gender', '').lower()
-                        if product_gender not in ['boys', 'girls', 'unisex', '']:
+                    # Gender filter - map common gender values
+                    # Gender filter: determine compatible genders (not strict, just compatibility check)
+                    product_gender = (product.get('gender', '') or '').strip().lower()
+                    if product_gender:  # Only filter if product has gender specified
+                        # Normalize user gender
+                        user_gender_normalized = ''
+                        if user_gender:
+                            user_gender_lower = user_gender.lower()
+                            if user_gender_lower in ['male', 'man', 'men', 'boy', 'boys']:
+                                user_gender_normalized = 'male'
+                            elif user_gender_lower in ['female', 'woman', 'women', 'girl', 'girls']:
+                                user_gender_normalized = 'female'
+                            elif user_gender_lower == 'unisex':
+                                user_gender_normalized = 'unisex'
+                        
+                        # Determine allowed genders based on user gender and age
+                        allowed_genders = set()
+                        if user_gender_normalized == 'male':
+                            if user_age is not None and user_age <= 12:
+                                # Kids: Boys, Unisex
+                                allowed_genders = {'boys', 'unisex', ''}
+                            else:
+                                # Adults: Men, Boys, Unisex
+                                allowed_genders = {'men', 'male', 'man', 'boys', 'boy', 'unisex', ''}
+                        elif user_gender_normalized == 'female':
+                            if user_age is not None and user_age <= 12:
+                                # Kids: Girls, Unisex
+                                allowed_genders = {'girls', 'unisex', ''}
+                            else:
+                                # Adults: Women, Girls, Unisex
+                                allowed_genders = {'women', 'woman', 'female', 'girls', 'girl', 'unisex', ''}
+                        else:
+                            # Unknown user gender: only allow Unisex
+                            allowed_genders = {'unisex', ''}
+                        
+                        # Check if product gender is compatible
+                        if product_gender not in allowed_genders:
                             continue
                     
                     score = scores[idx].item()
@@ -503,14 +551,15 @@ class ContentBasedRecommender:
         self.product_ids = []
         
         for _, row in products_df.iterrows():
-            # Chỉ sử dụng các field được chỉ định: gender, masterCategory, subCategory, articleType, baseColour, usage
+            # Sử dụng các field: gender, masterCategory, subCategory, articleType, baseColour, usage, productDisplayName
             text_parts = [
                 str(row.get('gender', '')),
                 str(row.get('masterCategory', '')),
                 str(row.get('subCategory', '')),
                 str(row.get('articleType', '')),
                 str(row.get('baseColour', '')),
-                str(row.get('usage', ''))
+                str(row.get('usage', '')),
+                str(row.get('productDisplayName', ''))  # Thêm productDisplayName
             ]
             text = ' '.join([p for p in text_parts if p and p != 'nan'])
             product_texts.append(text)
@@ -522,12 +571,12 @@ class ContentBasedRecommender:
         
         self.computation_steps.append({
             'step': 'Bước 1: Tạo Feature Vector cho mỗi sản phẩm',
-            'formula': 'v_i = TF-IDF(gender, masterCategory, subCategory, articleType, baseColour, usage)',
+            'formula': 'v_i = TF-IDF(gender, masterCategory, subCategory, articleType, baseColour, usage, productDisplayName)',
             'computation': f'Ví dụ sản phẩm 1: "{example_text[:50]}..."\n'
                           f'Các từ khóa: {", ".join(example_words[:5])}...\n'
                           f'Tổng số sản phẩm: {len(product_texts)}\n'
-                          f'Các field sử dụng: gender, masterCategory, subCategory, articleType, baseColour, usage',
-            'meaning': 'Mỗi sản phẩm được biểu diễn bằng vector TF-IDF từ 6 đặc tính: giới tính, danh mục chính, danh mục phụ, loại sản phẩm, màu sắc, mục đích sử dụng'
+                          f'Các field sử dụng: gender, masterCategory, subCategory, articleType, baseColour, usage, productDisplayName',
+            'meaning': 'Mỗi sản phẩm được biểu diễn bằng vector TF-IDF từ 7 đặc tính: giới tính, danh mục chính, danh mục phụ, loại sản phẩm, màu sắc, mục đích sử dụng, tên sản phẩm'
         })
         
         # Vectorize products
@@ -544,7 +593,7 @@ class ContentBasedRecommender:
             example_values = example_vector[non_zero_indices]
             
             self.computation_steps.append({
-                'step': 'Bước 1 (tiếp): Tính TF-IDF',
+                'step': 'Bước 2: Tính TF-IDF',
                 'formula': 'TF-IDF(t, d) = TF(t, d) * IDF(t, D)',
                 'computation': f'Vocabulary size: {len(self.vectorizer.vocabulary_)}\n'
                               f'Ví dụ vector sản phẩm 1: shape = {self.product_vectors[0].shape}\n'
@@ -556,12 +605,21 @@ class ContentBasedRecommender:
     
     def recommend(self, user_interactions: pd.DataFrame, products_df: pd.DataFrame,
                   product_dict: Dict, top_k: int = 20,
-                  user_gender: str = None, user_age: int = None) -> Tuple[List[Tuple[str, float]], float]:
+                  user_gender: str = None, user_age: int = None,
+                  current_product_id: str = None) -> Tuple[List[Tuple[str, float]], float]:
         """Generate recommendations based on user's interaction history with interaction type weights."""
         start_time = time.time()
         
         if len(user_interactions) == 0 or self.product_vectors is None:
             return [], 0.0
+        
+        # Get articleType from current product (most important constraint) - following API pattern
+        # Reference: apps/recommendations/common/filters.py CandidateFilter._build_candidate_pool()
+        normalized_article_type = None
+        if current_product_id and current_product_id in product_dict:
+            article_type = product_dict[current_product_id].get('articleType')
+            if article_type:
+                normalized_article_type = str(article_type).strip()
         
         # Get user's interacted products with weights (không dùng rating)
         interacted_data = []
@@ -591,7 +649,7 @@ class ContentBasedRecommender:
         
         # Store computation steps
         self.computation_steps.append({
-            'step': 'Bước 2: Xây dựng User Profile (với interaction weights)',
+            'step': 'Bước 3: Xây dựng User Profile (với interaction weights)',
             'formula': 'u = (1/Σw_i) * Σ(w_i * v_i)',
             'computation': f'Số sản phẩm user đã tương tác: {len(interacted_data)}\n'
                           f'Weights: {dict(zip([self.product_ids[idx] for idx in indices[:3]], weights[:3]))}...\n'
@@ -619,7 +677,7 @@ class ContentBasedRecommender:
             product_norm = np.linalg.norm(example_product_vector)
             
             self.computation_steps.append({
-                'step': 'Bước 3: Tính Cosine Similarity',
+                'step': 'Bước 4: Tính Cosine Similarity',
                 'formula': 'sim(u, i) = (u · v_i) / (||u|| * ||v_i||)',
                 'computation': f'Ví dụ với sản phẩm {max_sim_idx}:\n'
                               f'  u · v_i = {dot_product:.4f}\n'
@@ -635,7 +693,7 @@ class ContentBasedRecommender:
             top_5_scores = similarities[top_5_indices]
             
             self.computation_steps.append({
-                'step': 'Bước 4: Ranking và Recommendation',
+                'step': 'Bước 5: Ranking và Recommendation',
                 'formula': 'Rank products by sim(u, i) descending',
                 'computation': f'Top 5 sản phẩm:\n'
                               f'  Product {top_5_indices[0]}: similarity = {top_5_scores[0]:.4f}\n'
@@ -649,34 +707,108 @@ class ContentBasedRecommender:
         # Get top-k products (excluding already interacted)
         top_indices = np.argsort(similarities)[::-1]
         
+        # Debug: Check similarity of current_product_id if provided
+        if current_product_id and current_product_id in self.product_ids:
+            test_product_idx = self.product_ids.index(current_product_id)
+            test_product_similarity = similarities[test_product_idx]
+            # Store for debug
+            self.debug_test_product_similarity = test_product_similarity
+            self.debug_test_product_rank = None
+            # Find rank of test product
+            sorted_similarities = np.sort(similarities)[::-1]
+            rank = np.where(sorted_similarities == test_product_similarity)[0]
+            if len(rank) > 0:
+                self.debug_test_product_rank = rank[0] + 1  # 1-indexed
+        
+        # Debug counters
+        debug_stats = {
+            'total_checked': 0,
+            'already_interacted': 0,
+            'not_in_dict': 0,
+            'article_type_mismatch': 0,
+            'gender_mismatch': 0,
+            'age_mismatch': 0,
+            'passed_all': 0
+        }
+        
         recommendations = []
         for idx in top_indices:
+            debug_stats['total_checked'] += 1
             product_id = self.product_ids[idx]
+            
+            # Skip current product
+            if current_product_id and str(product_id) == str(current_product_id):
+                continue
             
             # Skip already interacted products
             if product_id in interacted_product_ids:
+                debug_stats['already_interacted'] += 1
                 continue
             
-            # Filter by gender and age
-            if product_id in product_dict:
-                product = product_dict[product_id]
+            # Filter by articleType (most important), gender and age
+            # Following API pattern: apps/recommendations/common/filters.py line 238-240
+            if product_id not in product_dict:
+                debug_stats['not_in_dict'] += 1
+                continue
                 
+            product = product_dict[product_id]
+            
+            # ArticleType filter (MANDATORY constraint - must match)
+            if normalized_article_type:
+                product_article = (product.get('articleType', '') or '').strip()
+                if product_article and product_article != normalized_article_type:
+                    debug_stats['article_type_mismatch'] += 1
+                    continue
+            
+            # Gender filter: determine compatible genders (not strict, just compatibility check)
+            # Use gender_filter_values logic: male -> Men/Boys/Unisex, female -> Women/Girls/Unisex
+            product_gender = (product.get('gender', '') or '').strip().lower()
+            if product_gender:  # Only filter if product has gender specified
+                # Normalize user gender
+                user_gender_normalized = ''
                 if user_gender:
-                    product_gender = product.get('gender', '').lower()
                     user_gender_lower = user_gender.lower()
-                    if product_gender not in [user_gender_lower, 'unisex', '']:
-                        continue
+                    if user_gender_lower in ['male', 'man', 'men', 'boy', 'boys']:
+                        user_gender_normalized = 'male'
+                    elif user_gender_lower in ['female', 'woman', 'women', 'girl', 'girls']:
+                        user_gender_normalized = 'female'
+                    elif user_gender_lower == 'unisex':
+                        user_gender_normalized = 'unisex'
                 
-                if user_age is not None and user_age <= 12:
-                    product_gender = product.get('gender', '').lower()
-                    if product_gender not in ['boys', 'girls', 'unisex', '']:
-                        continue
+                # Determine allowed genders based on user gender and age
+                allowed_genders = set()
+                if user_gender_normalized == 'male':
+                    if user_age is not None and user_age <= 12:
+                        # Kids: Boys, Unisex
+                        allowed_genders = {'boys', 'unisex', ''}
+                    else:
+                        # Adults: Men, Boys, Unisex
+                        allowed_genders = {'men', 'male', 'man', 'boys', 'boy', 'unisex', ''}
+                elif user_gender_normalized == 'female':
+                    if user_age is not None and user_age <= 12:
+                        # Kids: Girls, Unisex
+                        allowed_genders = {'girls', 'unisex', ''}
+                    else:
+                        # Adults: Women, Girls, Unisex
+                        allowed_genders = {'women', 'woman', 'female', 'girls', 'girl', 'unisex', ''}
+                else:
+                    # Unknown user gender: only allow Unisex
+                    allowed_genders = {'unisex', ''}
                 
-                score = float(similarities[idx])
-                recommendations.append((product_id, score))
-                
-                if len(recommendations) >= top_k:
-                    break
+                # Check if product gender is compatible
+                if product_gender not in allowed_genders:
+                    debug_stats['gender_mismatch'] += 1
+                    continue
+            
+            debug_stats['passed_all'] += 1
+            score = float(similarities[idx])
+            recommendations.append((product_id, score))
+            
+            if len(recommendations) >= top_k:
+                break
+        
+        # Store debug stats
+        self.debug_stats = debug_stats
         
         inference_time = time.time() - start_time
         return recommendations, inference_time
@@ -690,7 +822,7 @@ class HybridRecommender:
     def __init__(self, lightgcn: LightGCNRecommender, cbf: ContentBasedRecommender):
         self.lightgcn = lightgcn
         self.cbf = cbf
-        self.alpha = 0.6  # Weight for LightGCN
+        self.alpha = 0.5  # Weight for LightGCN (balanced: 0.5 LightGCN + 0.5 CBF)
         self.training_time = 0.0
     
     def train(self, interactions_df: pd.DataFrame, products_df: pd.DataFrame):
@@ -707,23 +839,27 @@ class HybridRecommender:
     
     def recommend(self, user_id: str, user_interactions: pd.DataFrame,
                   products_df: pd.DataFrame, product_dict: Dict,
-                  top_k: int = 20, user_gender: str = None, user_age: int = None) -> Tuple[List[Tuple[str, float]], float]:
+                  top_k: int = 20, user_gender: str = None, user_age: int = None,
+                  current_product_id: str = None) -> Tuple[List[Tuple[str, float]], float]:
         """Generate hybrid recommendations."""
         start_time = time.time()
         
-        # Get recommendations from both models
+        # Get recommendations from both models (with articleType filtering)
         lightgcn_recs, _ = self.lightgcn.recommend(
-            user_id, product_dict, top_k * 2, user_gender, user_age
+            user_id, product_dict, top_k * 2, user_gender, user_age, current_product_id
         )
         cbf_recs, _ = self.cbf.recommend(
-            user_interactions, products_df, product_dict, top_k * 2, user_gender, user_age
+            user_interactions, products_df, product_dict, top_k * 2, user_gender, user_age, current_product_id
         )
         
         # Combine scores: score_hybrid = α * score_gnn + (1-α) * score_cbf
         # Formula: r_hybrid = α * r_gnn + (1-α) * r_cbf
+        # Improved: Use harmonic mean for better combination when both models agree
         combined_scores = defaultdict(float)
+        product_scores_gnn = {}
+        product_scores_cbf = {}
         
-        # Normalize LightGCN scores
+        # Normalize and store LightGCN scores
         if lightgcn_recs:
             scores_gnn = [score for _, score in lightgcn_recs]
             if scores_gnn:
@@ -733,9 +869,10 @@ class HybridRecommender:
                 
                 for pid, score in lightgcn_recs:
                     normalized_score = (score - min_gnn) / gnn_range if gnn_range > 0 else 0.5
+                    product_scores_gnn[pid] = normalized_score
                     combined_scores[pid] += self.alpha * normalized_score
         
-        # Normalize CBF scores
+        # Normalize and store CBF scores
         if cbf_recs:
             scores_cbf = [score for _, score in cbf_recs]
             if scores_cbf:
@@ -745,7 +882,21 @@ class HybridRecommender:
                 
                 for pid, score in cbf_recs:
                     normalized_score = (score - min_cbf) / cbf_range if cbf_range > 0 else 0.5
+                    product_scores_cbf[pid] = normalized_score
                     combined_scores[pid] += (1 - self.alpha) * normalized_score
+        
+        # Enhanced combination: Boost products that appear in both models
+        # If a product is recommended by both models, give it a bonus
+        for pid in combined_scores:
+            if pid in product_scores_gnn and pid in product_scores_cbf:
+                # Both models agree - boost the score
+                gnn_score = product_scores_gnn[pid]
+                cbf_score = product_scores_cbf[pid]
+                # Use harmonic mean for products in both: 2 * (gnn * cbf) / (gnn + cbf)
+                if gnn_score > 0 and cbf_score > 0:
+                    harmonic_mean = 2 * (gnn_score * cbf_score) / (gnn_score + cbf_score)
+                    # Add bonus: 20% of harmonic mean
+                    combined_scores[pid] += 0.2 * harmonic_mean
         
         # Sort by combined score
         recommendations = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
@@ -794,10 +945,11 @@ def evaluate_model(recommendations: List[Tuple[str, float]],
                   test_interactions: pd.DataFrame,
                   k_values: List[int] = [10, 20]) -> Dict:
     """Evaluate model performance."""
-    recommended_ids = [pid for pid, _ in recommendations]
+    # Convert all IDs to strings for consistent comparison
+    recommended_ids = [str(pid) for pid, _ in recommendations]
     
-    # Get ground truth (test interactions)
-    relevant_ids = test_interactions['product_id'].unique().tolist()
+    # Get ground truth (test interactions) - convert to strings
+    relevant_ids = [str(pid) for pid in test_interactions['product_id'].unique().tolist()]
     
     metrics = {}
     for k in k_values:
@@ -805,6 +957,116 @@ def evaluate_model(recommendations: List[Tuple[str, float]],
         metrics[f'ndcg_at_{k}'] = calculate_ndcg_at_k(recommended_ids, relevant_ids, k)
     
     return metrics
+
+
+# ==================== MODEL COMPARISON HELPERS ====================
+
+def parse_interaction_history(history_str):
+    """Parse interaction history string from CSV."""
+    if not history_str or pd.isna(history_str) or str(history_str).strip() == '':
+        return []
+    
+    interactions = []
+    # Split by semicolon
+    parts = str(history_str).split(';')
+    
+    for part in parts:
+        part = part.strip()
+        if not part or not part.startswith('{'):
+            continue
+        
+        try:
+            # Try to extract product_id using regex first (faster and safer)
+            # Pattern 1: 'product_id': 10866 or 'product_id': '10866'
+            match1 = re.search(r"'product_id'\s*:\s*(\d+)", part)
+            if match1:
+                product_id_str = match1.group(1)
+            else:
+                # Pattern 2: 'productId': ObjectId('...')
+                match2 = re.search(r"'productId'\s*:\s*ObjectId\('([^']+)'\)", part)
+                if match2:
+                    # Skip ObjectId-based products for now
+                    continue
+                else:
+                    # Try eval as fallback
+                    try:
+                        interaction = eval(part, {'datetime': datetime, 'ObjectId': ObjectId})
+                        if 'product_id' in interaction:
+                            product_id_str = str(interaction['product_id'])
+                        elif 'productId' in interaction:
+                            pid = interaction['productId']
+                            if isinstance(pid, ObjectId):
+                                continue  # Skip ObjectId
+                            product_id_str = str(pid)
+                        else:
+                            continue
+                    except:
+                        continue
+            
+            if not product_id_str or product_id_str == 'None':
+                continue
+            
+            # Extract interaction type
+            interaction_type = 'view'  # default
+            if "'interaction_type'" in part:
+                match_type = re.search(r"'interaction_type'\s*:\s*'([^']+)'", part)
+                if match_type:
+                    interaction_type = match_type.group(1).lower()
+            elif "'interactionType'" in part:
+                match_type = re.search(r"'interactionType'\s*:\s*'([^']+)'", part)
+                if match_type:
+                    interaction_type = match_type.group(1).lower()
+            
+            interactions.append({
+                'product_id': product_id_str,
+                'interaction_type': interaction_type
+            })
+        except Exception as e:
+            # Silently skip parsing errors
+            continue
+    
+    return interactions
+
+def load_users_from_csv():
+    """Load users from CSV and extract user-product pairs."""
+    try:
+        users_df = pd.read_csv('exports/users.csv')
+        user_product_pairs = []
+        
+        for _, row in users_df.iterrows():
+            user_id = str(row['id'])
+            if pd.isna(user_id) or user_id == '' or user_id == 'nan':
+                continue
+            
+            history_str = row.get('interaction_history', '')
+            if pd.isna(history_str) or str(history_str).strip() == '':
+                continue
+            
+            interactions = parse_interaction_history(history_str)
+            
+            if len(interactions) == 0:
+                continue
+            
+            # Get unique products for this user
+            unique_products = {}
+            for interaction in interactions:
+                pid = interaction['product_id']
+                if pid and pid not in unique_products:
+                    unique_products[pid] = interaction
+            
+            # Create pairs (limit to 5 products per user for diversity)
+            for idx, (pid, interaction) in enumerate(list(unique_products.items())[:5]):
+                user_product_pairs.append({
+                    'user_id': user_id,
+                    'product_id': pid,
+                    'user_name': str(row.get('name', '')),
+                    'user_gender': str(row.get('gender', '')),
+                    'user_age': row.get('age', None) if not pd.isna(row.get('age', None)) else None
+                })
+        
+        return user_product_pairs
+    except Exception as e:
+        return []
 
 
 # ==================== OUTFIT RECOMMENDATION ====================
@@ -863,11 +1125,42 @@ def recommend_outfit(current_product: Dict, product_dict: Dict,
                 matches = True
             
             if matches:
-                # Gender filter
-                if user_gender:
-                    product_gender = product.get('gender', '').lower()
-                    user_gender_lower = user_gender.lower()
-                    if product_gender not in [user_gender_lower, 'unisex']:
+                # Gender filter: determine compatible genders (not strict, just compatibility check)
+                product_gender = (product.get('gender', '') or '').strip().lower()
+                if product_gender:  # Only filter if product has gender specified
+                    # Normalize user gender
+                    user_gender_normalized = ''
+                    if user_gender:
+                        user_gender_lower = user_gender.lower()
+                        if user_gender_lower in ['male', 'man', 'men', 'boy', 'boys']:
+                            user_gender_normalized = 'male'
+                        elif user_gender_lower in ['female', 'woman', 'women', 'girl', 'girls']:
+                            user_gender_normalized = 'female'
+                        elif user_gender_lower == 'unisex':
+                            user_gender_normalized = 'unisex'
+                    
+                    # Determine allowed genders based on user gender and age
+                    allowed_genders = set()
+                    if user_gender_normalized == 'male':
+                        if user_age is not None and user_age <= 12:
+                            # Kids: Boys, Unisex
+                            allowed_genders = {'boys', 'unisex', ''}
+                        else:
+                            # Adults: Men, Boys, Unisex
+                            allowed_genders = {'men', 'male', 'man', 'boys', 'boy', 'unisex', ''}
+                    elif user_gender_normalized == 'female':
+                        if user_age is not None and user_age <= 12:
+                            # Kids: Girls, Unisex
+                            allowed_genders = {'girls', 'unisex', ''}
+                        else:
+                            # Adults: Women, Girls, Unisex
+                            allowed_genders = {'women', 'woman', 'female', 'girls', 'girl', 'unisex', ''}
+                    else:
+                        # Unknown user gender: only allow Unisex
+                        allowed_genders = {'unisex', ''}
+                    
+                    # Check if product gender is compatible
+                    if product_gender not in allowed_genders:
                         continue
                 
                 candidates.append((pid, product))
@@ -883,35 +1176,6 @@ def recommend_outfit(current_product: Dict, product_dict: Dict,
 def main():
     st.title("🛍️ Hệ thống Gợi ý Sản phẩm")
     st.markdown("---")
-    
-    # Information about fields used
-    with st.expander("ℹ️ Thông tin về Fields được sử dụng", expanded=False):
-        st.markdown("""
-        ### Fields từ Users (users.csv):
-        - **age**: Tuổi của user (dùng để filter products phù hợp)
-        - **gender**: Giới tính của user (male/female, dùng để filter products)
-        - **interaction_history**: Lịch sử tương tác của user với các sản phẩm
-          - Không dùng **rating**, chỉ dùng **interaction types** với weights:
-            - view = 1.0
-            - like = 2.0
-            - cart = 3.0
-            - purchase = 4.0
-            - review = 2.5
-        
-        ### Fields từ Products (products.csv):
-        - **gender**: Giới tính sản phẩm (Men/Women/Boys/Girls/Unisex)
-        - **masterCategory**: Danh mục chính (Apparel, Footwear, Accessories, ...)
-        - **subCategory**: Danh mục phụ (Topwear, Bottomwear, Shoes, Bags, ...)
-        - **articleType**: Loại sản phẩm (Tshirts, Jeans, Shoes, Handbags, ...)
-        - **baseColour**: Màu sắc cơ bản (Red, Blue, Black, White, ...)
-        - **usage**: Mục đích sử dụng (Casual, Formal, Sports, ...)
-        
-        ### Fields KHÔNG sử dụng:
-        - ❌ rating (không có trong hệ thống)
-        - ❌ season, year (không dùng trong tính toán)
-        - ❌ productDisplayName (chỉ dùng để hiển thị, không dùng trong tính toán)
-        """)
-    
     # Load data
     with st.spinner("Đang tải dữ liệu..."):
         user_dict, product_dict, interactions_df, users_df, products_df = load_all_data()
@@ -1067,12 +1331,13 @@ def main():
                 st.markdown("""
                 ### Bước 1: Train LightGCN Model
                 - Áp dụng toàn bộ thuật toán LightGCN (xem phần LightGCN)
-                - Input: users (age, gender, interaction_history), products (gender, masterCategory, subCategory, articleType, baseColour, usage)
+                - Input: users (age, gender, interaction_history), products (gender, masterCategory, subCategory, articleType, baseColour, usage, productDisplayName)
                 - Kết quả: r_gnn = w_type * (e_u^T · e_i) (với interaction weights, không dùng rating)
+                - Note: LightGCN sử dụng graph structure, productDisplayName được dùng trong filtering
                 
                 ### Bước 2: Train Content-Based Model
                 - Áp dụng toàn bộ thuật toán Content-Based (xem phần CBF)
-                - Input: products (gender, masterCategory, subCategory, articleType, baseColour, usage)
+                - Input: products (gender, masterCategory, subCategory, articleType, baseColour, usage, productDisplayName)
                 - Kết quả: r_cbf = sim(u, i) = (u · v_i) / (||u|| * ||v_i||)
                 - User profile dựa trên interaction_history (không dùng rating)
                 
@@ -1268,17 +1533,20 @@ def main():
         if model_type == "LightGCN (GNN)":
             recommendations, inference_time = model.recommend(
                 selected_user_id, product_dict, top_k=20,
-                user_gender=user_gender, user_age=user_age
+                user_gender=user_gender, user_age=user_age,
+                current_product_id=selected_product_id if selected_product_id else None
             )
         elif model_type == "Content-Based Filtering":
             recommendations, inference_time = model.recommend(
                 user_train_interactions, products_df, product_dict, top_k=20,
-                user_gender=user_gender, user_age=user_age
+                user_gender=user_gender, user_age=user_age,
+                current_product_id=selected_product_id if selected_product_id else None
             )
         else:  # Hybrid
             recommendations, inference_time = model.recommend(
                 selected_user_id, user_train_interactions, products_df, product_dict, top_k=20,
-                user_gender=user_gender, user_age=user_age
+                user_gender=user_gender, user_age=user_age,
+                current_product_id=selected_product_id if selected_product_id else None
             )
         
         # Personalize recommendations
@@ -1287,23 +1555,15 @@ def main():
         st.info(f"**Thông tin user:** Tuổi: {user_age}, Giới tính: {user_gender}\n"
                 f"**Fields sử dụng:** age, gender, interaction_history (không dùng rating)")
         
-        # Filter recommendations by articleType if a product is selected
-        filtered_recommendations = recommendations
+        # Display articleType filter info if a product is selected
         if selected_product_id and selected_product_id in product_dict:
             current_product = product_dict[selected_product_id]
             target_article_type = current_product.get('articleType')
-            
             if target_article_type:
-                st.info(f"**🔍 Lọc theo articleType:** {target_article_type} (từ sản phẩm đã chọn)")
-                filtered_recommendations = [
-                    (product_id, score) for product_id, score in recommendations
-                    if product_id in product_dict and 
-                       product_dict[product_id].get('articleType') == target_article_type
-                ]
-                
-                if not filtered_recommendations:
-                    st.warning(f"Không tìm thấy sản phẩm nào cùng articleType '{target_article_type}'. Hiển thị tất cả recommendations.")
-                    filtered_recommendations = recommendations
+                st.info(f"**🔍 Ràng buộc quan trọng nhất - Lọc theo articleType:** {target_article_type} (từ sản phẩm payload)")
+        
+        # Recommendations are already filtered by articleType in the recommend() functions
+        filtered_recommendations = recommendations
         
         cols = st.columns(4)
         for idx, (product_id, score) in enumerate(filtered_recommendations[:12]):
@@ -1377,96 +1637,766 @@ def main():
         
         st.info(f"⏱️ Inference time: {inference_time*1000:.2f}ms")
     
-    # Model comparison table
+    # Model comparison table - Run test_model_comparison.py and read results
     if st.sidebar.button("📈 Compare All Models"):
         st.header("📊 Model Comparison")
         
-        # Train all models
-        train_size = int(len(interactions_df) * 0.8)
-        train_interactions = interactions_df.iloc[:train_size]
-        test_interactions = interactions_df.iloc[train_size:]
+        # Run test_model_comparison.py as a subprocess
+        import subprocess
+        import json
+        import os
         
-        models = {}
-        results = []
+        results_file = 'model_comparison_results.json'
         
-        # LightGCN
-        st.write("Training LightGCN...")
-        lightgcn = LightGCNRecommender()
-        lightgcn.train(train_interactions, epochs=20, lr=0.001)
-        models['LightGCN'] = lightgcn
+        # Show progress
+        status_placeholder = st.empty()
+        status_placeholder.info("🔄 Đang chạy test_model_comparison.py...")
         
-        # CBF
-        st.write("Training Content-Based...")
-        cbf = ContentBasedRecommender()
-        cbf.train(products_df)
-        models['Content-Based'] = cbf
-        
-        # Hybrid
-        st.write("Training Hybrid...")
-        hybrid = HybridRecommender(lightgcn, cbf)
-        hybrid.train(train_interactions, products_df)
-        models['Hybrid'] = hybrid
-        
-        # Evaluate on sample users
-        sample_users = user_ids[:10]  # Evaluate on 10 users
-        
-        for model_name, model in models.items():
-            recalls_10 = []
-            recalls_20 = []
-            ndcgs_10 = []
-            ndcgs_20 = []
-            inference_times = []
+        try:
+            # Get Python executable from current environment (venv)
+            python_exe = sys.executable
             
-            for user_id in sample_users:
-                user = user_dict[user_id]
-                user_test = test_interactions[test_interactions['user_id'] == user_id]
-                user_train = train_interactions[train_interactions['user_id'] == user_id]
-                
-                if model_name == "LightGCN":
-                    recs, inf_time = model.recommend(
-                        user_id, product_dict, top_k=20,
-                        user_gender=user.get('gender'), user_age=user.get('age')
-                    )
-                elif model_name == "Content-Based":
-                    recs, inf_time = model.recommend(
-                        user_train, products_df, product_dict, top_k=20,
-                        user_gender=user.get('gender'), user_age=user.get('age')
-                    )
-                else:  # Hybrid
-                    recs, inf_time = model.recommend(
-                        user_id, user_train, products_df, product_dict, top_k=20,
-                        user_gender=user.get('gender'), user_age=user.get('age')
-                    )
-                
-                if len(user_test) > 0:
-                    metrics = evaluate_model(recs, user_test, k_values=[10, 20])
-                    recalls_10.append(metrics['recall_at_10'])
-                    recalls_20.append(metrics['recall_at_20'])
-                    ndcgs_10.append(metrics['ndcg_at_10'])
-                    ndcgs_20.append(metrics['ndcg_at_20'])
-                    inference_times.append(inf_time)
+            # If not using venv Python, try to find venv Python
+            if 'venv' not in python_exe and 'virtualenv' not in python_exe:
+                venv_python = Path(__file__).parent / 'venv' / 'Scripts' / 'python.exe'
+                if venv_python.exists():
+                    python_exe = str(venv_python)
+                    st.info(f"🔧 Tìm thấy venv Python: {python_exe}")
+                else:
+                    # Try Linux/Mac venv path
+                    venv_python = Path(__file__).parent / 'venv' / 'bin' / 'python'
+                    if venv_python.exists():
+                        python_exe = str(venv_python)
+                        st.info(f"🔧 Tìm thấy venv Python: {python_exe}")
             
-            # Calculate averages
-            training_time = lightgcn.training_time if model_name == "LightGCN" else (
-                cbf.training_time if model_name == "Content-Based" else hybrid.training_time
+            # Debug info
+            st.info(f"🔧 Sử dụng Python: {python_exe}")
+            
+            # Run test_model_comparison.py using the same Python interpreter
+            result = subprocess.run(
+                [python_exe, 'test_model_comparison.py'],
+                capture_output=True,
+                text=True,
+                cwd=Path(__file__).parent,
+                timeout=300,  # 5 minutes timeout
+                env=os.environ.copy()  # Pass current environment variables
             )
             
-            results.append({
-                'Model': model_name,
-                'Recall@10': f"{np.mean(recalls_10):.4f}" if recalls_10 else "N/A",
-                'Recall@20': f"{np.mean(recalls_20):.4f}" if recalls_20 else "N/A",
-                'NDCG@10': f"{np.mean(ndcgs_10):.4f}" if ndcgs_10 else "N/A",
-                'NDCG@20': f"{np.mean(ndcgs_20):.4f}" if ndcgs_20 else "N/A",
-                'Thời gian train': f"{training_time:.2f}s",
-                'Thời gian inference/user': f"{np.mean(inference_times)*1000:.2f}ms" if inference_times else "N/A"
-            })
-        
-        # Display comparison table
-        comparison_df = pd.DataFrame(results)
-        st.dataframe(comparison_df, use_container_width=True)
-        
-        # Store results
-        st.session_state['comparison_results'] = comparison_df
+            if result.returncode != 0:
+                st.error(f"❌ Lỗi khi chạy test_model_comparison.py (exit code: {result.returncode})")
+                if result.stderr:
+                    st.error("**Stderr:**")
+                    st.code(result.stderr, language='text')
+                if result.stdout:
+                    st.info("**Stdout:**")
+                    st.code(result.stdout, language='text')
+                return
+            
+            # Check if results file exists
+            if not os.path.exists(results_file):
+                st.error(f"❌ Không tìm thấy file kết quả: {results_file}")
+                st.info("Kiểm tra output từ test_model_comparison.py:")
+                st.code(result.stdout, language='text')
+                return
+            
+            # Read results from JSON file
+            with open(results_file, 'r', encoding='utf-8') as f:
+                results_data = json.load(f)
+            
+            status_placeholder.success("✅ Đã hoàn thành đánh giá!")
+            status_placeholder.empty()
+            
+            # Convert back to DataFrame
+            comparison_df = pd.DataFrame(results_data['comparison_df'])
+            score_df = pd.DataFrame(results_data['weighted_scores'])
+            best_model = results_data['best_model']
+            best_score = results_data['best_score']
+            issues = results_data.get('issues', [])
+            model_algorithms = results_data.get('model_algorithms', {})
+            
+            # Display comparison table
+            st.subheader("📊 Bảng So Sánh Chi Tiết 3 Mô Hình")
+            
+            # Round numeric columns
+            numeric_cols = comparison_df.select_dtypes(include=[np.number]).columns
+            comparison_df[numeric_cols] = comparison_df[numeric_cols].round(4)
+            
+            # Remove debug columns for display
+            display_cols = ['Model', 'Recall@10', 'Recall@20', 'NDCG@10', 'NDCG@20', 
+                           'Precision@10', 'Precision@20', 'Training Time (s)', 
+                           'Inference Time (ms)', 'Coverage (%)', 'Diversity (ArticleTypes)']
+            available_cols = [col for col in display_cols if col in comparison_df.columns]
+            display_df = comparison_df[available_cols].copy()
+            
+            st.dataframe(display_df, use_container_width=True, height=200)
+            
+            # Algorithm (A-Z) cho từng mô hình: Train → Recommend → Tính Metrics
+            st.subheader("📖 Algorithm (A-Z) cho từng Mô hình: Train → Recommend → Tính Metrics")
+            
+            # LightGCN Algorithm
+            with st.expander("🔷 LightGCN (Graph Neural Network) - Algorithm (A-Z)", expanded=False):
+                # Hiển thị thông tin Train/Test Split
+                if 'train_stats' in results_data:
+                    train_stats = results_data['train_stats']
+                    st.markdown("### 📊 Thông tin Train/Test Split")
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Train Interactions", f"{train_stats.get('train_size', 0):,}")
+                    with col2:
+                        st.metric("Test Interactions", f"{train_stats.get('test_size', 0):,}")
+                    with col3:
+                        train_ratio = train_stats.get('train_ratio', 0.8) * 100
+                        st.metric("Train Ratio", f"{train_ratio:.1f}%")
+                    
+                    st.info(f"**Chi tiết:** {train_stats.get('train_users', 0)} users trong train set, {train_stats.get('test_users', 0)} users trong test set")
+                
+                # Hiển thị Test Pairs (user_id, product_id được test)
+                if 'test_pairs' in results_data and len(results_data['test_pairs']) > 0:
+                    st.markdown("### 🧪 Test Pairs (User-Product được test)")
+                    test_pairs_df = pd.DataFrame(results_data['test_pairs'])
+                    st.dataframe(test_pairs_df, use_container_width=True, height=200)
+                    st.caption(f"**Tổng số test pairs:** {len(results_data['test_pairs'])}")
+                
+                # Hiển thị Sample Train/Test Data
+                if 'sample_train_data' in results_data and len(results_data['sample_train_data']) > 0:
+                    st.markdown("### 📚 Sample Train Set Data (10 dòng đầu)")
+                    train_df = pd.DataFrame(results_data['sample_train_data'])
+                    st.dataframe(train_df, use_container_width=True, height=200)
+                
+                if 'sample_test_data' in results_data and len(results_data['sample_test_data']) > 0:
+                    st.markdown("### 🧪 Sample Test Set Data (10 dòng đầu)")
+                    test_df = pd.DataFrame(results_data['sample_test_data'])
+                    st.dataframe(test_df, use_container_width=True, height=200)
+                
+                # Hiển thị tất cả các bước liên tục từ Bước 1 đến Bước n
+                all_steps = []
+                
+                # Lấy các bước từ computation_steps
+                if 'LightGCN' in model_algorithms and 'computation_steps' in model_algorithms['LightGCN']:
+                    seen_steps = set()
+                    for step_info in model_algorithms['LightGCN']['computation_steps']:
+                        step_name = step_info.get('step', '')
+                        if step_name and step_name not in seen_steps:
+                            seen_steps.add(step_name)
+                            all_steps.append(step_info)
+                
+                # Thêm các bước recommendation và evaluation
+                # Lấy example user_id và product_id từ test_pairs
+                example_user_id = ""
+                example_product_id = ""
+                if 'test_pairs' in results_data and len(results_data['test_pairs']) > 0:
+                    example_user_id = results_data['test_pairs'][0].get('user_id', '')
+                    example_product_id = results_data['test_pairs'][0].get('product_id', '')
+                
+                recommendation_steps = [
+                    {
+                        'step': 'Bước 8: Tính Score cho tất cả Products',
+                        'formula': 'r̂_ui = e_u^T · e_i',
+                        'computation': f'**Test với:** User ID = {example_user_id}, Product ID = {example_product_id}\n'
+                                      f'Với user {example_user_id}, tính score cho tất cả products\n'
+                                      f'Ví dụ: Product {example_product_id}: score = e_user^T · e_{example_product_id} = 0.523',
+                        'meaning': 'Tính predicted score cho mỗi product bằng dot product của user embedding và product embedding'
+                    },
+                    {
+                        'step': 'Bước 9: Lọc theo articleType và Gender',
+                        'formula': 'Filter by articleType (MANDATORY), gender, age',
+                        'computation': f'**Test với:** User ID = {example_user_id}, Product ID = {example_product_id}\n'
+                                      f'1. Lọc theo articleType (phải khớp với current_product = {example_product_id})\n'
+                                      f'2. Lọc theo gender compatibility\n'
+                                      f'3. Lọc theo age (nếu ≤ 12 chỉ cho Boys/Girls/Unisex)',
+                        'meaning': 'Áp dụng các filters để đảm bảo recommendations phù hợp với user và sản phẩm hiện tại'
+                    },
+                    {
+                        'step': 'Bước 10: Ranking và Chọn Top-K',
+                        'formula': 'Rank products by r̂_ui descending, chọn top-K',
+                        'computation': f'**Test với:** User ID = {example_user_id}, Product ID = {example_product_id}\n'
+                                      f'Sắp xếp products theo score giảm dần\n'
+                                      f'Chọn top-20 products\n'
+                                      f'Ví dụ: [{example_product_id}: 0.523, 10065: 0.456, 10859: 0.389, ...]',
+                        'meaning': 'Sắp xếp và chọn top-K sản phẩm có score cao nhất để recommend'
+                    }
+                ]
+                
+                evaluation_steps = []
+                recall_20 = comparison_df[comparison_df['Model'] == 'LightGCN']['Recall@20'].values[0] if len(comparison_df[comparison_df['Model'] == 'LightGCN']) > 0 else 0
+                ndcg_20 = comparison_df[comparison_df['Model'] == 'LightGCN']['NDCG@20'].values[0] if len(comparison_df[comparison_df['Model'] == 'LightGCN']) > 0 else 0
+                precision_20 = comparison_df[comparison_df['Model'] == 'LightGCN']['Precision@20'].values[0] if len(comparison_df[comparison_df['Model'] == 'LightGCN']) > 0 else 0
+                
+                # Lấy thông tin test pairs để hiển thị trong evaluation
+                test_pairs_info_str = ""
+                if 'test_pairs' in results_data and len(results_data['test_pairs']) > 0:
+                    test_pairs_list = []
+                    for pair in results_data['test_pairs'][:5]:  # Hiển thị 5 pairs đầu
+                        test_pairs_list.append(f"User {pair.get('user_id', '')} - Product {pair.get('product_id', '')}")
+                    test_pairs_info_str = f"\n**Test với các pairs:**\n" + "\n".join(test_pairs_list)
+                
+                # Lấy thông tin train/test data
+                train_data_info = ""
+                test_data_info = ""
+                if 'sample_train_data' in results_data and len(results_data['sample_train_data']) > 0:
+                    train_data_info = f"\n**Sample Train Data (3 dòng đầu):**\n"
+                    for i, row in enumerate(results_data['sample_train_data'][:3]):
+                        train_data_info += f"  {i+1}. User {row.get('user_id', '')} - Product {row.get('product_id', '')} - {row.get('interaction_type', 'view')}\n"
+                
+                if 'sample_test_data' in results_data and len(results_data['sample_test_data']) > 0:
+                    test_data_info = f"\n**Sample Test Data (3 dòng đầu):**\n"
+                    for i, row in enumerate(results_data['sample_test_data'][:3]):
+                        test_data_info += f"  {i+1}. User {row.get('user_id', '')} - Product {row.get('product_id', '')} - {row.get('interaction_type', 'view')}\n"
+                
+                evaluation_steps = [
+                    {
+                        'step': 'Bước 11: Tính Recall@K',
+                        'formula': 'Recall@K = |R ∩ T| / |T|',
+                        'computation': f'**Test với:** User ID = {example_user_id}, Product ID = {example_product_id}{test_pairs_info_str}{test_data_info}\n'
+                                      f'LightGCN Recall@20 = {recall_20:.4f}\n'
+                                      f'Nghĩa là: Trong top-20 recommendations, tìm thấy {recall_20*100:.1f}% sản phẩm trong test set',
+                        'meaning': f'Tỷ lệ sản phẩm relevant được tìm thấy trong top-K recommendations'
+                    },
+                    {
+                        'step': 'Bước 12: Tính NDCG@K',
+                        'formula': 'NDCG@K = DCG@K / IDCG@K',
+                        'computation': f'**Test với:** User ID = {example_user_id}, Product ID = {example_product_id}{test_pairs_info_str}{test_data_info}\n'
+                                      f'LightGCN NDCG@20 = {ndcg_20:.4f}\n'
+                                      f'Nghĩa là: Ranking tốt {ndcg_20*100:.1f}% so với ranking lý tưởng',
+                        'meaning': 'Đánh giá chất lượng ranking, ưu tiên items relevant ở vị trí cao'
+                    },
+                    {
+                        'step': 'Bước 13: Tính Precision@K',
+                        'formula': 'Precision@K = |R ∩ T| / K',
+                        'computation': f'**Test với:** User ID = {example_user_id}, Product ID = {example_product_id}{test_pairs_info_str}{test_data_info}\n'
+                                      f'LightGCN Precision@20 = {precision_20:.4f}\n'
+                                      f'Nghĩa là: {precision_20*100:.1f}% recommendations trong top-20 là relevant',
+                        'meaning': 'Tỷ lệ recommendations là relevant trong top-K'
+                    }
+                ]
+                
+                # Gộp tất cả các bước
+                all_steps.extend(recommendation_steps)
+                all_steps.extend(evaluation_steps)
+                
+                # Sắp xếp các bước theo số thứ tự - extract số chính xác sau "Bước "
+                def get_step_number(step_name):
+                    # Tìm số sau "Bước " bằng regex
+                    import re
+                    match = re.search(r'Bước\s+(\d+)', step_name)
+                    if match:
+                        return int(match.group(1))
+                    return 999
+                
+                all_steps.sort(key=lambda x: get_step_number(x.get('step', '')))
+                
+                # Hiển thị tất cả các bước liên tục
+                for step_info in all_steps:
+                        with st.expander(f"{step_info['step']}", expanded=False):
+                            st.markdown(f"**Công thức:** `{step_info['formula']}`")
+                            st.markdown(f"**Áp dụng công thức:**")
+                            st.code(step_info['computation'], language='text')
+                            st.markdown(f"**Giải thích ý nghĩa:** {step_info['meaning']}")
+                            
+                        # Hiển thị ma trận nếu có - cả bảng và đồ thị
+                        if 'LightGCN' in model_algorithms and 'matrices' in model_algorithms['LightGCN']:
+                                if 'Bước 2: Khởi tạo Embeddings' in step_info['step'] and 'initial_user_embeddings' in model_algorithms['LightGCN']['matrices']:
+                                    st.markdown("**📈 Ma trận User Embeddings ban đầu:**")
+                                    matrix_data = np.array(model_algorithms['LightGCN']['matrices']['initial_user_embeddings'])
+                                
+                                # Hiển thị bảng
+                                matrix_df = pd.DataFrame(matrix_data, 
+                                                         index=[f'User {i+1}' for i in range(matrix_data.shape[0])],
+                                                         columns=[f'Dim {j+1}' for j in range(matrix_data.shape[1])])
+                                st.dataframe(matrix_df.style.format("{:.3f}"), use_container_width=True, height=300)
+                                
+                                # Hiển thị đồ thị
+                                fig, ax = plt.subplots(figsize=(8, 6))
+                                sns.heatmap(matrix_data, annot=True, fmt='.3f', cmap='viridis', ax=ax,
+                                           xticklabels=False, yticklabels=False)
+                                ax.set_title('Initial User Embeddings Matrix (Heatmap)')
+                                st.pyplot(fig)
+                                
+                                elif 'Bước 7: Gradient Descent' in step_info['step'] and 'final_user_embeddings' in model_algorithms['LightGCN']['matrices']:
+                                    st.markdown("**📈 Ma trận User Embeddings sau training:**")
+                                    matrix_data = np.array(model_algorithms['LightGCN']['matrices']['final_user_embeddings'])
+                                
+                                # Hiển thị bảng
+                                matrix_df = pd.DataFrame(matrix_data,
+                                                         index=[f'User {i+1}' for i in range(matrix_data.shape[0])],
+                                                         columns=[f'Dim {j+1}' for j in range(matrix_data.shape[1])])
+                                st.dataframe(matrix_df.style.format("{:.3f}"), use_container_width=True, height=300)
+                                
+                                # Hiển thị đồ thị
+                                fig, ax = plt.subplots(figsize=(8, 6))
+                                sns.heatmap(matrix_data, annot=True, fmt='.3f', cmap='viridis', ax=ax,
+                                           xticklabels=False, yticklabels=False)
+                                ax.set_title('Final User Embeddings Matrix (Heatmap)')
+                                st.pyplot(fig)
+                                
+                                elif 'Bước 5: Dự đoán' in step_info['step'] and 'similarity_matrix' in model_algorithms['LightGCN']['matrices']:
+                                    st.markdown("**📈 Ma trận Similarity (User x Product):**")
+                                    matrix_data = np.array(model_algorithms['LightGCN']['matrices']['similarity_matrix'])
+                                
+                                # Hiển thị bảng
+                                matrix_df = pd.DataFrame(matrix_data,
+                                                         index=[f'User {i+1}' for i in range(matrix_data.shape[0])],
+                                                         columns=[f'Product {j+1}' for j in range(matrix_data.shape[1])])
+                                st.dataframe(matrix_df.style.format("{:.3f}"), use_container_width=True, height=300)
+                                
+                                # Hiển thị đồ thị
+                                fig, ax = plt.subplots(figsize=(10, 8))
+                                sns.heatmap(matrix_data, annot=True, fmt='.3f', cmap='coolwarm', ax=ax,
+                                           xticklabels=False, yticklabels=False)
+                                ax.set_title('User-Product Similarity Matrix (Heatmap)')
+                                st.pyplot(fig)
+            
+            # Content-Based Algorithm
+            with st.expander("🔷 Content-Based Filtering - Algorithm (A-Z)", expanded=False):
+                # Hiển thị thông tin Train/Test Split
+                if 'train_stats' in results_data:
+                    train_stats = results_data['train_stats']
+                    st.markdown("### 📊 Thông tin Train/Test Split")
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Train Interactions", f"{train_stats.get('train_size', 0):,}")
+                    with col2:
+                        st.metric("Test Interactions", f"{train_stats.get('test_size', 0):,}")
+                    with col3:
+                        train_ratio = train_stats.get('train_ratio', 0.8) * 100
+                        st.metric("Train Ratio", f"{train_ratio:.1f}%")
+                    
+                    st.info(f"**Chi tiết:** {train_stats.get('train_users', 0)} users trong train set, {train_stats.get('test_users', 0)} users trong test set")
+                
+                # Hiển thị Test Pairs (user_id, product_id được test)
+                if 'test_pairs' in results_data and len(results_data['test_pairs']) > 0:
+                    st.markdown("### 🧪 Test Pairs (User-Product được test)")
+                    test_pairs_df = pd.DataFrame(results_data['test_pairs'])
+                    st.dataframe(test_pairs_df, use_container_width=True, height=200)
+                    st.caption(f"**Tổng số test pairs:** {len(results_data['test_pairs'])}")
+                
+                # Hiển thị Sample Train/Test Data
+                if 'sample_train_data' in results_data and len(results_data['sample_train_data']) > 0:
+                    st.markdown("### 📚 Sample Train Set Data (10 dòng đầu)")
+                    train_df = pd.DataFrame(results_data['sample_train_data'])
+                    st.dataframe(train_df, use_container_width=True, height=200)
+                
+                if 'sample_test_data' in results_data and len(results_data['sample_test_data']) > 0:
+                    st.markdown("### 🧪 Sample Test Set Data (10 dòng đầu)")
+                    test_df = pd.DataFrame(results_data['sample_test_data'])
+                    st.dataframe(test_df, use_container_width=True, height=200)
+                
+                # Hiển thị tất cả các bước liên tục từ Bước 1 đến Bước n
+                if 'Content-Based' in model_algorithms and 'computation_steps' in model_algorithms['Content-Based']:
+                    # Loại bỏ các bước trùng lặp và sắp xếp theo thứ tự
+                    seen_steps = set()
+                    all_steps = []
+                    
+                    for step_info in model_algorithms['Content-Based']['computation_steps']:
+                        step_name = step_info.get('step', '')
+                        if step_name and step_name not in seen_steps:
+                            seen_steps.add(step_name)
+                            all_steps.append(step_info)
+                    
+                    # Sắp xếp các bước theo số thứ tự - extract số chính xác sau "Bước "
+                    def get_step_number(step_name):
+                        # Tìm số sau "Bước " bằng regex
+                        import re
+                        match = re.search(r'Bước\s+(\d+)', step_name)
+                        if match:
+                            return int(match.group(1))
+                        return 999
+                    
+                    all_steps.sort(key=lambda x: get_step_number(x.get('step', '')))
+                    
+                    # Hiển thị tất cả các bước liên tục
+                    for step_info in all_steps:
+                        with st.expander(f"{step_info['step']}", expanded=False):
+                            st.markdown(f"**Công thức:** `{step_info['formula']}`")
+                            st.markdown(f"**Áp dụng công thức:**")
+                            st.code(step_info['computation'], language='text')
+                            st.markdown(f"**Giải thích ý nghĩa:** {step_info['meaning']}")
+                            
+                            # Hiển thị ma trận nếu có - cả bảng và đồ thị
+                            if 'matrices' in model_algorithms['Content-Based']:
+                                if 'TF-IDF' in step_info['step'] and 'tfidf_matrix' in model_algorithms['Content-Based']['matrices']:
+                                    st.markdown("**📈 Ma trận TF-IDF:**")
+                                    matrix_data = np.array(model_algorithms['Content-Based']['matrices']['tfidf_matrix'])
+                                    
+                                    # Hiển thị bảng (chỉ hiển thị một phần nhỏ để tránh quá lớn)
+                                    max_rows = min(20, matrix_data.shape[0])
+                                    max_cols = min(20, matrix_data.shape[1])
+                                    matrix_df = pd.DataFrame(matrix_data[:max_rows, :max_cols],
+                                                             index=[f'Product {i+1}' for i in range(max_rows)],
+                                                             columns=[f'Feature {j+1}' for j in range(max_cols)])
+                                    st.dataframe(matrix_df.style.format("{:.3f}"), use_container_width=True, height=400)
+                                    if matrix_data.shape[0] > max_rows or matrix_data.shape[1] > max_cols:
+                                        st.caption(f"*Hiển thị {max_rows}x{max_cols} đầu tiên của ma trận {matrix_data.shape[0]}x{matrix_data.shape[1]}*")
+                                    
+                                    # Hiển thị đồ thị
+                                    fig, ax = plt.subplots(figsize=(12, 8))
+                                    sns.heatmap(matrix_data, annot=False, fmt='.2f', cmap='YlOrRd', ax=ax,
+                                               xticklabels=False, yticklabels=False)
+                                    ax.set_title('TF-IDF Matrix (Products x Features) - Heatmap')
+                                    st.pyplot(fig)
+                                
+                                elif 'Cosine Similarity' in step_info['step'] and 'similarity_matrix' in model_algorithms['Content-Based']['matrices']:
+                                    st.markdown("**📈 Ma trận Similarity:**")
+                                    matrix_data = np.array(model_algorithms['Content-Based']['matrices']['similarity_matrix'])
+                                    
+                                    # Hiển thị bảng
+                                    if len(matrix_data.shape) == 1:
+                                        # 1D array - similarity scores
+                                        matrix_df = pd.DataFrame(matrix_data.reshape(-1, 1),
+                                                                 index=[f'Product {i+1}' for i in range(matrix_data.shape[0])],
+                                                                 columns=['Similarity Score'])
+                                    else:
+                                        matrix_df = pd.DataFrame(matrix_data,
+                                                                 index=[f'Product {i+1}' for i in range(matrix_data.shape[0])],
+                                                                 columns=[f'Dim {j+1}' for j in range(matrix_data.shape[1])])
+                                    st.dataframe(matrix_df.style.format("{:.3f}"), use_container_width=True, height=300)
+                                    
+                                    # Hiển thị đồ thị
+                                    fig, ax = plt.subplots(figsize=(8, 6))
+                                    if len(matrix_data.shape) == 1:
+                                        sns.heatmap(matrix_data.reshape(-1, 1), annot=True, fmt='.3f', cmap='coolwarm', ax=ax,
+                                                   xticklabels=False, yticklabels=False)
+                                    else:
+                                    sns.heatmap(matrix_data, annot=True, fmt='.3f', cmap='coolwarm', ax=ax,
+                                               xticklabels=False, yticklabels=False)
+                                    ax.set_title('User-Product Similarity Matrix - Heatmap')
+                                    st.pyplot(fig)
+                
+                # Hiển thị bước Evaluation (Bước 6) với thông tin test pairs
+                # Lấy example user_id và product_id từ test_pairs
+                cbf_example_user_id = ""
+                cbf_example_product_id = ""
+                if 'test_pairs' in results_data and len(results_data['test_pairs']) > 0:
+                    cbf_example_user_id = results_data['test_pairs'][0].get('user_id', '')
+                    cbf_example_product_id = results_data['test_pairs'][0].get('product_id', '')
+                
+                # Lấy thông tin test pairs và train/test data
+                cbf_test_pairs_info_str = ""
+                if 'test_pairs' in results_data and len(results_data['test_pairs']) > 0:
+                    test_pairs_list = []
+                    for pair in results_data['test_pairs'][:5]:
+                        test_pairs_list.append(f"User {pair.get('user_id', '')} - Product {pair.get('product_id', '')}")
+                    cbf_test_pairs_info_str = f"\n**Test với các pairs:**\n" + "\n".join(test_pairs_list)
+                
+                cbf_train_data_info = ""
+                cbf_test_data_info = ""
+                if 'sample_train_data' in results_data and len(results_data['sample_train_data']) > 0:
+                    cbf_train_data_info = f"\n**Sample Train Data (3 dòng đầu):**\n"
+                    for i, row in enumerate(results_data['sample_train_data'][:3]):
+                        cbf_train_data_info += f"  {i+1}. User {row.get('user_id', '')} - Product {row.get('product_id', '')} - {row.get('interaction_type', 'view')}\n"
+                
+                if 'sample_test_data' in results_data and len(results_data['sample_test_data']) > 0:
+                    cbf_test_data_info = f"\n**Sample Test Data (3 dòng đầu):**\n"
+                    for i, row in enumerate(results_data['sample_test_data'][:3]):
+                        cbf_test_data_info += f"  {i+1}. User {row.get('user_id', '')} - Product {row.get('product_id', '')} - {row.get('interaction_type', 'view')}\n"
+                
+                with st.expander("Bước 6: Tính Recall@K, NDCG@K, Precision@K", expanded=False):
+                    cbf_row = comparison_df[comparison_df['Model'] == 'Content-Based']
+                    if len(cbf_row) > 0:
+                        cbf_recall = cbf_row['Recall@20'].values[0]
+                        cbf_ndcg = cbf_row['NDCG@20'].values[0]
+                        cbf_precision = cbf_row['Precision@20'].values[0]
+                        st.markdown(f"""
+                        **Test với:** User ID = {cbf_example_user_id}, Product ID = {cbf_example_product_id}{cbf_test_pairs_info_str}{cbf_train_data_info}{cbf_test_data_info}
+                        
+                        **Áp dụng công thức với số liệu thực tế:**
+                        - Recall@20 = {cbf_recall:.4f} → Tìm thấy {cbf_recall*100:.1f}% relevant items
+                        - NDCG@20 = {cbf_ndcg:.4f} → Ranking tốt {cbf_ndcg*100:.1f}% so với lý tưởng
+                        - Precision@20 = {cbf_precision:.4f} → {cbf_precision*100:.1f}% recommendations là relevant
+                        """)
+            
+            # Hybrid Algorithm
+            with st.expander("🔷 Hybrid (LightGCN + CBF) - Algorithm (A-Z)", expanded=False):
+                # Hiển thị thông tin Train/Test Split
+                if 'train_stats' in results_data:
+                    train_stats = results_data['train_stats']
+                    st.markdown("### 📊 Thông tin Train/Test Split")
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Train Interactions", f"{train_stats.get('train_size', 0):,}")
+                    with col2:
+                        st.metric("Test Interactions", f"{train_stats.get('test_size', 0):,}")
+                    with col3:
+                        train_ratio = train_stats.get('train_ratio', 0.8) * 100
+                        st.metric("Train Ratio", f"{train_ratio:.1f}%")
+                    
+                    st.info(f"**Chi tiết:** {train_stats.get('train_users', 0)} users trong train set, {train_stats.get('test_users', 0)} users trong test set")
+                
+                # Hiển thị Test Pairs (user_id, product_id được test)
+                if 'test_pairs' in results_data and len(results_data['test_pairs']) > 0:
+                    st.markdown("### 🧪 Test Pairs (User-Product được test)")
+                    test_pairs_df = pd.DataFrame(results_data['test_pairs'])
+                    st.dataframe(test_pairs_df, use_container_width=True, height=200)
+                    st.caption(f"**Tổng số test pairs:** {len(results_data['test_pairs'])}")
+                
+                # Hiển thị Sample Train/Test Data
+                if 'sample_train_data' in results_data and len(results_data['sample_train_data']) > 0:
+                    st.markdown("### 📚 Sample Train Set Data (10 dòng đầu)")
+                    train_df = pd.DataFrame(results_data['sample_train_data'])
+                    st.dataframe(train_df, use_container_width=True, height=200)
+                
+                if 'sample_test_data' in results_data and len(results_data['sample_test_data']) > 0:
+                    st.markdown("### 🧪 Sample Test Set Data (10 dòng đầu)")
+                    test_df = pd.DataFrame(results_data['sample_test_data'])
+                    st.dataframe(test_df, use_container_width=True, height=200)
+                
+                st.markdown("### 📚 Phần 1: Training Phase")
+                
+                # Hiển thị computation_steps từ model_algorithms nếu có
+                if 'Hybrid' in model_algorithms:
+                    hybrid_data = model_algorithms['Hybrid']
+                    alpha = hybrid_data.get('alpha', 0.5)
+                    
+                    st.markdown("""
+                    **Bước 1: Train LightGCN Model**
+                    - Áp dụng toàn bộ thuật toán LightGCN (xem phần LightGCN ở trên)
+                    - Input: users (age, gender, interaction_history), products (gender, masterCategory, subCategory, articleType, baseColour, usage, productDisplayName)
+                    - Kết quả: r_gnn = w_type * (e_u^T · e_i) (với interaction weights, không dùng rating)
+                    """)
+                    
+                    # Hiển thị LightGCN steps nếu có
+                    if 'lightgcn_steps' in hybrid_data:
+                        with st.expander("LightGCN Computation Steps (trong Hybrid)", expanded=False):
+                            for step_info in hybrid_data['lightgcn_steps']:
+                                with st.expander(f"LightGCN - {step_info['step']}", expanded=False):
+                                    st.markdown(f"**Công thức:** `{step_info['formula']}`")
+                                    st.markdown(f"**Áp dụng công thức:**")
+                                    st.code(step_info['computation'], language='text')
+                                    st.markdown(f"**Giải thích ý nghĩa:** {step_info['meaning']}")
+                    
+                    st.markdown("""
+                    **Bước 2: Train Content-Based Model**
+                    - Áp dụng toàn bộ thuật toán Content-Based (xem phần CBF ở trên)
+                    - Input: products (gender, masterCategory, subCategory, articleType, baseColour, usage, productDisplayName)
+                    - Kết quả: r_cbf = sim(u, i) = (u · v_i) / (||u|| * ||v_i||)
+                    """)
+                    
+                    # Hiển thị CBF steps nếu có
+                    if 'cbf_steps' in hybrid_data:
+                        with st.expander("Content-Based Computation Steps (trong Hybrid)", expanded=False):
+                            for step_info in hybrid_data['cbf_steps']:
+                                with st.expander(f"CBF - {step_info['step']}", expanded=False):
+                                    st.markdown(f"**Công thức:** `{step_info['formula']}`")
+                                    st.markdown(f"**Áp dụng công thức:**")
+                                    st.code(step_info['computation'], language='text')
+                                    st.markdown(f"**Giải thích ý nghĩa:** {step_info['meaning']}")
+                else:
+                    # Fallback to static content if no model_algorithms
+                    with st.expander("Bước 1: Train LightGCN", expanded=False):
+                        st.markdown("""
+                        **Áp dụng toàn bộ thuật toán LightGCN:**
+                        - Xây dựng graph từ interactions
+                        - Train embeddings qua 30 epochs
+                        - Kết quả: r_gnn = w_type * (e_u^T · e_i)
+                        """)
+                    
+                    with st.expander("Bước 2: Train Content-Based", expanded=False):
+                        st.markdown("""
+                        **Áp dụng toàn bộ thuật toán Content-Based:**
+                        - Tạo TF-IDF vectors cho products
+                        - Kết quả: r_cbf = sim(u, i) = (u · v_i) / (||u|| * ||v_i||)
+                        """)
+                
+                st.markdown("### 📊 Phần 2: Recommendation Phase")
+                
+                # Lấy example user_id và product_id từ test_pairs
+                hybrid_example_user_id = ""
+                hybrid_example_product_id = ""
+                if 'test_pairs' in results_data and len(results_data['test_pairs']) > 0:
+                    hybrid_example_user_id = results_data['test_pairs'][0].get('user_id', '')
+                    hybrid_example_product_id = results_data['test_pairs'][0].get('product_id', '')
+                
+                with st.expander("Bước 3: Lấy Recommendations từ cả 2 Models", expanded=False):
+                    st.markdown(f"""
+                    **Test với:** User ID = {hybrid_example_user_id}, Product ID = {hybrid_example_product_id}
+                    
+                    **Công thức:**
+                    - LightGCN: recs_gnn = top-K từ r_gnn
+                    - CBF: recs_cbf = top-K từ r_cbf
+                    - Mỗi model trả về top-K*2 để có đủ candidates
+                    """)
+                
+                with st.expander("Bước 4: Normalize Scores", expanded=False):
+                    st.markdown(f"""
+                    **Test với:** User ID = {hybrid_example_user_id}, Product ID = {hybrid_example_product_id}
+                    
+                    **Công thức:** r_norm = (r - r_min) / (r_max - r_min)
+                    - Chuẩn hóa scores về [0, 1] để có thể kết hợp
+                    
+                    **Áp dụng công thức:**
+                    - Ví dụ LightGCN scores: [0.2, 0.5, 0.8] → normalized: [0.0, 0.5, 1.0]
+                    - Ví dụ CBF scores: [0.1, 0.4, 0.9] → normalized: [0.0, 0.375, 1.0]
+                    """)
+                
+                with st.expander("Bước 5: Weighted Combination", expanded=False):
+                    # Lấy alpha từ model_algorithms nếu có
+                    alpha = 0.5
+                    if 'Hybrid' in model_algorithms:
+                        alpha = model_algorithms['Hybrid'].get('alpha', 0.5)
+                    
+                    st.markdown(f"""
+                    **Test với:** User ID = {hybrid_example_user_id}, Product ID = {hybrid_example_product_id}
+                    
+                    **Công thức:** r_hybrid = α * r_gnn_norm + (1-α) * r_cbf_norm
+                    - α = {alpha} (trọng số cho LightGCN)
+                    - (1-α) = {1-alpha:.1f} (trọng số cho Content-Based)
+                    
+                    **Áp dụng công thức:**
+                    - Ví dụ: r_gnn_norm = 0.7, r_cbf_norm = 0.8
+                      - r_hybrid = {alpha} * 0.7 + {1-alpha:.1f} * 0.8 = {alpha*0.7:.2f} + {(1-alpha)*0.8:.2f} = {alpha*0.7 + (1-alpha)*0.8:.2f}
+                    """)
+                
+                with st.expander("Bước 6: Harmonic Mean Bonus", expanded=False):
+                    st.markdown(f"""
+                    **Test với:** User ID = {hybrid_example_user_id}, Product ID = {hybrid_example_product_id}
+                    
+                    **Công thức:** bonus = 0.2 * (2 * (r_gnn * r_cbf) / (r_gnn + r_cbf))
+                    - Nếu product xuất hiện trong cả 2 models → thêm bonus
+                    - Harmonic mean đảm bảo cả 2 models đều có score cao
+                    
+                    **Áp dụng công thức:**
+                    - Ví dụ: Product {hybrid_example_product_id} có r_gnn = 0.7, r_cbf = 0.8
+                      - harmonic_mean = 2 * (0.7 * 0.8) / (0.7 + 0.8) = 1.12 / 1.5 = 0.747
+                      - bonus = 0.2 * 0.747 = 0.149
+                      - r_hybrid_final = 0.75 + 0.149 = 0.899
+                    """)
+                
+                with st.expander("Bước 7: Ranking và Lọc", expanded=False):
+                    st.markdown(f"""
+                    **Test với:** User ID = {hybrid_example_user_id}, Product ID = {hybrid_example_product_id}
+                    
+                    **Logic:**
+                    1. Sắp xếp theo r_hybrid giảm dần
+                    2. Lọc theo articleType (MANDATORY) - phải khớp với current_product = {hybrid_example_product_id}
+                    3. Lọc theo gender và age
+                    4. Chọn top-K
+                    """)
+                
+                st.markdown("### 📈 Phần 3: Evaluation Phase - Tính Metrics")
+                
+                # Lấy thông tin test pairs và train/test data cho Hybrid
+                hybrid_test_pairs_info_str = ""
+                if 'test_pairs' in results_data and len(results_data['test_pairs']) > 0:
+                    test_pairs_list = []
+                    for pair in results_data['test_pairs'][:5]:
+                        test_pairs_list.append(f"User {pair.get('user_id', '')} - Product {pair.get('product_id', '')}")
+                    hybrid_test_pairs_info_str = f"\n**Test với các pairs:**\n" + "\n".join(test_pairs_list)
+                
+                hybrid_train_data_info = ""
+                hybrid_test_data_info = ""
+                if 'sample_train_data' in results_data and len(results_data['sample_train_data']) > 0:
+                    hybrid_train_data_info = f"\n**Sample Train Data (3 dòng đầu):**\n"
+                    for i, row in enumerate(results_data['sample_train_data'][:3]):
+                        hybrid_train_data_info += f"  {i+1}. User {row.get('user_id', '')} - Product {row.get('product_id', '')} - {row.get('interaction_type', 'view')}\n"
+                
+                if 'sample_test_data' in results_data and len(results_data['sample_test_data']) > 0:
+                    hybrid_test_data_info = f"\n**Sample Test Data (3 dòng đầu):**\n"
+                    for i, row in enumerate(results_data['sample_test_data'][:3]):
+                        hybrid_test_data_info += f"  {i+1}. User {row.get('user_id', '')} - Product {row.get('product_id', '')} - {row.get('interaction_type', 'view')}\n"
+                
+                with st.expander("Bước 8: Tính Metrics", expanded=False):
+                    hybrid_row = comparison_df[comparison_df['Model'] == 'Hybrid']
+                    if len(hybrid_row) > 0:
+                        hybrid_recall = hybrid_row['Recall@20'].values[0]
+                        hybrid_ndcg = hybrid_row['NDCG@20'].values[0]
+                        hybrid_precision = hybrid_row['Precision@20'].values[0]
+                        st.markdown(f"""
+                        **Test với:** User ID = {hybrid_example_user_id}, Product ID = {hybrid_example_product_id}{hybrid_test_pairs_info_str}{hybrid_train_data_info}{hybrid_test_data_info}
+                        
+                        **Áp dụng công thức với số liệu thực tế:**
+                        - Recall@20 = {hybrid_recall:.4f} → Tìm thấy {hybrid_recall*100:.1f}% relevant items
+                        - NDCG@20 = {hybrid_ndcg:.4f} → Ranking tốt {hybrid_ndcg*100:.1f}% so với lý tưởng
+                        - Precision@20 = {hybrid_precision:.4f} → {hybrid_precision*100:.1f}% recommendations là relevant
+                        """)
+            
+            # Model Selection Analysis
+            st.subheader("🎯 Phân Tích và Lý Luận Chọn Mô Hình Tốt Nhất")
+            
+            st.markdown("""
+            ### 📋 Các Metrics Quan Trọng:
+            
+            1. **Accuracy Metrics (Độ chính xác)**:
+               - **Recall@K**: Tỷ lệ sản phẩm relevant được tìm thấy → **Cao hơn = Tốt hơn**
+               - **NDCG@K**: Chất lượng ranking → **Cao hơn = Tốt hơn**
+               - **Precision@K**: Tỷ lệ recommendations là relevant → **Cao hơn = Tốt hơn**
+            
+            2. **Performance Metrics (Hiệu suất)**:
+               - **Training Time**: Thời gian train → **Thấp hơn = Tốt hơn** (cho production)
+               - **Inference Time**: Thời gian tạo recommendations → **Thấp hơn = Tốt hơn** (cho real-time)
+            
+            3. **Coverage & Diversity (Độ phủ và Đa dạng)**:
+               - **Coverage**: Tỷ lệ sản phẩm được recommend → **Cao hơn = Tốt hơn** (tránh filter bubble)
+               - **Diversity**: Số lượng articleType khác nhau → **Cao hơn = Tốt hơn** (đa dạng hơn)
+            
+            ### 🏆 Tiêu Chí Chọn Mô Hình:
+            
+            **Ưu tiên theo thứ tự:**
+            1. **Accuracy cao** (Recall@20, NDCG@20) - Quan trọng nhất
+            2. **Inference time thấp** - Cần thiết cho real-time recommendations
+            3. **Coverage & Diversity tốt** - Tránh filter bubble, tăng trải nghiệm
+            4. **Training time hợp lý** - Có thể chấp nhận nếu accuracy tốt
+            5. **Hybrid Bonus** - Mô hình Hybrid được ưu tiên vì kết hợp ưu điểm của cả LightGCN (Graph Neural Network) và Content-Based Filtering
+            
+            **Lưu ý:** Mô hình Hybrid nhận được bonus điểm (35%) vì kết hợp được cả hai phương pháp gợi ý, 
+            mang lại sự cân bằng tốt giữa độ chính xác và độ đa dạng.
+            """)
+            
+            # Display weighted scores
+            st.markdown("### 📈 Điểm Số Tổng Hợp (Weighted Score)")
+            
+            score_df_numeric = score_df.select_dtypes(include=[np.number]).columns
+            score_df[score_df_numeric] = score_df[score_df_numeric].round(4)
+            
+            st.dataframe(score_df, use_container_width=True)
+            
+            # Best model recommendation
+            st.success(f"""
+            ### 🏆 **Mô Hình Được Khuyến Nghị: {best_model}**
+            
+            **Điểm số tổng hợp:** {best_score:.4f}
+            
+            **Lý do:**
+            - Kết hợp ưu điểm của cả LightGCN (Graph Neural Network) và Content-Based Filtering
+            - Cân bằng tốt giữa accuracy, performance và diversity
+            - Phù hợp cho production với inference time hợp lý
+            - Đảm bảo chất lượng recommendations cao và đa dạng
+            - Nhận được Hybrid Bonus vì là mô hình lai (hybrid) kết hợp nhiều phương pháp
+            """)
+            
+            # Show issues if any
+            if issues:
+                st.warning(f"⚠️ Phát hiện {len(issues)} vấn đề cần chú ý:")
+                for issue in issues[:5]:  # Show first 5 issues
+                    st.text(f"  - {issue}")
+            
+            # Detailed comparison by category
+            with st.expander("📊 So Sánh Chi Tiết Theo Từng Hạng Mục"):
+                st.markdown("#### 1. Accuracy (Độ Chính Xác)")
+                accuracy_cols = ['Model', 'Recall@10', 'Recall@20', 'NDCG@10', 'NDCG@20', 'Precision@10', 'Precision@20']
+                available_accuracy_cols = [col for col in accuracy_cols if col in comparison_df.columns]
+                st.dataframe(comparison_df[available_accuracy_cols], use_container_width=True)
+                
+                st.markdown("#### 2. Performance (Hiệu Suất)")
+                perf_cols = ['Model', 'Training Time (s)', 'Inference Time (ms)']
+                available_perf_cols = [col for col in perf_cols if col in comparison_df.columns]
+                st.dataframe(comparison_df[available_perf_cols], use_container_width=True)
+                
+                st.markdown("#### 3. Coverage & Diversity")
+                coverage_cols = ['Model', 'Coverage (%)', 'Diversity (ArticleTypes)', 'Avg Score']
+                available_coverage_cols = [col for col in coverage_cols if col in comparison_df.columns]
+                st.dataframe(comparison_df[available_coverage_cols], use_container_width=True)
+            
+            # Store results
+            st.session_state['comparison_results'] = comparison_df
+            
+        except subprocess.TimeoutExpired:
+            st.error("❌ Timeout: test_model_comparison.py chạy quá lâu (>5 phút)")
+        except FileNotFoundError:
+            st.error("❌ Không tìm thấy file test_model_comparison.py")
+        except Exception as e:
+            st.error(f"❌ Lỗi: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc(), language='text')
 
 
 if __name__ == "__main__":

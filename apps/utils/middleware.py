@@ -19,25 +19,19 @@ class NoAppendSlashForAPIMiddleware(MiddlewareMixin):
         
         path = request.path
         
-        # Try to resolve the current path first
         try:
             resolve(path)
             return None  # Path resolves, continue normally
         except Resolver404:
             pass
         
-        # If path doesn't resolve, try the opposite (with/without trailing slash)
         if path.endswith('/') and len(path) > 1:
-            # Current path has trailing slash, try without
             alternate_path = path.rstrip('/')
         else:
-            # Current path doesn't have trailing slash, try with
             alternate_path = path + '/'
         
-        # Try to resolve the alternate path
         try:
             resolve(alternate_path)
-            # The alternate path resolves, modify request to use it
             request.path_info = alternate_path
             request.path = alternate_path
             return None
