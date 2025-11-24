@@ -34,6 +34,16 @@ from .mongo_serializers import (
 )
 
 
+def ensure_mongodb_connection():
+    """Ensure MongoDB connection is established."""
+    try:
+        from mongoengine import connection
+        connection.get_connection()
+    except Exception:
+        from novaware.mongodb import connect_mongodb
+        connect_mongodb()
+
+
 class CategoryViewSet(viewsets.ViewSet):
     """ViewSet for Category."""
     
@@ -43,6 +53,9 @@ class CategoryViewSet(viewsets.ViewSet):
     def list(self, request):
         """List all categories from unique values in Product collection."""
         from collections import defaultdict
+        
+        # Ensure MongoDB connection is established
+        ensure_mongodb_connection()
         
         # Get all products with category fields
         products = Product.objects.only("masterCategory", "subCategory", "articleType").all()

@@ -126,13 +126,39 @@ def render_metrics_table(df, highlight_model=None):
 
     st.markdown("### 📊 Bảng Tổng Hợp Chỉ Số Các Mô Hình")
     
-    # Format dataframe
+    # Format dataframe - chỉ lấy các cột cần thiết
+    required_cols = ['model_name', 'recall@10', 'recall@20', 'ndcg@10', 'ndcg@20', 
+                     'precision@10', 'precision@20', 'training_time', 'avg_inference_time',
+                     'coverage@10', 'diversity@10']
+    
+    # Tạo display_df với các cột cần thiết
     display_df = df.copy()
+    available_cols = [col for col in required_cols if col in display_df.columns]
+    display_df = display_df[available_cols]
+    
+    # Rename columns for better display
+    column_mapping = {
+        'model_name': 'Model',
+        'recall@10': 'Recall@10',
+        'recall@20': 'Recall@20',
+        'ndcg@10': 'NDCG@10',
+        'ndcg@20': 'NDCG@20',
+        'precision@10': 'Precision@10',
+        'precision@20': 'Precision@20',
+        'training_time': 'Training Time (s)',
+        'avg_inference_time': 'Inference Time (s)',
+        'coverage@10': 'Coverage@10',
+        'diversity@10': 'Diversity@10'
+    }
+    display_df = display_df.rename(columns=column_mapping)
+    
+    # Format numeric columns
     numeric_cols = display_df.select_dtypes(include=[np.number]).columns
     display_df[numeric_cols] = display_df[numeric_cols].round(4)
     
     def highlight_row(row):
-        if row['model_name'] == highlight_model:
+        model_name = row.get('Model', '')
+        if model_name == highlight_model:
             return ['background-color: #e6ffe6'] * len(row)
         return [''] * len(row)
 
@@ -254,26 +280,54 @@ def main():
             with st.expander("Bước 1: Feature Engineering (Tạo đặc trưng)", expanded=True):
                 st.markdown('<div class="step-header">Bước 1: Feature Engineering</div>', unsafe_allow_html=True)
                 st.write("**Nội dung thực hiện:** Chuyển đổi các thuộc tính sản phẩm thành chuỗi văn bản, áp dụng trọng số bằng cách lặp lại từ khóa.")
-                st.write(f"**Dữ liệu sử dụng:** Toàn bộ {len(preprocessor.products_df)} sản phẩm trong `products.csv`.")
+                
+                # Thông tin dữ liệu
+                col_data1, col_data2 = st.columns(2)
+                with col_data1:
+                    st.metric("Tổng số sản phẩm", len(preprocessor.products_df))
+                    st.metric("Tổng số users", len(preprocessor.users_df))
+                with col_data2:
+                    st.metric("Train interactions", len(preprocessor.train_interactions))
+                    st.metric("Test interactions", len(preprocessor.test_interactions))
+                
+                st.write(f"**Dữ liệu sử dụng:** Toàn bộ {len(preprocessor.products_df)} sản phẩm trong `products.csv` (không phân chia train/test vì đây là dữ liệu sản phẩm tĩnh).")
                 
                 st.markdown("""
                 **Công thức áp dụng:**
                 $$Text(P_i) = [Gender] + [MasterCategory] + [SubCategory] \\times 2 + [ArticleType] \\times 3 + [BaseColour] + [Usage]$$
                 """)
                 
+                st.write("**Ví dụ áp dụng công thức:**")
+                if len(cb_model.products_df) > 0:
+                    example_product = cb_model.products_df.iloc[0]
+                    st.write(f"- **Sản phẩm:** {example_product.get('productDisplayName', 'N/A')}")
+                    st.write(f"- Gender: {example_product.get('gender', 'N/A')}")
+                    st.write(f"- MasterCategory: {example_product.get('masterCategory', 'N/A')}")
+                    st.write(f"- SubCategory: {example_product.get('subCategory', 'N/A')} (x2)")
+                    st.write(f"- ArticleType: {example_product.get('articleType', 'N/A')} (x3)")
+                    st.write(f"- BaseColour: {example_product.get('baseColour', 'N/A')}")
+                    st.write(f"- Usage: {example_product.get('usage', 'N/A')}")
+                
                 st.write("**Kết quả tính toán (Ví dụ 2 sản phẩm đầu tiên):**")
                 example_df = cb_model.products_df[['productDisplayName', 'feature_text']].head(2)
                 st.table(example_df)
-                st.info("💡 **Phân tích:** Việc lặp lại `ArticleType` 3 lần giúp thuật toán coi trọng loại sản phẩm hơn màu sắc.")
+                st.info("💡 **Phân tích:** Việc lặp lại `ArticleType` 3 lần giúp thuật toán coi trọng loại sản phẩm hơn màu sắc. Điều này giúp gợi ý sản phẩm cùng loại (ví dụ: áo thun với áo thun) thay vì chỉ dựa vào màu sắc.")
 
             # BƯỚC 2
             with st.expander("Bước 2: Vectorization (TF-IDF) & Ma trận"):
                 st.markdown('<div class="step-header">Bước 2: Vectorization</div>', unsafe_allow_html=True)
                 st.write("**Nội dung thực hiện:** Chuyển đổi văn bản thành vector số học sử dụng TF-IDF.")
+                st.write(f"**Dữ liệu sử dụng:** Toàn bộ {len(cb_model.products_df)} sản phẩm từ Bước 1 (feature_text).")
                 
                 st.markdown("""
                 **Công thức TF-IDF:**
                 $$TF(t, d) = \\frac{count(t, d)}{len(d)}, \\quad IDF(t) = \\log(\\frac{N}{df(t)}), \\quad TF\\text{-}IDF = TF \\times IDF$$
+                
+                Trong đó:
+                - $TF(t, d)$: Tần suất từ $t$ trong document $d$
+                - $IDF(t)$: Nghịch đảo tần suất document, đo độ hiếm của từ $t$
+                - $N$: Tổng số documents (sản phẩm)
+                - $df(t)$: Số documents chứa từ $t$
                 """)
                 
                 if cb_model.tfidf_vectorizer is not None:
@@ -283,17 +337,34 @@ def main():
                     tfidf_df = pd.DataFrame(tfidf_subset.toarray(), columns=feature_names, index=cb_model.products_df['productDisplayName'].head(5))
                     
                     st.write(f"**Ma trận TF-IDF (Top 5 sản phẩm x Top 10 features):**")
+                    st.write(f"**Shape:** {tfidf_subset.shape[0]} sản phẩm × {tfidf_subset.shape[1]} features")
                     st.dataframe(tfidf_df.iloc[:, :10].style.background_gradient(cmap='Blues', axis=None))
-                    st.info(f"💡 **Ý nghĩa:** Giá trị càng cao (đậm) nghĩa là từ khóa đó càng đặc trưng cho sản phẩm. Ma trận thưa (nhiều số 0).")
+                    
+                    # Ví dụ tính toán
+                    if len(tfidf_df) >= 2:
+                        p1_name = tfidf_df.index[0]
+                        p2_name = tfidf_df.index[1]
+                        # Tìm feature có giá trị cao nhất cho mỗi sản phẩm
+                        top_feature_p1 = tfidf_df.loc[p1_name].nlargest(1).index[0]
+                        top_value_p1 = tfidf_df.loc[p1_name, top_feature_p1]
+                        st.write(f"**Ví dụ áp dụng:** Sản phẩm *'{p1_name}'* có feature *'{top_feature_p1}'* với TF-IDF score = **{top_value_p1:.4f}** (cao nhất).")
+                    
+                    st.info(f"💡 **Ý nghĩa:** Giá trị càng cao (đậm) nghĩa là từ khóa đó càng đặc trưng cho sản phẩm. Ma trận thưa (nhiều số 0) vì mỗi sản phẩm chỉ có một số features nhất định.")
 
             # BƯỚC 3
             with st.expander("Bước 3: Similarity Calculation & Ví dụ tính toán"):
                 st.markdown('<div class="step-header">Bước 3: Tính độ tương đồng</div>', unsafe_allow_html=True)
-                st.write("**Nội dung thực hiện:** Tính Cosine Similarity giữa tất cả các cặp sản phẩm.")
+                st.write("**Nội dung thực hiện:** Tính Cosine Similarity giữa tất cả các cặp sản phẩm dựa trên TF-IDF vectors.")
+                st.write(f"**Dữ liệu sử dụng:** Ma trận TF-IDF từ Bước 2 ({cb_model.similarity_matrix.shape[0]} × {cb_model.similarity_matrix.shape[1]}).")
                 
                 st.markdown("""
                 **Công thức Cosine Similarity:**
-                $$Cosine(A, B) = \\frac{\\sum A_i B_i}{\\sqrt{\\sum A_i^2} \\sqrt{\\sum B_i^2}}$$
+                $$Cosine(A, B) = \\frac{A \\cdot B}{||A|| \\times ||B||} = \\frac{\\sum_{i=1}^{n} A_i B_i}{\\sqrt{\\sum_{i=1}^{n} A_i^2} \\sqrt{\\sum_{i=1}^{n} B_i^2}}$$
+                
+                Trong đó:
+                - $A, B$: Hai vector TF-IDF của 2 sản phẩm
+                - $A_i, B_i$: Giá trị TF-IDF của feature thứ $i$
+                - Kết quả: Giá trị từ 0 đến 1 (1 = giống nhau hoàn toàn, 0 = khác biệt hoàn toàn)
                 """)
                 
                 if cb_model.similarity_matrix is not None:
@@ -303,8 +374,17 @@ def main():
                                         index=cb_model.products_df['productDisplayName'].head(5),
                                         columns=cb_model.products_df['productDisplayName'].head(5))
                     
-                    st.write("**Ma trận Similarity (5x5):**")
+                    st.write(f"**Ma trận Similarity (5×5 mẫu từ ma trận {cb_model.similarity_matrix.shape[0]}×{cb_model.similarity_matrix.shape[1]}):**")
                     st.dataframe(sim_df.style.background_gradient(cmap='Greens', axis=None))
+                    
+                    # Thống kê
+                    avg_sim = cb_model.similarity_matrix.mean()
+                    max_sim = cb_model.similarity_matrix.max()
+                    min_sim = cb_model.similarity_matrix.min()
+                    st.write(f"**Thống kê ma trận:**")
+                    st.write(f"- Độ tương đồng trung bình: {avg_sim:.4f}")
+                    st.write(f"- Độ tương đồng cao nhất: {max_sim:.4f} (sản phẩm với chính nó)")
+                    st.write(f"- Độ tương đồng thấp nhất: {min_sim:.4f}")
                     
                     # Ví dụ tính toán cụ thể
                     p1_name = sim_df.index[0]
@@ -312,16 +392,107 @@ def main():
                     score = sim_df.iloc[0, 1]
                     st.write(f"**Ví dụ áp dụng:** Độ tương đồng giữa *'{p1_name}'* và *'{p2_name}'* là **{score:.4f}**.")
                     if score > 0.5:
-                        st.write("=> Hai sản phẩm này rất giống nhau về đặc điểm.")
+                        st.write("=> Hai sản phẩm này rất giống nhau về đặc điểm (có thể cùng loại, màu sắc, hoặc mục đích sử dụng).")
+                    elif score > 0.3:
+                        st.write("=> Hai sản phẩm này có một số điểm tương đồng.")
                     else:
-                        st.write("=> Hai sản phẩm này khá khác biệt.")
+                        st.write("=> Hai sản phẩm này khá khác biệt về đặc điểm.")
 
             # BƯỚC 4
             with st.expander("Bước 4: Evaluation (Tính toán chỉ số)", expanded=True):
                 st.markdown('<div class="step-header">Bước 4: Đánh giá & Tính Metrics</div>', unsafe_allow_html=True)
-                st.write("**Dữ liệu Test-set:** Sử dụng tập `test_interactions` (20% dữ liệu, tách theo thời gian).")
-                st.write("**Quy trình:** Với mỗi user trong tập test, ẩn các sản phẩm họ đã mua, dùng mô hình gợi ý Top-K, sau đó so sánh với thực tế.")
                 
+                # Thông tin dữ liệu
+                st.write("**Dữ liệu sử dụng:**")
+                col_eval1, col_eval2 = st.columns(2)
+                with col_eval1:
+                    st.metric("Train-set", f"{len(preprocessor.train_interactions)} interactions")
+                    st.write(f"- Users: {preprocessor.train_interactions['user_idx'].nunique()}")
+                    st.write(f"- Products: {preprocessor.train_interactions['product_idx'].nunique()}")
+                with col_eval2:
+                    st.metric("Test-set", f"{len(preprocessor.test_interactions)} interactions")
+                    st.write(f"- Users: {preprocessor.test_interactions['user_idx'].nunique()}")
+                    st.write(f"- Products: {preprocessor.test_interactions['product_idx'].nunique()}")
+                
+                st.write("**Quy trình đánh giá:**")
+                st.write("1. Với mỗi user trong test-set, ẩn các sản phẩm họ đã tương tác (purchase/cart/like)")
+                st.write("2. Dùng mô hình gợi ý Top-K sản phẩm cho user đó")
+                st.write("3. So sánh danh sách gợi ý với ground truth (sản phẩm thực tế user đã tương tác)")
+                st.write("4. Tính các chỉ số metrics dựa trên kết quả so sánh")
+                
+                st.markdown("---")
+                st.markdown("#### 📐 Công thức tính các chỉ số:")
+                
+                # Recall@K
+                with st.expander("Recall@K", expanded=False):
+                    st.markdown("""
+                    **Công thức:**
+                    $$Recall@K = \\frac{1}{|U|} \\sum_{u \\in U} \\frac{|R_u \\cap T_u|}{|T_u|}$$
+                    
+                    Trong đó:
+                    - $U$: Tập users trong test-set
+                    - $R_u$: Top-K sản phẩm được gợi ý cho user $u$
+                    - $T_u$: Tập sản phẩm thực tế user $u$ đã tương tác (ground truth)
+                    - $|R_u \\cap T_u|$: Số sản phẩm relevant được gợi ý
+                    
+                    **Ý nghĩa:** Tỷ lệ sản phẩm relevant được tìm thấy trong Top-K. Càng cao càng tốt (0-1).
+                    """)
+                
+                # Precision@K
+                with st.expander("Precision@K", expanded=False):
+                    st.markdown("""
+                    **Công thức:**
+                    $$Precision@K = \\frac{1}{|U|} \\sum_{u \\in U} \\frac{|R_u \\cap T_u|}{K}$$
+                    
+                    Trong đó:
+                    - $K$: Số lượng sản phẩm gợi ý (Top-K)
+                    - $|R_u \\cap T_u|$: Số sản phẩm relevant trong Top-K
+                    
+                    **Ý nghĩa:** Tỷ lệ sản phẩm relevant trong Top-K. Càng cao càng tốt (0-1).
+                    """)
+                
+                # NDCG@K
+                with st.expander("NDCG@K (Normalized Discounted Cumulative Gain)", expanded=False):
+                    st.markdown("""
+                    **Công thức:**
+                    $$DCG@K = \\sum_{i=1}^{K} \\frac{rel_i}{\\log_2(i+1)}$$
+                    $$IDCG@K = \\sum_{i=1}^{|T_u|} \\frac{1}{\\log_2(i+1)}$$
+                    $$NDCG@K = \\frac{DCG@K}{IDCG@K}$$
+                    
+                    Trong đó:
+                    - $rel_i$: Relevance của sản phẩm ở vị trí $i$ (1 nếu relevant, 0 nếu không)
+                    - $IDCG$: Ideal DCG (DCG tốt nhất có thể)
+                    
+                    **Ý nghĩa:** Đo chất lượng ranking, coi trọng vị trí (sản phẩm relevant ở top tốt hơn). Càng cao càng tốt (0-1).
+                    """)
+                
+                # Coverage@K
+                with st.expander("Coverage@K", expanded=False):
+                    st.markdown("""
+                    **Công thức:**
+                    $$Coverage@K = \\frac{|\\bigcup_{u \\in U} R_u|}{|P|}$$
+                    
+                    Trong đó:
+                    - $\\bigcup_{u \\in U} R_u$: Tập hợp tất cả sản phẩm unique được gợi ý
+                    - $P$: Tập hợp tất cả sản phẩm trong catalog
+                    
+                    **Ý nghĩa:** Tỷ lệ sản phẩm trong catalog được gợi ý ít nhất 1 lần. Càng cao càng đa dạng (0-1).
+                    """)
+                
+                # Diversity@K
+                with st.expander("Diversity@K", expanded=False):
+                    st.markdown("""
+                    **Công thức:**
+                    $$Diversity@K = \\frac{1}{|U|} \\sum_{u \\in U} \\frac{|\\text{unique categories in } R_u|}{K}$$
+                    
+                    Trong đó:
+                    - $\\text{unique categories in } R_u$: Số lượng categories unique trong Top-K của user $u$
+                    
+                    **Ý nghĩa:** Độ đa dạng của danh sách gợi ý (dựa trên số lượng categories khác nhau). Càng cao càng đa dạng (0-1).
+                    """)
+                
+                st.markdown("---")
+                st.markdown("#### 📊 Kết quả đánh giá:")
                 render_metrics_table(comparison_df, highlight_model="Content-Based Filtering")
 
         # --- GNN TAB ---
@@ -332,59 +503,206 @@ def main():
             # BƯỚC 1
             with st.expander("Bước 1: Graph Construction & Dữ liệu Train", expanded=True):
                 st.markdown('<div class="step-header">Bước 1: Xây dựng đồ thị & Dữ liệu</div>', unsafe_allow_html=True)
-                st.write("**Dữ liệu Train-set:** Sử dụng `train_interactions` (80% dữ liệu đầu).")
+                st.write("**Nội dung thực hiện:** Xây dựng đồ thị lưỡng phân (Bipartite Graph) từ interactions giữa users và products.")
                 
-                col1, col2 = st.columns(2)
-                with col1:
+                # Thông tin dữ liệu
+                st.write("**Dữ liệu Train-set:** Sử dụng `train_interactions` (80% dữ liệu đầu, tách theo thời gian).")
+                col_data1, col_data2 = st.columns(2)
+                with col_data1:
+                    st.metric("Train interactions", len(preprocessor.train_interactions))
                     st.metric("Số lượng Users (Nodes)", gnn_model.n_users)
                     st.metric("Số lượng Products (Nodes)", gnn_model.n_products)
-                with col2:
+                with col_data2:
                     if gnn_model.graph_data:
                         st.metric("Số lượng Cạnh (Edges)", gnn_model.graph_data.edge_index.shape[1])
                         st.metric("Feature Dimension", gnn_model.graph_data.x.shape[1])
+                        st.metric("Tổng số Nodes", gnn_model.graph_data.x.shape[0])
+                
+                st.write("**Cấu trúc đồ thị:**")
+                st.write("- **Loại:** Bipartite Graph (đồ thị lưỡng phân)")
+                st.write("- **Nodes:** Users + Products")
+                st.write("- **Edges:** Tương tác giữa User và Product (purchase, cart, like)")
+                st.write("- **Edge Weights:** Độ mạnh của tương tác (1.0 cho purchase, 0.7 cho cart, 0.5 cho like)")
                 
                 st.write("**Ma trận kề (Adjacency - Minh họa):**")
-                st.write("User 1 <---[weight=1.0]---> Product A")
-                st.write("User 2 <---[weight=0.7]---> Product A")
-                st.info("💡 **Phân tích:** Đồ thị là Bipartite (Lưỡng phân), cạnh nối giữa User và Product thể hiện tương tác.")
+                st.code("""
+User 1 <---[weight=1.0]---> Product A
+User 2 <---[weight=0.7]---> Product A
+User 1 <---[weight=0.5]---> Product B
+                """)
+                
+                if gnn_model.graph_data:
+                    # Tính toán một số thống kê
+                    n_edges = gnn_model.graph_data.edge_index.shape[1]
+                    n_nodes = gnn_model.graph_data.x.shape[0]
+                    avg_degree = (n_edges * 2) / n_nodes if n_nodes > 0 else 0
+                    st.write(f"**Thống kê đồ thị:**")
+                    st.write(f"- Số cạnh trung bình mỗi node: {avg_degree:.2f}")
+                    st.write(f"- Mật độ đồ thị: {(n_edges / (n_nodes * (n_nodes - 1))) * 100:.4f}%")
+                
+                st.info("💡 **Phân tích:** Đồ thị là Bipartite (Lưỡng phân), cạnh nối giữa User và Product thể hiện tương tác. GraphSAGE sẽ học embedding cho mỗi node dựa trên thông tin từ các hàng xóm (neighbors).")
 
             # BƯỚC 2
             with st.expander("Bước 2: Graph Convolution (GraphSAGE)"):
                 st.markdown('<div class="step-header">Bước 2: Tích chập đồ thị (Graph Convolution)</div>', unsafe_allow_html=True)
                 st.write("**Nội dung:** Lan truyền thông tin từ hàng xóm (Neighbors) để cập nhật Embedding cho mỗi node.")
+                st.write(f"**Dữ liệu sử dụng:** Đồ thị từ Bước 1 với {gnn_model.graph_data.x.shape[0]} nodes và {gnn_model.graph_data.edge_index.shape[1]} edges.")
                 
                 st.markdown("""
                 **Công thức GraphSAGE (Mean Aggregator):**
-                1. **Aggregate:** $h_{N(v)}^{(k)} = \\text{MEAN}(\\{h_u^{(k-1)}, \\forall u \\in N(v)\\})$
-                2. **Update:** $h_v^{(k)} = \\sigma(W^{(k)} \\cdot \\text{CONCAT}(h_v^{(k-1)}, h_{N(v)}^{(k)}))$
+                
+                **Bước 1 - Aggregate (Tổng hợp thông tin từ neighbors):**
+                $$h_{N(v)}^{(k)} = \\frac{1}{|N(v)|} \\sum_{u \\in N(v)} h_u^{(k-1)}$$
+                
+                **Bước 2 - Update (Cập nhật embedding):**
+                $$h_v^{(k)} = \\sigma\\left(W^{(k)} \\cdot \\text{CONCAT}(h_v^{(k-1)}, h_{N(v)}^{(k)})\\right)$$
+                
+                Trong đó:
+                - $h_v^{(k)}$: Embedding của node $v$ ở layer $k$
+                - $N(v)$: Tập neighbors của node $v$
+                - $W^{(k)}$: Ma trận trọng số ở layer $k$
+                - $\\sigma$: Hàm activation (ReLU)
+                - $\\text{CONCAT}$: Nối vector hiện tại với vector tổng hợp từ neighbors
                 """)
+                
+                st.write("**Ví dụ áp dụng:**")
+                st.write("1. User A có neighbors: Product X, Product Y, Product Z")
+                st.write("2. Aggregate: Lấy trung bình embeddings của X, Y, Z")
+                st.write("3. Update: Nối embedding hiện tại của User A với vector tổng hợp, sau đó nhân với ma trận trọng số và áp dụng ReLU")
+                st.write("4. Kết quả: Embedding mới của User A phản ánh sở thích dựa trên các sản phẩm đã tương tác")
                 
                 st.write("**Kết quả tính toán (Embeddings):**")
                 if gnn_model.node_embeddings is not None:
                     emb_df = pd.DataFrame(gnn_model.node_embeddings[:5, :10]) # 5 users, 10 dims
                     st.write(f"**User Embeddings (Top 5 users, 10 chiều đầu):** Shape {gnn_model.node_embeddings.shape}")
+                    st.write(f"- Tổng số embeddings: {gnn_model.node_embeddings.shape[0]} (Users + Products)")
+                    st.write(f"- Dimension mỗi embedding: {gnn_model.node_embeddings.shape[1]}")
                     st.dataframe(emb_df.style.background_gradient(cmap='Purples', axis=None))
-                    st.info("💡 **Ý nghĩa:** Mỗi dòng là một vector đại diện cho sở thích của User sau khi học từ đồ thị.")
+                    
+                    # Thống kê
+                    avg_emb = gnn_model.node_embeddings.mean()
+                    std_emb = gnn_model.node_embeddings.std()
+                    st.write(f"**Thống kê embeddings:**")
+                    st.write(f"- Giá trị trung bình: {avg_emb:.4f}")
+                    st.write(f"- Độ lệch chuẩn: {std_emb:.4f}")
+                    
+                    st.info("💡 **Ý nghĩa:** Mỗi dòng là một vector đại diện cho sở thích của User (hoặc đặc trưng của Product) sau khi học từ đồ thị. Các users có sở thích tương tự sẽ có embeddings gần nhau trong không gian vector.")
 
             # BƯỚC 3
             with st.expander("Bước 3: Training & Loss Function"):
                 st.markdown('<div class="step-header">Bước 3: Huấn luyện với BPR Loss</div>', unsafe_allow_html=True)
                 st.write("**Nội dung:** Tối ưu hóa embedding sao cho điểm của cặp (User, Item dương) lớn hơn (User, Item âm).")
+                st.write(f"**Dữ liệu sử dụng:** Train-set với {len(preprocessor.train_interactions)} interactions.")
                 
                 st.markdown("""
-                **Công thức BPR Loss:**
+                **Công thức BPR Loss (Bayesian Personalized Ranking):**
                 $$L = -\\frac{1}{|D|} \\sum_{(u,i,j) \\in D} \\ln \\sigma(\\hat{x}_{ui} - \\hat{x}_{uj})$$
+                
+                Trong đó:
+                - $D$: Tập các triplets $(u, i, j)$
+                - $u$: User
+                - $i$: Item dương (user đã tương tác)
+                - $j$: Item âm (user chưa tương tác, negative sample)
+                - $\\hat{x}_{ui} = h_u \\cdot h_i$: Điểm dự đoán (dot product của embeddings)
+                - $\\sigma$: Sigmoid function
+                
+                **Ý nghĩa:** Loss càng nhỏ nghĩa là model càng phân biệt tốt giữa items user thích và không thích.
                 """)
-                st.write(f"**Áp dụng:** Với User $u$, Item đã mua $i$, Item chưa mua $j$ (Negative Sample).")
-                st.write(f"**Kết quả:** Training Loss cuối cùng = {gnn_model.training_losses[-1]:.4f}")
-                st.write(f"**Thời gian huấn luyện:** {gnn_model.training_time:.2f}s")
+                
+                st.write("**Ví dụ áp dụng:**")
+                st.write("1. User A đã mua Product X (positive)")
+                st.write("2. Random chọn Product Y mà User A chưa mua (negative)")
+                st.write("3. Tính: $score_{AX} = embedding_A \\cdot embedding_X$")
+                st.write("4. Tính: $score_{AY} = embedding_A \\cdot embedding_Y$")
+                st.write("5. Loss = $-\\ln(\\sigma(score_{AX} - score_{AY}))$")
+                st.write("6. Mục tiêu: $score_{AX} > score_{AY}$ (User A thích X hơn Y)")
+                
+                if gnn_model.training_losses:
+                    st.write(f"**Kết quả training:**")
+                    st.write(f"- Training Loss cuối cùng: {gnn_model.training_losses[-1]:.4f}")
+                    st.write(f"- Training Loss ban đầu: {gnn_model.training_losses[0]:.4f}")
+                    st.write(f"- Cải thiện: {((gnn_model.training_losses[0] - gnn_model.training_losses[-1]) / gnn_model.training_losses[0] * 100):.2f}%")
+                    st.write(f"- Thời gian huấn luyện: {gnn_model.training_time:.2f}s")
+                    st.write(f"- Số epochs: {len(gnn_model.training_losses)}")
+                    
+                    # Vẽ biểu đồ loss nếu có
+                    if len(gnn_model.training_losses) > 1:
+                        loss_df = pd.DataFrame({
+                            'Epoch': range(1, len(gnn_model.training_losses) + 1),
+                            'Loss': gnn_model.training_losses
+                        })
+                        fig = px.line(loss_df, x='Epoch', y='Loss', title='Training Loss Over Time')
+                        st.plotly_chart(fig, use_container_width=True)
 
             # BƯỚC 4
             with st.expander("Bước 4: Evaluation (Tính toán chỉ số)", expanded=True):
                 st.markdown('<div class="step-header">Bước 4: Đánh giá & Tính Metrics</div>', unsafe_allow_html=True)
-                st.write("**Dữ liệu Test-set:** Sử dụng tập `test_interactions`.")
-                st.write("**Phương pháp:** Dot Product giữa User Embedding và Product Embedding để ra Score, sau đó Ranking.")
                 
+                # Thông tin dữ liệu
+                st.write("**Dữ liệu sử dụng:**")
+                col_eval1, col_eval2 = st.columns(2)
+                with col_eval1:
+                    st.metric("Train-set", f"{len(preprocessor.train_interactions)} interactions")
+                    st.write(f"- Users: {preprocessor.train_interactions['user_idx'].nunique()}")
+                    st.write(f"- Products: {preprocessor.train_interactions['product_idx'].nunique()}")
+                with col_eval2:
+                    st.metric("Test-set", f"{len(preprocessor.test_interactions)} interactions")
+                    st.write(f"- Users: {preprocessor.test_interactions['user_idx'].nunique()}")
+                    st.write(f"- Products: {preprocessor.test_interactions['product_idx'].nunique()}")
+                
+                st.write("**Phương pháp dự đoán:**")
+                st.markdown("""
+                **Công thức tính điểm:**
+                $$\\hat{x}_{ui} = h_u \\cdot h_i$$
+                
+                Trong đó:
+                - $h_u$: User embedding (từ node_embeddings)
+                - $h_i$: Product embedding (từ node_embeddings)
+                - $\\hat{x}_{ui}$: Điểm dự đoán user $u$ sẽ thích product $i$
+                
+                **Quy trình:**
+                1. Với mỗi user trong test-set, tính điểm với tất cả products
+                2. Sắp xếp products theo điểm giảm dần
+                3. Lấy Top-K products làm recommendations
+                4. So sánh với ground truth (products user thực tế đã tương tác)
+                5. Tính các metrics: Recall, Precision, NDCG, Coverage, Diversity
+                """)
+                
+                st.markdown("---")
+                st.markdown("#### 📐 Công thức tính các chỉ số (tương tự Content-Based):")
+                
+                # Recall@K
+                with st.expander("Recall@K", expanded=False):
+                    st.markdown("""
+                    $$Recall@K = \\frac{1}{|U|} \\sum_{u \\in U} \\frac{|R_u \\cap T_u|}{|T_u|}$$
+                    """)
+                
+                # Precision@K
+                with st.expander("Precision@K", expanded=False):
+                    st.markdown("""
+                    $$Precision@K = \\frac{1}{|U|} \\sum_{u \\in U} \\frac{|R_u \\cap T_u|}{K}$$
+                    """)
+                
+                # NDCG@K
+                with st.expander("NDCG@K", expanded=False):
+                    st.markdown("""
+                    $$NDCG@K = \\frac{DCG@K}{IDCG@K}, \\quad DCG@K = \\sum_{i=1}^{K} \\frac{rel_i}{\\log_2(i+1)}$$
+                    """)
+                
+                # Coverage@K
+                with st.expander("Coverage@K", expanded=False):
+                    st.markdown("""
+                    $$Coverage@K = \\frac{|\\bigcup_{u \\in U} R_u|}{|P|}$$
+                    """)
+                
+                # Diversity@K
+                with st.expander("Diversity@K", expanded=False):
+                    st.markdown("""
+                    $$Diversity@K = \\frac{1}{|U|} \\sum_{u \\in U} \\frac{|\\text{unique categories in } R_u|}{K}$$
+                    """)
+                
+                st.markdown("---")
+                st.markdown("#### 📊 Kết quả đánh giá:")
                 render_metrics_table(comparison_df, highlight_model="GNN (GraphSAGE)")
 
         # --- HYBRID TAB ---
@@ -396,49 +714,128 @@ def main():
             with st.expander("Bước 1: Score Normalization (Chuẩn hóa)", expanded=True):
                 st.markdown('<div class="step-header">Bước 1: Chuẩn hóa điểm số</div>', unsafe_allow_html=True)
                 st.write("**Nội dung:** Đưa điểm số của GNN (thường là dot product, range rộng) và CB (cosine, 0-1) về cùng thang đo [0, 1].")
+                st.write("**Dữ liệu sử dụng:** Scores từ GNN model và Content-Based model cho cùng một tập candidates.")
                 
                 st.markdown("""
                 **Công thức Min-Max Scaling:**
-                $$Score_{norm} = \\frac{Score - Min}{Max - Min}$$
+                $$Score_{norm} = \\frac{Score - \\min(Scores)}{\\max(Scores) - \\min(Scores)}$$
+                
+                Trong đó:
+                - $Score$: Điểm số gốc (từ GNN hoặc CB)
+                - $\\min(Scores)$: Điểm số thấp nhất trong tập
+                - $\\max(Scores)$: Điểm số cao nhất trong tập
+                - $Score_{norm}$: Điểm số sau khi chuẩn hóa (0-1)
+                
+                **Lý do:** GNN và CB có thang điểm khác nhau, cần chuẩn hóa để kết hợp công bằng.
                 """)
                 
                 st.write("**Ví dụ minh họa:**")
                 ex_data = {
-                    'Product': ['P1', 'P2'],
-                    'GNN Score (Raw)': [5.2, 2.1],
-                    'CB Score (Raw)': [0.8, 0.3],
-                    'GNN Norm': [1.0, 0.0],
-                    'CB Norm': [1.0, 0.0]
+                    'Product': ['P1', 'P2', 'P3'],
+                    'GNN Score (Raw)': [5.2, 2.1, 1.5],
+                    'CB Score (Raw)': [0.8, 0.3, 0.2],
+                    'GNN Norm': [1.0, 0.16, 0.0],
+                    'CB Norm': [1.0, 0.17, 0.0]
                 }
-                st.table(pd.DataFrame(ex_data))
+                ex_df = pd.DataFrame(ex_data)
+                st.table(ex_df)
+                
+                st.write("**Giải thích ví dụ:**")
+                st.write("- GNN: min=1.5, max=5.2 → P1: (5.2-1.5)/(5.2-1.5)=1.0, P2: (2.1-1.5)/(5.2-1.5)=0.16")
+                st.write("- CB: min=0.2, max=0.8 → P1: (0.8-0.2)/(0.8-0.2)=1.0, P2: (0.3-0.2)/(0.8-0.2)=0.17")
+                st.info("💡 **Phân tích:** Sau chuẩn hóa, cả hai models đều có thang điểm [0, 1], giúp kết hợp công bằng hơn.")
 
             # BƯỚC 2
             with st.expander("Bước 2: Weighted Combination (Kết hợp)"):
                 st.markdown('<div class="step-header">Bước 2: Kết hợp có trọng số</div>', unsafe_allow_html=True)
-                st.write(f"**Nội dung:** Tính điểm cuối cùng với trọng số $\\alpha = {hybrid_model.alpha}$.")
+                st.write(f"**Nội dung:** Tính điểm cuối cùng bằng cách kết hợp có trọng số giữa GNN và Content-Based với $\\alpha = {hybrid_model.alpha}$.")
+                st.write("**Dữ liệu sử dụng:** Normalized scores từ Bước 1.")
                 
                 st.markdown("""
-                **Công thức:**
+                **Công thức Late Fusion:**
                 $$Score_{final} = \\alpha \\times Score_{GNN\\_norm} + (1 - \\alpha) \\times Score_{CB\\_norm}$$
+                
+                Trong đó:
+                - $\\alpha$: Trọng số cho GNN (mặc định 0.5 = cân bằng)
+                - $Score_{GNN\\_norm}$: Điểm số đã chuẩn hóa từ GNN
+                - $Score_{CB\\_norm}$: Điểm số đã chuẩn hóa từ Content-Based
+                - $Score_{final}$: Điểm số cuối cùng để ranking
+                
+                **Lưu ý:** Trong thực tế, Hybrid model sử dụng dynamic weight (GNN=0.8, CB=0.2) để ưu tiên GNN cao hơn.
                 """)
                 
-                st.write("**Áp dụng (với alpha=0.5):**")
-                st.write("$$Score_{final}(P1) = 0.5 \\times 1.0 + 0.5 \\times 1.0 = 1.0$$")
-                st.write("$$Score_{final}(P2) = 0.5 \\times 0.0 + 0.5 \\times 0.0 = 0.0$$")
+                st.write("**Ví dụ áp dụng (với alpha=0.5):**")
+                st.write("Giả sử có 3 sản phẩm sau khi chuẩn hóa:")
+                ex_combine = pd.DataFrame({
+                    'Product': ['P1', 'P2', 'P3'],
+                    'GNN Norm': [1.0, 0.5, 0.2],
+                    'CB Norm': [0.8, 0.6, 0.4],
+                    'Final Score (α=0.5)': [0.9, 0.55, 0.3],
+                    'Final Score (α=0.8)': [0.96, 0.52, 0.24]
+                })
+                st.table(ex_combine)
+                
+                st.write("**Tính toán chi tiết cho P1 (α=0.5):**")
+                st.write("$$Score_{final}(P1) = 0.5 \\times 1.0 + 0.5 \\times 0.8 = 0.5 + 0.4 = 0.9$$")
+                st.write("**Tính toán chi tiết cho P1 (α=0.8 - dynamic weight):**")
+                st.write("$$Score_{final}(P1) = 0.8 \\times 1.0 + 0.2 \\times 0.8 = 0.8 + 0.16 = 0.96$$")
+                
+                st.info(f"💡 **Phân tích:** Với $\\alpha = {hybrid_model.alpha}$, model cân bằng giữa GNN (học từ tương tác) và CB (dựa trên đặc trưng). Dynamic weight (0.8/0.2) ưu tiên GNN hơn vì nó thường tốt hơn CB.")
 
             # BƯỚC 3
             with st.expander("Bước 3: Evaluation & Analysis", expanded=True):
                 st.markdown('<div class="step-header">Bước 3: Đánh giá tổng hợp</div>', unsafe_allow_html=True)
+                
+                # Thông tin dữ liệu
+                st.write("**Dữ liệu sử dụng:**")
+                col_eval1, col_eval2 = st.columns(2)
+                with col_eval1:
+                    st.metric("Train-set", f"{len(preprocessor.train_interactions)} interactions")
+                    st.write(f"- Users: {preprocessor.train_interactions['user_idx'].nunique()}")
+                    st.write(f"- Products: {preprocessor.train_interactions['product_idx'].nunique()}")
+                with col_eval2:
+                    st.metric("Test-set", f"{len(preprocessor.test_interactions)} interactions")
+                    st.write(f"- Users: {preprocessor.test_interactions['user_idx'].nunique()}")
+                    st.write(f"- Products: {preprocessor.test_interactions['product_idx'].nunique()}")
+                
+                st.write("**Quy trình đánh giá:**")
+                st.write("1. Với mỗi user trong test-set, lấy candidates từ cả GNN và Content-Based")
+                st.write("2. Chuẩn hóa và kết hợp scores theo công thức ở Bước 2")
+                st.write("3. Sắp xếp và lấy Top-K recommendations")
+                st.write("4. So sánh với ground truth và tính các metrics")
+                
+                st.markdown("---")
+                st.markdown("#### 📐 Công thức tính các chỉ số (tương tự các models khác):")
+                
+                # Tóm tắt công thức
+                st.write("**Recall@K:** Tỷ lệ sản phẩm relevant được tìm thấy")
+                st.write("**Precision@K:** Tỷ lệ sản phẩm relevant trong Top-K")
+                st.write("**NDCG@K:** Chất lượng ranking (coi trọng vị trí)")
+                st.write("**Coverage@K:** Tỷ lệ sản phẩm trong catalog được gợi ý")
+                st.write("**Diversity@K:** Độ đa dạng của danh sách gợi ý")
+                
+                st.markdown("---")
+                st.markdown("#### 📊 Kết quả đánh giá:")
                 render_metrics_table(comparison_df, highlight_model="Hybrid (GNN + Content-Based)")
                 
+                st.markdown("---")
                 st.markdown("### 🏆 Phân tích & Kết luận (Focus on Hybrid)")
                 st.success("""
                 **Tại sao Hybrid là tối ưu nhất?**
-                1. **Recall & Precision:** Hybrid đạt được sự cân bằng. GNN giúp tăng Recall (tìm được sản phẩm tiềm năng user chưa từng thấy), trong khi CB giúp tăng Precision (đảm bảo sản phẩm giống sở thích cũ).
-                2. **Coverage & Diversity:** Chỉ số Coverage của Hybrid thường cao hơn GNN thuần túy vì nó có thể gợi ý cả những sản phẩm ít tương tác (nhờ Content).
+                
+                1. **Recall & Precision:** Hybrid đạt được sự cân bằng tốt hơn:
+                   - GNN giúp tăng Recall (tìm được sản phẩm tiềm năng user chưa từng thấy)
+                   - CB giúp tăng Precision (đảm bảo sản phẩm giống sở thích cũ)
+                
+                2. **Coverage & Diversity:** 
+                   - Coverage của Hybrid thường cao hơn GNN thuần túy vì có thể gợi ý cả những sản phẩm ít tương tác (nhờ Content-Based)
+                   - Diversity tốt hơn CB thuần túy nhờ GNN đa dạng hóa recommendations
+                
                 3. **Khắc phục điểm yếu:** 
-                   - GNN bị yếu khi User mới (Cold-start) -> CB bù đắp.
-                   - CB bị yếu về độ đa dạng -> GNN bù đắp.
+                   - GNN bị yếu khi User mới (Cold-start) → CB bù đắp bằng cách dựa vào đặc trưng sản phẩm
+                   - CB bị yếu về độ đa dạng và khám phá → GNN bù đắp bằng cách học từ tương tác của users khác
+                
+                4. **Robustness:** Hybrid ít bị ảnh hưởng bởi dữ liệu thiếu hoặc không cân bằng hơn các model đơn lẻ
                 """)
 
     # ========== PAGE 2: MODEL COMPARISON ==========
