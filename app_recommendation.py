@@ -104,6 +104,120 @@ def load_comparison_results():
     except:
         return None
 
+def compute_sparsity(df: pd.DataFrame) -> pd.Series:
+    """Return sparsity (percentage of missing values) per column"""
+    if df.empty:
+        return pd.Series(dtype=float)
+    non_null_counts = df.count()
+    sparsity = 1 - (non_null_counts / len(df))
+    return sparsity.sort_values(ascending=False)
+
+def render_sparsity_chart(df: pd.DataFrame, title: str, key: str):
+    """Plot sparsity bar chart"""
+    sparsity = compute_sparsity(df)
+    if sparsity.empty:
+        st.info("Không đủ dữ liệu để tính độ thưa.")
+        return
+    sparsity_df = sparsity.reset_index()
+    sparsity_df.columns = ['Column', 'Sparsity']
+    fig = px.bar(
+        sparsity_df,
+        x='Column',
+        y='Sparsity',
+        title=title,
+        labels={'Column': 'Cột', 'Sparsity': 'Độ thưa (tỉ lệ null)'}
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+def render_distribution_chart(df: pd.DataFrame, dataset_key: str):
+    """Plot distribution chart for selected column"""
+    categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+    available_cols = categorical_cols + numeric_cols
+    if not available_cols:
+        st.info("Không có cột phù hợp để hiển thị biểu đồ tỉ lệ.")
+        return
+    selected_col = st.selectbox(
+        "Chọn cột để hiển thị biểu đồ tỉ lệ",
+        available_cols,
+        key=f"{dataset_key}_distribution_column"
+    )
+    if selected_col in categorical_cols:
+        value_counts = df[selected_col].fillna("N/A").value_counts().head(10)
+        fig = px.pie(
+            values=value_counts.values,
+            names=value_counts.index,
+            title=f"Tỉ lệ phân bố của '{selected_col}'"
+        )
+    else:
+        numeric_series = df[selected_col].dropna()
+        if numeric_series.empty:
+            st.info("Cột đã chọn không có dữ liệu để vẽ biểu đồ.")
+            return
+        hist_data = pd.cut(numeric_series, bins=10).value_counts().sort_index()
+        hist_df = hist_data.reset_index()
+        hist_df.columns = ['Range', 'Count']
+        hist_df['Range'] = hist_df['Range'].astype(str)
+        fig = px.bar(
+            hist_df,
+            x='Range',
+            y='Count',
+            title=f"Phân bố giá trị của '{selected_col}'",
+            labels={'Range': 'Khoảng giá trị', 'Count': 'Số lượng'}
+        )
+    st.plotly_chart(fig, use_container_width=True)
+
+def render_data_statistics(df: pd.DataFrame):
+    """Display descriptive statistics for numeric columns"""
+    if df.empty:
+        st.info("Dataset trống, không thể thống kê.")
+        return
+    numeric_df = df.select_dtypes(include=[np.number])
+    if numeric_df.empty:
+        st.info("Không có cột số để thống kê.")
+        return
+    stats_df = numeric_df.describe().T  # count, mean, std, min, 25%, 50%, 75%, max
+    st.dataframe(stats_df, use_container_width=True)
+
+def render_dataset_upload_section(
+    dataset_key: str,
+    display_name: str,
+    purpose_text: str
+):
+    """Render upload + analytics UI for a dataset"""
+    st.markdown(f"#### {display_name}")
+    st.write(purpose_text)
+    uploaded_file = st.file_uploader(
+        f"Tải lên {display_name}",
+        type=['csv'],
+        key=f"{dataset_key}_file_uploader"
+    )
+    if uploaded_file is None:
+        st.info("Chưa có file được tải lên.")
+        st.markdown("---")
+        return
+    try:
+        df = pd.read_csv(uploaded_file)
+    except Exception as exc:
+        st.error(f"Lỗi khi đọc file CSV: {exc}")
+        st.markdown("---")
+        return
+    st.success(f"Đã tải {display_name}: {len(df)} rows × {len(df.columns)} columns")
+    col_rows, col_cols = st.columns(2)
+    with col_rows:
+        st.metric("Số dòng (rows)", len(df))
+    with col_cols:
+        st.metric("Số cột (columns)", len(df.columns))
+    st.markdown("**👀 Xem trước dữ liệu (tối đa 100 dòng đầu):**")
+    st.dataframe(df.head(100), use_container_width=True)
+    st.markdown("**📉 Biểu đồ độ thưa (tỉ lệ giá trị null trên mỗi cột):**")
+    render_sparsity_chart(df, f"Độ thưa - {display_name}", dataset_key)
+    st.markdown("**📊 Biểu đồ tỉ lệ / phân bố:**")
+    render_distribution_chart(df, dataset_key)
+    st.markdown("**📈 Bảng thống kê dữ liệu (count, mean, std, min, 25%, 50%, 75%, max):**")
+    render_data_statistics(df)
+    st.markdown("---")
+
 def display_product_info(product_info: Dict, score: float = None):
     """Display product information"""
     col1, col2 = st.columns([1, 3])
@@ -233,7 +347,26 @@ def main():
 
     # ========== PAGE 1: ALGORITHMS & STEPS ==========
     if page == "📚 Algorithms & Steps":
-        st.markdown('<div class="sub-header">📚 Chi Tiết Thuật Toán & Các Bước Thực Hiện</div>', unsafe_allow_html=True)
+        st.markdown("### Upload & Khám Phá Bộ Dữ Liệu")
+        dataset_sections = [
+            (
+                "users",
+                "users.csv",
+                "Chứa thông tin hồ sơ người dùng (tuổi, giới tính, thị hiếu) dùng để cá nhân hóa gợi ý và theo dõi hành vi."
+            ),
+            (
+                "products",
+                "products.csv",
+                "Danh sách toàn bộ sản phẩm (category, màu sắc, usage...) dùng cho Content-Based và visualization."
+            ),
+            (
+                "interactions",
+                "interactions.csv",
+                "Log tương tác user-product (purchase/cart/like) làm đầu vào huấn luyện GNN & đánh giá."
+            )
+        ]
+        for ds_key, ds_name, ds_desc in dataset_sections:
+            render_dataset_upload_section(ds_key, ds_name, ds_desc)
         
         # Training Buttons Section
         st.markdown("### 🔄 Training Models")
