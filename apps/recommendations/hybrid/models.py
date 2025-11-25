@@ -347,6 +347,14 @@ def _normalize_gender_value(gender: str | None) -> str | None:
     return normalized or None
 
 
+def _normalize_usage(usage: str | None) -> str | None:
+    """Normalize usage labels (e.g., Casual, Sports) for comparisons."""
+    if not usage:
+        return None
+    normalized = str(usage).strip().lower()
+    return normalized or None
+
+
 def _allowed_outfit_genders(user_gender: str | None, payload_gender: str | None) -> set[str]:
     """
     Determine which product genders are allowed for outfit items based on user gender
@@ -387,17 +395,18 @@ def _allowed_outfit_genders(user_gender: str | None, payload_gender: str | None)
 _OUTFIT_CATEGORY_SUBCATEGORY_MAP = {
     "topwear": ["Topwear"],
     "bottomwear": ["Bottomwear"],
-    "footwear": ["Footwear"],
+    "footwear": ["Footwear", "Shoes", "Flip Flops", "Sandal", "Sandals"],
     "accessories": ["Accessories", "Bags", "Belts", "Headwear", "Watches"],
     "dress": ["Dress"],
     "innerwear": ["Innerwear"],
 }
 
 
-def _build_outfit_template(payload_gender: str | None) -> dict[str, list]:
+def _build_outfit_template(payload_gender: str | None, payload_usage: str | None = None) -> dict[str, list]:
     """
     Build the base outfit bucket structure depending on the payload product gender.
-    Women/Girls must include dress recommendations, while Men/Boys omit that slot.
+    Women/Girls must include dress recommendations (unless payload usage is Sports),
+    while Men/Boys omit that slot.
     """
     template = {
         "topwear": [],
@@ -407,12 +416,117 @@ def _build_outfit_template(payload_gender: str | None) -> dict[str, list]:
     }
 
     payload_gender_norm = _normalize_gender_value(payload_gender)
+    payload_usage_norm = _normalize_usage(payload_usage)
     if payload_gender_norm in {"women", "girls"}:
-        template["dress"] = []
+        if payload_usage_norm != "sports":
+            template["dress"] = []
 
     template["innerwear"] = []
 
     return template
+
+
+_CATEGORY_USAGE_RULES: dict[str, dict[str, dict[str, set[str]]]] = {
+    "sports": {
+        "topwear": {"usage": {"sports"}},
+        "bottomwear": {"usage": {"sports"}},
+        "footwear": {"usage": {"sports"}, "article_types": {"sports shoes", "sports sandals"}},
+        "accessories": {
+            "usage": {"sports"},
+            "article_types": {"backpacks", "caps"},
+        },
+    },
+    "casual": {
+        "topwear": {"usage": {"casual"}},
+        "bottomwear": {"usage": {"casual"}},
+        "footwear": {
+            "usage": {"casual"},
+            "article_types": {"casual shoes", "sandals", "flip flops"},
+        },
+        "accessories": {
+            "usage": {"casual"},
+            "article_types": {"handbags", "belts", "watches", "backpacks"},
+        },
+    },
+    "formal": {
+        "topwear": {"usage": {"formal"}},
+        "bottomwear": {"usage": {"formal"}},
+        "footwear": {"usage": {"formal"}, "article_types": {"formal shoes"}},
+        "accessories": {
+            "usage": {"formal"},
+            "article_types": {"watches", "belts"},
+        },
+    },
+}
+
+
+def _get_category_usage_rules(payload_usage_norm: str | None) -> dict[str, dict[str, set[str]]]:
+    """Return usage-specific category preferences for outfit generation."""
+    if not payload_usage_norm:
+        return {}
+    return _CATEGORY_USAGE_RULES.get(payload_usage_norm, {})
+
+
+def _matches_category_rule(product_info: dict, category_rule: dict[str, set[str]] | None) -> bool:
+    """Check whether a product satisfies the usage/articleType requirements."""
+    if not category_rule:
+        return True
+    usage_rule = category_rule.get("usage")
+    article_rule = category_rule.get("article_types")
+    usage_norm = _normalize_usage(product_info.get("usage"))
+    article_type_norm = _normalize_article_type(product_info.get("articleType"))
+    if usage_rule and (usage_norm is None or usage_norm not in usage_rule):
+        return False
+    if article_rule and (article_type_norm is None or article_type_norm not in article_rule):
+        return False
+    return True
+
+
+def _prioritize_entries_by_category_rule(
+    entries: list[dict], category_rule: dict[str, set[str]] | None
+) -> list[dict]:
+    """Order entries so those satisfying the category rule appear first."""
+    if not category_rule or not entries:
+        return entries
+    preferred: list[dict] = []
+    others: list[dict] = []
+    for entry in entries:
+        product = entry.get("product") or {}
+        if _matches_category_rule(product, category_rule):
+            preferred.append(entry)
+        else:
+            others.append(entry)
+    return preferred + others
+
+
+def _append_entries_with_usage_priority(
+    target_list: list,
+    entries: list[dict],
+    payload_usage_norm: str | None,
+    max_items: int,
+) -> list[dict]:
+    """Append entries prioritizing ones that match the payload usage."""
+    if not entries or max_items <= 0:
+        return []
+    
+    preferred: list[dict] = []
+    others: list[dict] = []
+    
+    for entry in entries:
+        usage_norm = entry.pop("_usage_norm", None)
+        if payload_usage_norm and usage_norm == payload_usage_norm:
+            preferred.append(entry)
+        else:
+            others.append(entry)
+    
+    appended: list[dict] = []
+    for item in preferred + others:
+        if len(target_list) >= max_items:
+            break
+        target_list.append(item)
+        appended.append(item)
+    
+    return appended
 
 
 def _ensure_outfit_categories(
@@ -423,12 +537,15 @@ def _ensure_outfit_categories(
     used_product_ids: set[str],
     payload_product_info: dict,
     top_k: int,
+    payload_usage_norm: str | None,
+    category_usage_rules: dict[str, dict[str, set[str]]] | None = None,
 ) -> dict[str, list]:
     """
     Ensure each required outfit category has at least one item by pulling
     fallback products from the catalog when recommendation slots are empty.
     """
     payload_gender_norm = _normalize_gender_value(payload_product_info.get('gender'))
+    payload_usage_norm = payload_usage_norm or _normalize_usage(payload_product_info.get('usage'))
     
     for category, items in outfit.items():
         if items:
@@ -442,13 +559,22 @@ def _ensure_outfit_categories(
             payload_product_info=payload_product_info,
             top_k=top_k,
             payload_gender_norm=payload_gender_norm,
+            payload_usage_norm=payload_usage_norm,
+            category_rule=(category_usage_rules or {}).get(category),
         )
         
         if not fallback_items:
             continue
         
-        outfit[category].extend(fallback_items)
-        for fallback in fallback_items:
+        appended = _append_entries_with_usage_priority(
+            outfit[category],
+            _prioritize_entries_by_category_rule(
+                fallback_items, (category_usage_rules or {}).get(category)
+            ),
+            payload_usage_norm,
+            max_items=top_k,
+        )
+        for fallback in appended:
             product_id = str(fallback["product"].get("id"))
             if product_id:
                 used_product_ids.add(product_id)
@@ -465,7 +591,9 @@ def _fetch_category_fallback_products(
     payload_product_info: dict,
     top_k: int,
     payload_gender_norm: str | None,
+    payload_usage_norm: str | None,
     force_article_types: set[str] | None = None,
+    category_rule: dict[str, set[str]] | None = None,
 ) -> list[dict]:
     """Fetch fallback products for a given outfit category when the recommender has gaps."""
     products_df = getattr(preprocessor, "products_df", None)
@@ -517,6 +645,11 @@ def _fetch_category_fallback_products(
         elif force_article_types:
             return []
     
+    usage_series = None
+    if payload_usage_norm and "usage" in df.columns:
+        usage_series = _normalize_series(df["usage"])
+        df["_usage_match"] = usage_series == payload_usage_norm
+    
     # Exclude already used products
     df["id_str"] = df["id"].astype(str)
     df = df[~df["id_str"].isin(used_product_ids)]
@@ -524,7 +657,12 @@ def _fetch_category_fallback_products(
         return []
     
     sort_fields = [col for col in ("rating", "count_in_stock", "year") if col in df.columns]
-    if sort_fields:
+    if payload_usage_norm and "_usage_match" in df.columns:
+        df = df.sort_values(
+            by=["_usage_match", *sort_fields] if sort_fields else ["_usage_match"],
+            ascending=[False, *([False] * len(sort_fields))],
+        )
+    elif sort_fields:
         df = df.sort_values(by=sort_fields, ascending=False)
     
     fallback_items = []
@@ -536,18 +674,23 @@ def _fetch_category_fallback_products(
         
         product_data = _get_product_data_with_images(product_info, product_id)
         reason = _build_personalized_reason(payload_product_info, product_info, score=0.3)
-        fallback_items.append(
-            {
-                "product": product_data,
-                "score": 0.3,
-                "reason": reason,
-            }
-        )
+        entry = {
+            "product": product_data,
+            "score": 0.3,
+            "reason": reason,
+            "_usage_norm": _normalize_usage(product_info.get("usage")),
+        }
+        fallback_items.append(entry)
         
         if len(fallback_items) >= max(1, top_k):
             break
     
-    return fallback_items
+    if category_rule:
+        filtered = [
+            item for item in fallback_items if _matches_category_rule(item["product"], category_rule)
+        ]
+        return filtered
+    return _prioritize_entries_by_category_rule(fallback_items, category_rule)
 
 
 def _build_article_type_fallback(
@@ -661,6 +804,8 @@ def recommend_hybrid(
         payload_article_type_norm = _normalize_article_type(payload_article_type)
         payload_gender = payload_product_info.get('gender')
         payload_gender_norm = _normalize_gender_value(payload_gender)
+        payload_usage_norm = _normalize_usage(payload_product_info.get('usage'))
+        category_usage_rules = _get_category_usage_rules(payload_usage_norm)
         user_gender = (
             user_info.get('gender')
             if isinstance(user_info, dict)
@@ -729,7 +874,10 @@ def recommend_hybrid(
             )
             personalized.extend(fallback_items)
         
-        outfit = _build_outfit_template(payload_product_info.get('gender'))
+        outfit = _build_outfit_template(
+            payload_product_info.get('gender'),
+            payload_product_info.get('usage'),
+        )
         allowed_outfit_categories = set(outfit.keys())
         used_outfit_product_ids: set[str] = set()
         
@@ -777,6 +925,8 @@ def recommend_hybrid(
                 if category == 'payload':
                     continue
                 
+                category_rule = (category_usage_rules or {}).get(category)
+                
                 if category not in allowed_outfit_categories:
                     logger.debug(f"Skipping category {category} as it is not required for payload gender {payload_gender}")
                     continue
@@ -795,6 +945,7 @@ def recommend_hybrid(
                     and payload_gender_norm in {"women", "girls"}
                 )
                 deferred_accessory_items: list[dict] = []
+                accepted_entries: list[dict] = []
                 
                 for item in items:
                     try:
@@ -841,7 +992,8 @@ def recommend_hybrid(
                         
                         entry = {
                             "product": product_data,
-                            "score": float(score)
+                            "score": float(score),
+                            "_usage_norm": _normalize_usage(product_info.get('usage')),
                         }
                         
                         candidate_article_type_norm = _normalize_article_type(product_info.get('articleType'))
@@ -852,14 +1004,29 @@ def recommend_hybrid(
                             deferred_accessory_items.append(entry)
                             continue
                         
-                        outfit[category].append(entry)
-                        used_outfit_product_ids.add(str(product_data.get("id")))
-                        
-                        if len(outfit[category]) >= top_k_outfit:
-                            break
+                        accepted_entries.append(entry)
                     except Exception as item_error:
                         logger.warning(f"Error processing item in {category}: {item_error}")
                         continue
+                
+                if category_rule:
+                    entries_for_append = [
+                        entry
+                        for entry in accepted_entries
+                        if _matches_category_rule(entry.get("product") or {}, category_rule)
+                    ]
+                else:
+                    entries_for_append = accepted_entries
+                
+                if entries_for_append:
+                    appended = _append_entries_with_usage_priority(
+                        outfit[category],
+                        _prioritize_entries_by_category_rule(entries_for_append, category_rule),
+                        payload_usage_norm,
+                        max_items=top_k_outfit,
+                    )
+                    for entry in appended:
+                        used_outfit_product_ids.add(str(entry["product"].get("id")))
                 
                 if prefer_handbags and not outfit[category]:
                     handbag_fallback = _fetch_category_fallback_products(
@@ -870,17 +1037,28 @@ def recommend_hybrid(
                         payload_product_info=payload_product_info,
                         top_k=max(1, top_k_outfit),
                         payload_gender_norm=payload_gender_norm,
+                        payload_usage_norm=payload_usage_norm,
                         force_article_types={"handbags"},
+                        category_rule=category_rule,
                     )
                     if handbag_fallback:
-                        outfit[category].extend(handbag_fallback)
-                        for entry in handbag_fallback:
+                        appended = _append_entries_with_usage_priority(
+                            outfit[category],
+                            _prioritize_entries_by_category_rule(handbag_fallback, category_rule),
+                            payload_usage_norm,
+                            max_items=top_k_outfit,
+                        )
+                        for entry in appended:
                             used_outfit_product_ids.add(str(entry["product"].get("id")))
                 
                 if len(outfit[category]) < top_k_outfit and deferred_accessory_items:
-                    needed = top_k_outfit - len(outfit[category])
-                    for entry in deferred_accessory_items[:needed]:
-                        outfit[category].append(entry)
+                    appended = _append_entries_with_usage_priority(
+                        outfit[category],
+                        _prioritize_entries_by_category_rule(deferred_accessory_items, category_rule),
+                        payload_usage_norm,
+                        max_items=top_k_outfit,
+                    )
+                    for entry in appended:
                         used_outfit_product_ids.add(str(entry["product"].get("id")))
             
             outfit = _ensure_outfit_categories(
@@ -890,6 +1068,8 @@ def recommend_hybrid(
                 used_product_ids=used_outfit_product_ids,
                 payload_product_info=payload_product_info,
                 top_k=max(1, top_k_outfit),
+                payload_usage_norm=payload_usage_norm,
+                category_usage_rules=category_usage_rules,
             )
             
             logger.info(f"Generated outfit with {sum(len(v) for v in outfit.values())} total items")
