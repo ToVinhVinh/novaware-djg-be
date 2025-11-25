@@ -624,16 +624,9 @@ def run_training(model_type: str):
 def main():
     """Main app"""
     
-    # Header
     st.markdown('<div class="main-header">👔 Fashion Recommendation System</div>', unsafe_allow_html=True)
     
-    # Sidebar
-    st.sidebar.title("⚙️ Menu")
-    
-    page = st.sidebar.radio(
-        "Chọn chức năng",
-        ["📚 Algorithms & Steps", "📊 Model Comparison", "🎯 Personalized Recommendations", "👗 Outfit Recommendations"]
-    )
+    page = "📚 Algorithms & Steps"
     
     # Load data initially
     preprocessor, cb_model, gnn_model, hybrid_model = load_models()
