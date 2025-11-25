@@ -331,6 +331,282 @@ def _get_product_data_with_images(product_info: dict, product_id: str | int) -> 
         }
 
 
+def _normalize_article_type(article_type: str | None) -> str | None:
+    """Normalize articleType for safer comparisons."""
+    if not article_type:
+        return None
+    normalized = str(article_type).strip().lower()
+    return normalized or None
+
+
+def _normalize_gender_value(gender: str | None) -> str | None:
+    """Normalize gender labels to a consistent lowercase representation."""
+    if not gender:
+        return None
+    normalized = str(gender).strip().lower()
+    return normalized or None
+
+
+def _allowed_outfit_genders(user_gender: str | None, payload_gender: str | None) -> set[str]:
+    """
+    Determine which product genders are allowed for outfit items based on user gender
+    and the gender label of the currently viewed product.
+    """
+    user_gender_norm = _normalize_gender_value(user_gender)
+    payload_gender_norm = _normalize_gender_value(payload_gender)
+    
+    male_rules = {
+        "women": {"women", "unisex"},
+        "unisex": {"women", "unisex"},
+        "boys": {"boys", "unisex"},
+        "girls": {"girls", "unisex"},
+        "men": {"men", "unisex"},
+    }
+    
+    female_rules = {
+        "men": {"men", "unisex"},
+        "unisex": {"men", "unisex"},
+        "boys": {"boys", "unisex"},
+        "girls": {"girls", "unisex"},
+        "women": {"women", "unisex"},
+    }
+    
+    if user_gender_norm == "male":
+        allowed = male_rules.get(payload_gender_norm)
+    elif user_gender_norm == "female":
+        allowed = female_rules.get(payload_gender_norm)
+    else:
+        allowed = None
+    
+    if allowed:
+        return allowed
+    
+    return set()
+
+
+_OUTFIT_CATEGORY_SUBCATEGORY_MAP = {
+    "topwear": ["Topwear"],
+    "bottomwear": ["Bottomwear"],
+    "footwear": ["Footwear"],
+    "accessories": ["Accessories", "Bags", "Belts", "Headwear", "Watches"],
+    "dress": ["Dress"],
+    "innerwear": ["Innerwear"],
+}
+
+
+def _build_outfit_template(payload_gender: str | None) -> dict[str, list]:
+    """
+    Build the base outfit bucket structure depending on the payload product gender.
+    Women/Girls must include dress recommendations, while Men/Boys omit that slot.
+    """
+    template = {
+        "topwear": [],
+        "bottomwear": [],
+        "footwear": [],
+        "accessories": [],
+    }
+
+    payload_gender_norm = _normalize_gender_value(payload_gender)
+    if payload_gender_norm in {"women", "girls"}:
+        template["dress"] = []
+
+    template["innerwear"] = []
+
+    return template
+
+
+def _ensure_outfit_categories(
+    *,
+    outfit: dict[str, list],
+    preprocessor,
+    allowed_genders: set[str] | None,
+    used_product_ids: set[str],
+    payload_product_info: dict,
+    top_k: int,
+) -> dict[str, list]:
+    """
+    Ensure each required outfit category has at least one item by pulling
+    fallback products from the catalog when recommendation slots are empty.
+    """
+    payload_gender_norm = _normalize_gender_value(payload_product_info.get('gender'))
+    
+    for category, items in outfit.items():
+        if items:
+            continue
+        
+        fallback_items = _fetch_category_fallback_products(
+            preprocessor=preprocessor,
+            category_key=category,
+            allowed_genders=allowed_genders,
+            used_product_ids=used_product_ids,
+            payload_product_info=payload_product_info,
+            top_k=top_k,
+            payload_gender_norm=payload_gender_norm,
+        )
+        
+        if not fallback_items:
+            continue
+        
+        outfit[category].extend(fallback_items)
+        for fallback in fallback_items:
+            product_id = str(fallback["product"].get("id"))
+            if product_id:
+                used_product_ids.add(product_id)
+    
+    return outfit
+
+
+def _fetch_category_fallback_products(
+    *,
+    preprocessor,
+    category_key: str,
+    allowed_genders: set[str] | None,
+    used_product_ids: set[str],
+    payload_product_info: dict,
+    top_k: int,
+    payload_gender_norm: str | None,
+    force_article_types: set[str] | None = None,
+) -> list[dict]:
+    """Fetch fallback products for a given outfit category when the recommender has gaps."""
+    products_df = getattr(preprocessor, "products_df", None)
+    if products_df is None or products_df.empty:
+        return []
+    
+    subcategories = _OUTFIT_CATEGORY_SUBCATEGORY_MAP.get(category_key, [])
+    if not subcategories:
+        return []
+    
+    normalized_subcats = {subcat.lower() for subcat in subcategories}
+    df = products_df.copy()
+    
+    def _normalize_series(series):
+        return (
+            series.fillna("")
+            .astype(str)
+            .str.strip()
+            .str.lower()
+        )
+    
+    if "subCategory" not in df.columns:
+        return []
+    
+    subcategory_series = _normalize_series(df["subCategory"])
+    mask = subcategory_series.isin(normalized_subcats)
+    
+    if allowed_genders and "gender" in df.columns:
+        gender_series = _normalize_series(df["gender"])
+        mask &= gender_series.isin(allowed_genders)
+    elif allowed_genders:
+        return []
+    
+    df = df.loc[mask]
+    if df.empty:
+        return []
+    
+    preferred_article_types = None
+    if category_key == "accessories" and payload_gender_norm in {"women", "girls"}:
+        preferred_article_types = {"handbags"}
+    
+    target_article_types = force_article_types or preferred_article_types
+    if target_article_types and "articleType" in df.columns:
+        article_series = _normalize_series(df["articleType"])
+        preferred_mask = article_series.isin({art.lower() for art in target_article_types})
+        preferred_df = df.loc[preferred_mask]
+        if not preferred_df.empty:
+            df = preferred_df
+        elif force_article_types:
+            return []
+    
+    # Exclude already used products
+    df["id_str"] = df["id"].astype(str)
+    df = df[~df["id_str"].isin(used_product_ids)]
+    if df.empty:
+        return []
+    
+    sort_fields = [col for col in ("rating", "count_in_stock", "year") if col in df.columns]
+    if sort_fields:
+        df = df.sort_values(by=sort_fields, ascending=False)
+    
+    fallback_items = []
+    for _, row in df.head(top_k * 2).iterrows():
+        product_info = row.to_dict()
+        product_id = product_info.get("id")
+        if product_id is None:
+            continue
+        
+        product_data = _get_product_data_with_images(product_info, product_id)
+        reason = _build_personalized_reason(payload_product_info, product_info, score=0.3)
+        fallback_items.append(
+            {
+                "product": product_data,
+                "score": 0.3,
+                "reason": reason,
+            }
+        )
+        
+        if len(fallback_items) >= max(1, top_k):
+            break
+    
+    return fallback_items
+
+
+def _build_article_type_fallback(
+    *,
+    preprocessor,
+    payload_product_info: dict,
+    payload_article_type: str | None,
+    top_k: int,
+    exclude_product_ids: set[str],
+) -> list[dict]:
+    """Return relaxed recommendations scoped only by articleType when strict filter yields nothing."""
+    target_article_type = _normalize_article_type(payload_article_type)
+    if not target_article_type:
+        return []
+
+    try:
+        products_df = getattr(preprocessor, "products_df", None)
+        if products_df is None or "articleType" not in products_df.columns:
+            return []
+
+        article_series = (
+            products_df["articleType"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .str.lower()
+        )
+        matches = products_df.loc[article_series == target_article_type]
+        if matches.empty:
+            return []
+
+        sort_fields = [col for col in ("rating", "count_in_stock", "year") if col in matches.columns]
+        if sort_fields:
+            matches = matches.sort_values(by=sort_fields, ascending=False)
+
+        relaxed = []
+        for _, row in matches.iterrows():
+            product_info = row.to_dict()
+            product_id = str(product_info.get("id") or "")
+            if not product_id or product_id in exclude_product_ids:
+                continue
+
+            product_data = _get_product_data_with_images(product_info, product_id)
+            reason = _build_personalized_reason(payload_product_info, product_info, score=0.35)
+            relaxed.append(
+                {
+                    "product": product_data,
+                    "score": 0.35,
+                    "reason": reason,
+                }
+            )
+            if len(relaxed) >= top_k:
+                break
+        return relaxed
+    except Exception as exc:
+        logger.warning(f"Could not build articleType fallback recommendations: {exc}")
+        return []
+
+
 def recommend_hybrid(
     *,
     user_id: str | int,
@@ -380,9 +656,19 @@ def recommend_hybrid(
         
         product_idx = int(product_row.iloc[0]['product_idx'])
         
-        # Get payload product info to filter by articleType
         payload_product_info = preprocessor.get_product_info(product_idx)
         payload_article_type = payload_product_info.get('articleType')
+        payload_article_type_norm = _normalize_article_type(payload_article_type)
+        payload_gender = payload_product_info.get('gender')
+        payload_gender_norm = _normalize_gender_value(payload_gender)
+        user_gender = (
+            user_info.get('gender')
+            if isinstance(user_info, dict)
+            else getattr(user_info, 'gender', None)
+        )
+        if isinstance(user_info, dict) and not user_gender:
+            user_gender = user_info.get('Gender')
+        allowed_outfit_genders = _allowed_outfit_genders(user_gender, payload_gender)
         
         if not payload_article_type:
             logger.warning(f"Payload product {current_product_id} has no articleType, cannot filter recommendations")
@@ -400,15 +686,14 @@ def recommend_hybrid(
             top_k=top_k_personal
         )
         
-        # Convert recommendations to API format and filter by articleType
         personalized = []
         for prod_idx, score in recommendations:
             product_info = preprocessor.get_product_info(prod_idx)
             
-            # Filter: only include products with same articleType as payload
-            if payload_article_type:
+            if payload_article_type_norm:
                 candidate_article_type = product_info.get('articleType')
-                if candidate_article_type != payload_article_type:
+                candidate_article_type_norm = _normalize_article_type(candidate_article_type)
+                if candidate_article_type_norm != payload_article_type_norm:
                     logger.debug(
                         f"Skipping product {product_info.get('id')} with articleType '{candidate_article_type}' "
                         f"(payload has '{payload_article_type}')"
@@ -417,10 +702,8 @@ def recommend_hybrid(
             
             product_id = product_info.get('id', str(prod_idx))
             
-            # Get product data with images and variants
             product_data = _get_product_data_with_images(product_info, product_id)
             
-            # Build natural language reason by comparing payload and recommended product
             reason = _build_personalized_reason(payload_product_info, product_info, score)
             
             personalized.append({
@@ -428,18 +711,24 @@ def recommend_hybrid(
                 "score": float(score),
                 "reason": reason
             })
+
+        if not personalized:
+            logger.info(
+                "[hybrid] No strict personalized recommendations, relaxing filter to articleType matches"
+            )
+            fallback_items = _build_article_type_fallback(
+                preprocessor=preprocessor,
+                payload_product_info=payload_product_info,
+                payload_article_type=payload_article_type,
+                top_k=top_k_personal,
+                exclude_product_ids={str(current_product_id)},
+            )
+            personalized.extend(fallback_items)
         
-        # Generate outfit recommendations
-        outfit = {
-            "topwear": [],
-            "bottomwear": [],
-            "footwear": [],
-            "accessories": [],
-            "dress": [],
-            "innerwear": []
-        }
+        outfit = _build_outfit_template(payload_product_info.get('gender'))
+        allowed_outfit_categories = set(outfit.keys())
+        used_outfit_product_ids: set[str] = set()
         
-        # Determine payload product category based on subCategory or masterCategory
         payload_subcategory = payload_product_info.get('subCategory', '').lower()
         payload_mastercategory = payload_product_info.get('masterCategory', '').lower()
         
@@ -469,6 +758,7 @@ def recommend_hybrid(
                 "score": 1.0
             })
             logger.debug(f"Added payload product to {payload_category} category")
+            used_outfit_product_ids.add(str(payload_product_data.get("id")))
         
         try:
             outfit_recs, outfit_inference_time = hybrid_model.recommend_outfit(
@@ -483,11 +773,10 @@ def recommend_hybrid(
                 if category == 'payload':
                     continue
                 
-                if category not in outfit:
-                    outfit[category] = []
+                if category not in allowed_outfit_categories:
+                    logger.debug(f"Skipping category {category} as it is not required for payload gender {payload_gender}")
+                    continue
                 
-                # If this category is the payload category, skip adding recommendations
-                # (only payload product should be in this category)
                 if category == payload_category:
                     logger.debug(f"Skipping recommendations for {category} as it contains payload product")
                     continue
@@ -497,8 +786,13 @@ def recommend_hybrid(
                     logger.debug(f"Category {category} has no items or invalid format")
                     continue
                 
-                # Process items (should be List[Tuple[int, float]])
-                for item in items[:top_k_outfit]:
+                prefer_handbags = (
+                    category == "accessories"
+                    and payload_gender_norm in {"women", "girls"}
+                )
+                deferred_accessory_items: list[dict] = []
+                
+                for item in items:
                     try:
                         # Handle tuple format (prod_idx, score)
                         if isinstance(item, tuple) and len(item) == 2:
@@ -518,16 +812,81 @@ def recommend_hybrid(
                         product_info = preprocessor.get_product_info(int(prod_idx))
                         product_id = product_info.get('id', str(prod_idx))
                         
+                        candidate_gender_norm = _normalize_gender_value(product_info.get('gender'))
+                        if allowed_outfit_genders:
+                            if not candidate_gender_norm:
+                                logger.debug(
+                                    "Skipping product %s in %s due to missing gender metadata",
+                                    product_id,
+                                    category,
+                                )
+                                continue
+                            if candidate_gender_norm not in allowed_outfit_genders:
+                                logger.debug(
+                                    "Skipping product %s in %s: gender '%s' not allowed for user '%s' and payload '%s'",
+                                    product_id,
+                                    category,
+                                    candidate_gender_norm,
+                                    user_gender,
+                                    payload_gender,
+                                )
+                                continue
+                        
                         # Get product data with images
                         product_data = _get_product_data_with_images(product_info, product_id)
                         
-                        outfit[category].append({
+                        entry = {
                             "product": product_data,
                             "score": float(score)
-                        })
+                        }
+                        
+                        candidate_article_type_norm = _normalize_article_type(product_info.get('articleType'))
+                        if (
+                            prefer_handbags
+                            and candidate_article_type_norm != "handbags"
+                        ):
+                            deferred_accessory_items.append(entry)
+                            continue
+                        
+                        outfit[category].append(entry)
+                        used_outfit_product_ids.add(str(product_data.get("id")))
+                        
+                        if len(outfit[category]) >= top_k_outfit:
+                            break
                     except Exception as item_error:
                         logger.warning(f"Error processing item in {category}: {item_error}")
                         continue
+                
+                if prefer_handbags and not outfit[category]:
+                    handbag_fallback = _fetch_category_fallback_products(
+                        preprocessor=preprocessor,
+                        category_key=category,
+                        allowed_genders=allowed_outfit_genders,
+                        used_product_ids=used_outfit_product_ids,
+                        payload_product_info=payload_product_info,
+                        top_k=max(1, top_k_outfit),
+                        payload_gender_norm=payload_gender_norm,
+                        force_article_types={"handbags"},
+                    )
+                    if handbag_fallback:
+                        outfit[category].extend(handbag_fallback)
+                        for entry in handbag_fallback:
+                            used_outfit_product_ids.add(str(entry["product"].get("id")))
+                
+                if len(outfit[category]) < top_k_outfit and deferred_accessory_items:
+                    needed = top_k_outfit - len(outfit[category])
+                    for entry in deferred_accessory_items[:needed]:
+                        outfit[category].append(entry)
+                        used_outfit_product_ids.add(str(entry["product"].get("id")))
+            
+            outfit = _ensure_outfit_categories(
+                outfit=outfit,
+                preprocessor=preprocessor,
+                allowed_genders=allowed_outfit_genders,
+                used_product_ids=used_outfit_product_ids,
+                payload_product_info=payload_product_info,
+                top_k=max(1, top_k_outfit),
+            )
             
             logger.info(f"Generated outfit with {sum(len(v) for v in outfit.values())} total items")
             
