@@ -3,12 +3,16 @@ Training Pipeline for Recommendation System
 Train và evaluate các models: Content-Based, GNN, Hybrid
 """
 
+import io
 import os
+import re
 import sys
 import pickle
 import pandas as pd
 import numpy as np
 from pathlib import Path
+from datetime import datetime
+from contextlib import redirect_stdout
 
 # Add recommendation_system to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -18,6 +22,51 @@ from recommendation_system.models.content_based import ContentBasedRecommender
 from recommendation_system.models.gnn_model import GNNRecommender
 from recommendation_system.models.hybrid_model import HybridRecommender
 from recommendation_system.evaluation.metrics import RecommendationEvaluator
+
+
+def _slugify_model_name(model_name: str) -> str:
+    """Convert model name to filesystem-friendly slug."""
+    return re.sub(r'[^a-z0-9]+', '_', model_name.lower()).strip('_')
+
+
+def save_evaluation_log(model_name: str, log_text: str, base_dir: Path):
+    """Persist evaluation log so Streamlit app can display it later."""
+    if not log_text:
+        return
+    logs_dir = base_dir / "recommendation_system" / "evaluation" / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    slug = _slugify_model_name(model_name)
+    log_path = logs_dir / f"{slug}.log"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    header = f"=== {model_name} Evaluation Log ({timestamp}) ===\n"
+    with open(log_path, "w", encoding="utf-8") as f:
+        f.write(header)
+        f.write(log_text)
+
+
+def evaluate_and_record(
+    evaluator: RecommendationEvaluator,
+    model,
+    model_name: str,
+    users_df: pd.DataFrame,
+    base_dir: Path,
+    k_values=None
+):
+    """Run evaluation, capture logs, and persist both metrics + log."""
+    if k_values is None:
+        k_values = [10, 20]
+
+    log_buffer = io.StringIO()
+    with redirect_stdout(log_buffer):
+        results = evaluator.evaluate_model(
+            model=model,
+            model_name=model_name,
+            users_df=users_df,
+            k_values=k_values
+        )
+    save_evaluation_result(results, base_dir)
+    save_evaluation_log(model_name, log_buffer.getvalue(), base_dir)
+    return results
 
 
 def get_or_create_preprocessor():
@@ -95,13 +144,14 @@ def train_content_based(evaluate=True):
             products_df=preprocessor.products_df,
             train_interactions=preprocessor.train_interactions
         )
-        results = evaluator.evaluate_model(
+        evaluate_and_record(
+            evaluator=evaluator,
             model=cb_model,
             model_name="Content-Based Filtering",
             users_df=preprocessor.users_df,
+            base_dir=base_dir,
             k_values=[10, 20]
         )
-        save_evaluation_result(results, base_dir)
     
     return cb_model
 
@@ -145,13 +195,14 @@ def train_gnn(evaluate=True):
             products_df=preprocessor.products_df,
             train_interactions=preprocessor.train_interactions
         )
-        results = evaluator.evaluate_model(
+        evaluate_and_record(
+            evaluator=evaluator,
             model=gnn_model,
             model_name="GNN (GraphSAGE)",
             users_df=preprocessor.users_df,
+            base_dir=base_dir,
             k_values=[10, 20]
         )
-        save_evaluation_result(results, base_dir)
     
     return gnn_model
 
@@ -212,13 +263,14 @@ def train_hybrid(evaluate=True):
             products_df=preprocessor.products_df,
             train_interactions=preprocessor.train_interactions
         )
-        results = evaluator.evaluate_model(
+        evaluate_and_record(
+            evaluator=evaluator,
             model=hybrid_model,
             model_name="Hybrid (GNN + Content-Based)",
             users_df=preprocessor.users_df,
+            base_dir=base_dir,
             k_values=[10, 20]
         )
-        save_evaluation_result(results, base_dir)
     
     return hybrid_model
 
@@ -275,14 +327,15 @@ def train_and_evaluate():
     for model, name in [(cb_model, "Content-Based Filtering"), 
                         (gnn_model, "GNN (GraphSAGE)"),
                         (hybrid_model, "Hybrid (GNN + Content-Based)")]:
-        result = evaluator.evaluate_model(
+        result = evaluate_and_record(
+            evaluator=evaluator,
             model=model,
             model_name=name,
             users_df=preprocessor.users_df,
+            base_dir=base_dir,
             k_values=[10, 20]
         )
         results.append(result)
-        save_evaluation_result(result, base_dir)
     
     # Print summary
     results_df = pd.DataFrame(results)

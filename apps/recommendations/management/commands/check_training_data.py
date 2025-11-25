@@ -30,7 +30,7 @@ class Command(BaseCommand):
         self.stdout.write(f"✅ Interactions: {sql_interactions.count()}")
 
         if sql_interactions.exists():
-            self.stdout.write("\n📝 Sample Interactions (SQL):")
+            self.stdout.write("\n Sample Interactions (SQL):")
             for i, interaction in enumerate(sql_interactions[:5]):
                 self.stdout.write(
                     f"  - User: {interaction.user_id}, Product: {interaction.product_id}, "
@@ -55,7 +55,7 @@ class Command(BaseCommand):
             self.stdout.write(f"✅ Interactions: {mongo_interactions.count()}")
 
             if mongo_interactions.count() > 0:
-                self.stdout.write("\n📝 Sample Interactions (MongoDB):")
+                self.stdout.write("\n Sample Interactions (MongoDB):")
                 for i, interaction in enumerate(mongo_interactions[:5]):
                     self.stdout.write(
                         f"  - User: {interaction.user_id}, Product: {interaction.product_id}, "

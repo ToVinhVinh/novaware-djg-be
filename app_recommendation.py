@@ -13,6 +13,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from typing import Dict, List
 import time
+import re
 
 # Import training pipeline
 # Add current directory to path to find train_recommendation.py
@@ -194,13 +195,11 @@ def render_dataset_upload_section(
     )
     if uploaded_file is None:
         st.info("Chưa có file được tải lên.")
-        st.markdown("---")
         return
     try:
         df = pd.read_csv(uploaded_file)
     except Exception as exc:
         st.error(f"Lỗi khi đọc file CSV: {exc}")
-        st.markdown("---")
         return
     st.success(f"Đã tải {display_name}: {len(df)} rows × {len(df.columns)} columns")
     col_rows, col_cols = st.columns(2)
@@ -216,7 +215,6 @@ def render_dataset_upload_section(
     render_distribution_chart(df, dataset_key)
     st.markdown("**📈 Bảng thống kê dữ liệu (count, mean, std, min, 25%, 50%, 75%, max):**")
     render_data_statistics(df)
-    st.markdown("---")
 
 def display_product_info(product_info: Dict, score: float = None):
     """Display product information"""
@@ -277,6 +275,302 @@ def render_metrics_table(df, highlight_model=None):
         return [''] * len(row)
 
     st.dataframe(display_df.style.apply(highlight_row, axis=1), use_container_width=True)
+
+
+def slugify_model_name(model_name: str) -> str:
+    """Convert model name to slug used for log filenames."""
+    return re.sub(r'[^a-z0-9]+', '_', model_name.lower()).strip('_')
+
+
+def load_evaluation_log(model_name: str):
+    """Load evaluation log content for a model."""
+    slug = slugify_model_name(model_name)
+    log_path = os.path.join('recommendation_system', 'evaluation', 'logs', f'{slug}.log')
+    if os.path.exists(log_path):
+        with open(log_path, 'r', encoding='utf-8') as f:
+            return slug, f.read()
+    return slug, None
+
+
+def parse_evaluation_log(log_text: str) -> Dict:
+    """
+    Parse evaluation log để extract metrics và ví dụ tính toán
+    
+    Returns:
+        Dictionary chứa:
+        - metrics: Dict với các metrics và giá trị
+        - examples: Dict với các ví dụ tính toán cho từng metric
+        - formulas: Dict với các công thức cho từng metric
+    """
+    if not log_text:
+        return {'metrics': {}, 'examples': {}, 'formulas': {}}
+    
+    metrics = {}
+    examples = {}
+    formulas = {}
+    
+    lines = log_text.split('\n')
+    i = 0
+    current_metric = None
+    
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        # Skip empty lines and headers
+        if not line or line.startswith('===') or line.startswith('[') or 'EVALUATING' in line or 'RESULTS FOR' in line:
+            i += 1
+            continue
+        
+        # Parse metric value (format: "metric_name: value")
+        # Look for pattern like "recall@10: 0.0186" or "training_time: 0.0807"
+        if ':' in line and not line.startswith('📐') and not line.startswith('🧮'):
+            parts = line.split(':', 1)
+            if len(parts) == 2:
+                metric_name = parts[0].strip()
+                value_str = parts[1].strip()
+                
+                # Remove any trailing text after the number
+                # e.g., "0.0186   📐 Công thức:" -> "0.0186"
+                value_str = value_str.split()[0] if value_str.split() else value_str
+                
+                # Try to parse as float
+                try:
+                    value = float(value_str)
+                    metrics[metric_name] = value
+                    current_metric = metric_name
+                except ValueError:
+                    pass
+        
+        # Parse formula (format: "   📐 Công thức: ...")
+        if '📐 Công thức:' in line:
+            formula = line.split('📐 Công thức:', 1)[1].strip()
+            if current_metric:
+                formulas[current_metric] = formula
+        
+        if 'Ví dụ áp dụng:' in line:
+            example = line.split('Ví dụ áp dụng:', 1)[1].strip()
+            if current_metric:
+                examples[current_metric] = example
+        
+        i += 1
+    
+    return {
+        'metrics': metrics,
+        'examples': examples,
+        'formulas': formulas
+    }
+
+
+def render_metrics_in_step(
+    metrics_data,
+    metric_keys: List[str],
+    step_title: str,
+    key_suffix: str,
+    model_name: str = None
+):
+    """
+    Hiển thị metrics chi tiết trong một bước
+    
+    Args:
+        metrics_data: Dictionary từ parse_evaluation_log hoặc pd.Series từ comparison_df
+        metric_keys: List các metric keys cần hiển thị (e.g., ['recall@10', 'precision@10'])
+        step_title: Tiêu đề của bước
+        key_suffix: Suffix cho key của Streamlit components
+        model_name: Tên model (để load log nếu cần)
+    """
+    # Kiểm tra metrics_data một cách an toàn (tránh lỗi với pandas Series)
+    if metrics_data is None:
+        st.info("Chưa có dữ liệu metrics. Vui lòng chạy train & evaluate trước.")
+        return
+    elif isinstance(metrics_data, pd.Series):
+        if metrics_data.empty:
+            st.info("Chưa có dữ liệu metrics. Vui lòng chạy train & evaluate trước.")
+            return
+    elif isinstance(metrics_data, dict):
+        if not metrics_data or (isinstance(metrics_data, dict) and 'metrics' in metrics_data and not metrics_data['metrics']):
+            st.info("Chưa có dữ liệu metrics. Vui lòng chạy train & evaluate trước.")
+            return
+    
+    # Load parsed log để lấy formulas và examples (nếu chưa có trong metrics_data)
+    parsed_log = None
+    if model_name:
+        _, log_text = load_evaluation_log(model_name)
+        if log_text:
+            parsed_log = parse_evaluation_log(log_text)
+    
+    # Tạo columns cho metrics (2 cột)
+    n_cols = 2
+    cols = st.columns(n_cols)
+    
+    for idx, metric_key in enumerate(metric_keys):
+        col_idx = idx % n_cols
+        with cols[col_idx]:
+            # Get metric value, formula, and example
+            value = None
+            formula = ''
+            example = ''
+            
+            if isinstance(metrics_data, dict) and 'metrics' in metrics_data:
+                # From parsed log
+                value = metrics_data['metrics'].get(metric_key, None)
+                formula = metrics_data['formulas'].get(metric_key, '')
+                example = metrics_data['examples'].get(metric_key, '')
+            elif isinstance(metrics_data, pd.Series):
+                # From comparison_df
+                value = metrics_data.get(metric_key, None)
+                # Get formula and example from parsed log if available
+                if parsed_log:
+                    formula = parsed_log['formulas'].get(metric_key, '')
+                    example = parsed_log['examples'].get(metric_key, '')
+            
+            if value is not None:
+                # Format metric name for display
+                display_name = metric_key.replace('@', '@').replace('_', ' ').title()
+                
+                # Display metric
+                st.metric(display_name, f"{value:.4f}")
+                
+                # Show formula and example in expander
+                with st.expander(f"Chi tiết {display_name}", expanded=False):
+                    if formula:
+                        st.markdown(f"**Công thức:** {formula}")
+                    
+                    if example:
+                        # Phân tích example để hiển thị rõ ràng hơn
+                        if "| Trung bình" in example:
+                            # Tách example thành các phần
+                            parts = example.split(" | ")
+                            user_examples = []
+                            avg_formula = None
+                            
+                            for part in parts:
+                                if "Trung bình" in part:
+                                    avg_formula = part
+                                else:
+                                    user_examples.append(part)
+                            
+                            # Hiển thị ví dụ tính toán cho từng user
+                            st.markdown("#### Ví dụ tính toán cho từng user:")
+                            for i, user_ex in enumerate(user_examples, 1):
+                                st.markdown(f"**{i}. {user_ex}**")
+                            
+                            if avg_formula:
+                                st.markdown("#### Công thức tính trung bình:")
+                                
+                                # Parse công thức để hiển thị đẹp hơn
+                                if "=" in avg_formula:
+                                    formula_parts = avg_formula.split("=")
+                                    if len(formula_parts) >= 2:
+                                        left_side = formula_parts[0].strip()
+                                        right_side = "=".join(formula_parts[1:]).strip()
+                                        
+                                        # Extract số users từ công thức
+                                        import re
+                                        n_users_match = re.search(r'user(\d+)', right_side)
+                                        n_users = n_users_match.group(1) if n_users_match else "N"
+                                        
+                                        # Extract metric name từ display_name
+                                        metric_var = display_name.replace(" ", "_").lower()
+                                        
+                                        # Hiển thị công thức dạng toán học
+                                        st.markdown(f"""
+                                        **Công thức:**
+                                        $$\\text{{Trung bình}} = \\frac{{\\sum_{{u=1}}^{{{n_users}}} {display_name}_u}}{{{n_users}}}$$
+                                        """)
+                                        
+                                        # Hiển thị dạng mở rộng
+                                        st.markdown(f"""
+                                        **Dạng mở rộng:**
+                                        $$\\text{{Trung bình}} = \\frac{{{display_name}_{{user1}} + {display_name}_{{user2}} + \\ldots + {display_name}_{{user{n_users}}}}}{{{n_users}}}$$
+                                        """)
+                                        
+                                        # Hiển thị với giá trị cụ thể từ ví dụ
+                                        if len(user_examples) >= 1:
+                                            # Lấy giá trị từ các ví dụ users
+                                            example_values = []
+                                            for ex in user_examples:
+                                                # Extract giá trị từ ví dụ
+                                                # Format có thể là: "User X: hits=Y, |T_u|=Z → recall=0.0186"
+                                                # hoặc: "User X: DCG=Y, IDCG=Z → NDCG=0.0575"
+                                                # hoặc: "User X: hits=Y, K=Z → precision=0.0100"
+                                                
+                                                # Tìm pattern: "→ metric_name=value" (giá trị sau dấu →)
+                                                # Hoặc tìm giá trị cuối cùng trong chuỗi (sau dấu = cuối cùng)
+                                                pattern1 = r'→\s*\w+\s*=\s*([\d.]+)'  # "→ recall=0.0186" hoặc "→ NDCG=0.0575"
+                                                match1 = re.search(pattern1, ex)
+                                                
+                                                if match1:
+                                                    val = float(match1.group(1))
+                                                    example_values.append(val)
+                                                else:
+                                                    # Fallback: tìm tất cả các giá trị số và lấy giá trị cuối cùng
+                                                    # (thường là metric value)
+                                                    all_numbers = re.findall(r'([\d.]+)', ex)
+                                                    if all_numbers:
+                                                        # Lấy số cuối cùng (thường là metric value)
+                                                        val = float(all_numbers[-1])
+                                                        example_values.append(val)
+                                            
+                                            if example_values:
+                                                n_examples = len(example_values)
+                                                # Hiển thị ví dụ với các users
+                                                example_text = f"**Ví dụ với {n_examples} user(s):**\n"
+                                                for i, (ex, val) in enumerate(zip(user_examples[:3], example_values[:3]), 1):
+                                                    # Extract user number
+                                                    user_match = re.search(r'User\s+(\d+)', ex)
+                                                    user_num = user_match.group(1) if user_match else str(i)
+                                                    example_text += f"- {display_name}_user{user_num} = {val:.4f}\n"
+                                                
+                                                if n_examples < int(n_users):
+                                                    example_text += f"- ...\n"
+                                                    example_text += f"- {display_name}_user{n_users} = ...\n"
+                                                
+                                                # Tạo công thức với ví dụ
+                                                if n_examples >= 2:
+                                                    sum_example = sum(example_values[:2])
+                                                    formula_example = f"{example_values[0]:.4f} + {example_values[1]:.4f}"
+                                                    if n_examples > 2:
+                                                        formula_example += f" + {example_values[2]:.4f}"
+                                                    formula_example += f" + \\ldots"
+                                                else:
+                                                    formula_example = f"{example_values[0]:.4f} + \\ldots"
+                                                
+                                                st.markdown(example_text)
+                                                st.markdown(f"""
+                                                **Tính toán:**
+                                                $$\\text{{Trung bình}} = \\frac{{{formula_example} + {display_name}_{{user{n_users}}}}}{{{n_users}}} = {value:.4f}$$
+                                                """)
+                        else:
+                            st.markdown(f"**Ví dụ áp dụng:** {example}")
+                    
+                    if not formula and not example:
+                        st.info("Chưa có chi tiết tính toán. Xem log evaluation để biết thêm.")
+            else:
+                # Metric không có trong data
+                display_name = metric_key.replace('@', '@').replace('_', ' ').title()
+                st.info(f"{display_name}: Chưa có dữ liệu")
+
+
+def render_evaluation_log_section(model_name: str, key_suffix: str):
+    """Display evaluation logs (if any) inside an expander."""
+    slug, log_text = load_evaluation_log(model_name)
+    with st.expander("📜 Evaluation Log (Raw)", expanded=False):
+        if log_text:
+            st.text_area(
+                "Chi tiết log tính toán",
+                log_text,
+                height=320,
+                key=f"log_text_{key_suffix}"
+            )
+            st.download_button(
+                "⬇️ Tải log",
+                log_text,
+                file_name=f"{slug}.log",
+                mime="text/plain",
+                key=f"log_download_{key_suffix}"
+            )
+        else:
+            st.info("Chưa có log evaluation. Hãy chạy train & evaluate để tạo log.")
 
 
 def run_training(model_type: str):
@@ -428,6 +722,13 @@ def main():
                 st.markdown("""
                 **Công thức áp dụng:**
                 $$Text(P_i) = [Gender] + [MasterCategory] + [SubCategory] \\times 2 + [ArticleType] \\times 3 + [BaseColour] + [Usage]$$
+                
+                **Giải thích:** Các features được kết hợp thành chuỗi văn bản, trong đó:
+                - `ArticleType` được lặp lại **3 lần** (trọng số cao nhất - quan trọng nhất)
+                - `SubCategory` được lặp lại **2 lần** (trọng số trung bình)
+                - Các features khác (Gender, MasterCategory, BaseColour, Usage) xuất hiện **1 lần**
+                
+                **Lý do:** Việc lặp lại giúp TF-IDF coi trọng các features quan trọng hơn khi tính toán similarity.
                 """)
                 
                 st.write("**Ví dụ áp dụng công thức:**")
@@ -443,7 +744,7 @@ def main():
                 
                 st.write("**Kết quả tính toán (Ví dụ 2 sản phẩm đầu tiên):**")
                 example_df = cb_model.products_df[['productDisplayName', 'feature_text']].head(2)
-                st.table(example_df)
+                st.dataframe(example_df, use_container_width=True)
                 st.info("💡 **Phân tích:** Việc lặp lại `ArticleType` 3 lần giúp thuật toán coi trọng loại sản phẩm hơn màu sắc. Điều này giúp gợi ý sản phẩm cùng loại (ví dụ: áo thun với áo thun) thay vì chỉ dựa vào màu sắc.")
 
             # BƯỚC 2
@@ -471,9 +772,8 @@ def main():
                     
                     st.write(f"**Ma trận TF-IDF (Top 5 sản phẩm x Top 10 features):**")
                     st.write(f"**Shape:** {tfidf_subset.shape[0]} sản phẩm × {tfidf_subset.shape[1]} features")
-                    st.dataframe(tfidf_df.iloc[:, :10].style.background_gradient(cmap='Blues', axis=None))
+                    st.dataframe(tfidf_df.iloc[:, :10].style.background_gradient(cmap='Blues', axis=None), use_container_width=True)
                     
-                    # Ví dụ tính toán
                     if len(tfidf_df) >= 2:
                         p1_name = tfidf_df.index[0]
                         p2_name = tfidf_df.index[1]
@@ -508,7 +808,7 @@ def main():
                                         columns=cb_model.products_df['productDisplayName'].head(5))
                     
                     st.write(f"**Ma trận Similarity (5×5 mẫu từ ma trận {cb_model.similarity_matrix.shape[0]}×{cb_model.similarity_matrix.shape[1]}):**")
-                    st.dataframe(sim_df.style.background_gradient(cmap='Greens', axis=None))
+                    st.dataframe(sim_df.style.background_gradient(cmap='Greens', axis=None), use_container_width=True)
                     
                     # Thống kê
                     avg_sim = cb_model.similarity_matrix.mean()
@@ -553,80 +853,50 @@ def main():
                 st.write("3. So sánh danh sách gợi ý với ground truth (sản phẩm thực tế user đã tương tác)")
                 st.write("4. Tính các chỉ số metrics dựa trên kết quả so sánh")
                 
-                st.markdown("---")
-                st.markdown("#### 📐 Công thức tính các chỉ số:")
+                # Load parsed log data
+                _, log_text = load_evaluation_log("Content-Based Filtering")
+                parsed_log = parse_evaluation_log(log_text) if log_text else {}
                 
-                # Recall@K
-                with st.expander("Recall@K", expanded=False):
-                    st.markdown("""
-                    **Công thức:**
-                    $$Recall@K = \\frac{1}{|U|} \\sum_{u \\in U} \\frac{|R_u \\cap T_u|}{|T_u|}$$
-                    
-                    Trong đó:
-                    - $U$: Tập users trong test-set
-                    - $R_u$: Top-K sản phẩm được gợi ý cho user $u$
-                    - $T_u$: Tập sản phẩm thực tế user $u$ đã tương tác (ground truth)
-                    - $|R_u \\cap T_u|$: Số sản phẩm relevant được gợi ý
-                    
-                    **Ý nghĩa:** Tỷ lệ sản phẩm relevant được tìm thấy trong Top-K. Càng cao càng tốt (0-1).
-                    """)
+                # Get metrics from comparison_df
+                cb_metrics_row = None
+                if comparison_df is not None:
+                    cb_rows = comparison_df[comparison_df['model_name'] == 'Content-Based Filtering']
+                    if len(cb_rows) > 0:
+                        cb_metrics_row = cb_rows.iloc[0]
                 
-                # Precision@K
-                with st.expander("Precision@K", expanded=False):
-                    st.markdown("""
-                    **Công thức:**
-                    $$Precision@K = \\frac{1}{|U|} \\sum_{u \\in U} \\frac{|R_u \\cap T_u|}{K}$$
-                    
-                    Trong đó:
-                    - $K$: Số lượng sản phẩm gợi ý (Top-K)
-                    - $|R_u \\cap T_u|$: Số sản phẩm relevant trong Top-K
-                    
-                    **Ý nghĩa:** Tỷ lệ sản phẩm relevant trong Top-K. Càng cao càng tốt (0-1).
-                    """)
+                # Hiển thị Training Time và Inference Time
+                st.markdown("#### ⏱️ Thời gian Training & Inference")
+                col_time1, col_time2 = st.columns(2)
+                with col_time1:
+                    training_time = parsed_log['metrics'].get('training_time', 
+                        cb_metrics_row['training_time'] if cb_metrics_row is not None else None)
+                    if training_time is not None:
+                        st.metric("Training Time (s)", f"{training_time:.4f}")
+                with col_time2:
+                    inference_time = parsed_log['metrics'].get('avg_inference_time',
+                        cb_metrics_row['avg_inference_time'] if cb_metrics_row is not None else None)
+                    if inference_time is not None:
+                        st.metric("Inference Time (s)", f"{inference_time:.4f}")
                 
-                # NDCG@K
-                with st.expander("NDCG@K (Normalized Discounted Cumulative Gain)", expanded=False):
-                    st.markdown("""
-                    **Công thức:**
-                    $$DCG@K = \\sum_{i=1}^{K} \\frac{rel_i}{\\log_2(i+1)}$$
-                    $$IDCG@K = \\sum_{i=1}^{|T_u|} \\frac{1}{\\log_2(i+1)}$$
-                    $$NDCG@K = \\frac{DCG@K}{IDCG@K}$$
-                    
-                    Trong đó:
-                    - $rel_i$: Relevance của sản phẩm ở vị trí $i$ (1 nếu relevant, 0 nếu không)
-                    - $IDCG$: Ideal DCG (DCG tốt nhất có thể)
-                    
-                    **Ý nghĩa:** Đo chất lượng ranking, coi trọng vị trí (sản phẩm relevant ở top tốt hơn). Càng cao càng tốt (0-1).
-                    """)
+                # Hiển thị metrics @10
+                st.markdown("#### 📈 Metrics @10")
+                metrics_10 = ['recall@10', 'precision@10', 'ndcg@10', 'coverage@10', 'diversity@10']
+                if cb_metrics_row is not None:
+                    render_metrics_in_step(cb_metrics_row, metrics_10, "Bước 4", "cb_10", model_name="Content-Based Filtering")
+                elif parsed_log:
+                    render_metrics_in_step(parsed_log, metrics_10, "Bước 4", "cb_10", model_name="Content-Based Filtering")
                 
-                # Coverage@K
-                with st.expander("Coverage@K", expanded=False):
-                    st.markdown("""
-                    **Công thức:**
-                    $$Coverage@K = \\frac{|\\bigcup_{u \\in U} R_u|}{|P|}$$
-                    
-                    Trong đó:
-                    - $\\bigcup_{u \\in U} R_u$: Tập hợp tất cả sản phẩm unique được gợi ý
-                    - $P$: Tập hợp tất cả sản phẩm trong catalog
-                    
-                    **Ý nghĩa:** Tỷ lệ sản phẩm trong catalog được gợi ý ít nhất 1 lần. Càng cao càng đa dạng (0-1).
-                    """)
+                # Hiển thị metrics @20
+                st.markdown("#### 📈 Metrics @20")
+                metrics_20 = ['recall@20', 'precision@20', 'ndcg@20', 'coverage@20', 'diversity@20']
+                if cb_metrics_row is not None:
+                    render_metrics_in_step(cb_metrics_row, metrics_20, "Bước 4", "cb_20", model_name="Content-Based Filtering")
+                elif parsed_log:
+                    render_metrics_in_step(parsed_log, metrics_20, "Bước 4", "cb_20", model_name="Content-Based Filtering")
                 
-                # Diversity@K
-                with st.expander("Diversity@K", expanded=False):
-                    st.markdown("""
-                    **Công thức:**
-                    $$Diversity@K = \\frac{1}{|U|} \\sum_{u \\in U} \\frac{|\\text{unique categories in } R_u|}{K}$$
-                    
-                    Trong đó:
-                    - $\\text{unique categories in } R_u$: Số lượng categories unique trong Top-K của user $u$
-                    
-                    **Ý nghĩa:** Độ đa dạng của danh sách gợi ý (dựa trên số lượng categories khác nhau). Càng cao càng đa dạng (0-1).
-                    """)
-                
-                st.markdown("---")
-                st.markdown("#### 📊 Kết quả đánh giá:")
+                st.markdown("#### 📊 Bảng Tổng Hợp")
                 render_metrics_table(comparison_df, highlight_model="Content-Based Filtering")
+                render_evaluation_log_section("Content-Based Filtering", "cb")
 
         # --- GNN TAB ---
         with tab2:
@@ -710,7 +980,7 @@ User 1 <---[weight=0.5]---> Product B
                     st.write(f"**User Embeddings (Top 5 users, 10 chiều đầu):** Shape {gnn_model.node_embeddings.shape}")
                     st.write(f"- Tổng số embeddings: {gnn_model.node_embeddings.shape[0]} (Users + Products)")
                     st.write(f"- Dimension mỗi embedding: {gnn_model.node_embeddings.shape[1]}")
-                    st.dataframe(emb_df.style.background_gradient(cmap='Purples', axis=None))
+                    st.dataframe(emb_df.style.background_gradient(cmap='Purples', axis=None), use_container_width=True)
                     
                     # Thống kê
                     avg_emb = gnn_model.node_embeddings.mean()
@@ -729,17 +999,18 @@ User 1 <---[weight=0.5]---> Product B
                 
                 st.markdown("""
                 **Công thức BPR Loss (Bayesian Personalized Ranking):**
-                $$L = -\\frac{1}{|D|} \\sum_{(u,i,j) \\in D} \\ln \\sigma(\\hat{x}_{ui} - \\hat{x}_{uj})$$
+                $$L = -\\frac{1}{|D|} \\sum_{(u,i,j) \\in D} w_{ui} \\cdot \\ln \\sigma(\\hat{x}_{ui} - \\hat{x}_{uj})$$
                 
                 Trong đó:
                 - $D$: Tập các triplets $(u, i, j)$
                 - $u$: User
                 - $i$: Item dương (user đã tương tác)
                 - $j$: Item âm (user chưa tương tác, negative sample)
+                - $w_{ui}$: Trọng số của interaction (1.0 cho purchase, 0.7 cho cart, 0.5 cho like)
                 - $\\hat{x}_{ui} = h_u \\cdot h_i$: Điểm dự đoán (dot product của embeddings)
                 - $\\sigma$: Sigmoid function
                 
-                **Ý nghĩa:** Loss càng nhỏ nghĩa là model càng phân biệt tốt giữa items user thích và không thích.
+                **Ý nghĩa:** Loss càng nhỏ nghĩa là model càng phân biệt tốt giữa items user thích và không thích. Weighted loss giúp model coi trọng các tương tác mạnh hơn (purchase > cart > like).
                 """)
                 
                 st.write("**Ví dụ áp dụng:**")
@@ -801,7 +1072,47 @@ User 1 <---[weight=0.5]---> Product B
                 5. Tính các metrics: Recall, Precision, NDCG, Coverage, Diversity
                 """)
                 
-                st.markdown("---")
+                # Load parsed log data
+                _, log_text = load_evaluation_log("GNN (GraphSAGE)")
+                parsed_log = parse_evaluation_log(log_text) if log_text else {}
+                
+                # Get metrics from comparison_df
+                gnn_metrics_row = None
+                if comparison_df is not None:
+                    gnn_rows = comparison_df[comparison_df['model_name'] == 'GNN (GraphSAGE)']
+                    if len(gnn_rows) > 0:
+                        gnn_metrics_row = gnn_rows.iloc[0]
+                
+                # Hiển thị Training Time và Inference Time
+                st.markdown("#### ⏱️ Thời gian Training & Inference")
+                col_time1, col_time2 = st.columns(2)
+                with col_time1:
+                    training_time = parsed_log['metrics'].get('training_time',
+                        gnn_metrics_row['training_time'] if gnn_metrics_row is not None else None)
+                    if training_time is not None:
+                        st.metric("Training Time (s)", f"{training_time:.4f}")
+                with col_time2:
+                    inference_time = parsed_log['metrics'].get('avg_inference_time',
+                        gnn_metrics_row['avg_inference_time'] if gnn_metrics_row is not None else None)
+                    if inference_time is not None:
+                        st.metric("Inference Time (s)", f"{inference_time:.4f}")
+                
+                # Hiển thị metrics @10
+                st.markdown("#### 📈 Metrics @10")
+                metrics_10 = ['recall@10', 'precision@10', 'ndcg@10', 'coverage@10', 'diversity@10']
+                if gnn_metrics_row is not None:
+                    render_metrics_in_step(gnn_metrics_row, metrics_10, "Bước 4", "gnn_10", model_name="GNN (GraphSAGE)")
+                elif parsed_log:
+                    render_metrics_in_step(parsed_log, metrics_10, "Bước 4", "gnn_10", model_name="GNN (GraphSAGE)")
+                
+                # Hiển thị metrics @20
+                st.markdown("#### 📈 Metrics @20")
+                metrics_20 = ['recall@20', 'precision@20', 'ndcg@20', 'coverage@20', 'diversity@20']
+                if gnn_metrics_row is not None:
+                    render_metrics_in_step(gnn_metrics_row, metrics_20, "Bước 4", "gnn_20", model_name="GNN (GraphSAGE)")
+                elif parsed_log:
+                    render_metrics_in_step(parsed_log, metrics_20, "Bước 4", "gnn_20", model_name="GNN (GraphSAGE)")
+                
                 st.markdown("#### 📐 Công thức tính các chỉ số (tương tự Content-Based):")
                 
                 # Recall@K
@@ -834,10 +1145,9 @@ User 1 <---[weight=0.5]---> Product B
                     $$Diversity@K = \\frac{1}{|U|} \\sum_{u \\in U} \\frac{|\\text{unique categories in } R_u|}{K}$$
                     """)
                 
-                st.markdown("---")
-                st.markdown("#### 📊 Kết quả đánh giá:")
+                st.markdown("#### 📊 Bảng Tổng Hợp")
                 render_metrics_table(comparison_df, highlight_model="GNN (GraphSAGE)")
-
+                render_evaluation_log_section("GNN (GraphSAGE)", "gnn")
         # --- HYBRID TAB ---
         with tab3:
             st.markdown("### 3️⃣ Hybrid Model (GNN + Content-Based)")
@@ -871,7 +1181,7 @@ User 1 <---[weight=0.5]---> Product B
                     'CB Norm': [1.0, 0.17, 0.0]
                 }
                 ex_df = pd.DataFrame(ex_data)
-                st.table(ex_df)
+                st.dataframe(ex_df, use_container_width=True)
                 
                 st.write("**Giải thích ví dụ:**")
                 st.write("- GNN: min=1.5, max=5.2 → P1: (5.2-1.5)/(5.2-1.5)=1.0, P2: (2.1-1.5)/(5.2-1.5)=0.16")
@@ -889,12 +1199,15 @@ User 1 <---[weight=0.5]---> Product B
                 $$Score_{final} = \\alpha \\times Score_{GNN\\_norm} + (1 - \\alpha) \\times Score_{CB\\_norm}$$
                 
                 Trong đó:
-                - $\\alpha$: Trọng số cho GNN (mặc định 0.5 = cân bằng)
-                - $Score_{GNN\\_norm}$: Điểm số đã chuẩn hóa từ GNN
-                - $Score_{CB\\_norm}$: Điểm số đã chuẩn hóa từ Content-Based
+                - $\\alpha$: Trọng số cho GNN (mặc định 0.5 = cân bằng khi khởi tạo model)
+                - $Score_{GNN\\_norm}$: Điểm số đã chuẩn hóa từ GNN (Min-Max scaling về [0, 1])
+                - $Score_{CB\\_norm}$: Điểm số đã chuẩn hóa từ Content-Based (Min-Max scaling về [0, 1])
                 - $Score_{final}$: Điểm số cuối cùng để ranking
                 
-                **Lưu ý:** Trong thực tế, Hybrid model sử dụng dynamic weight (GNN=0.8, CB=0.2) để ưu tiên GNN cao hơn.
+                **Lưu ý quan trọng:** 
+                - Khi khởi tạo, Hybrid model có thể dùng $\\alpha = 0.5$ (cân bằng)
+                - **Trong thực tế khi recommend**, model sử dụng **dynamic weight** (GNN=0.8, CB=0.2) để ưu tiên GNN cao hơn vì GNN thường cho kết quả tốt hơn Content-Based
+                - Công thức thực tế: $Score_{final} = 0.8 \\times Score_{GNN\\_norm} + 0.2 \\times Score_{CB\\_norm}$
                 """)
                 
                 st.write("**Ví dụ áp dụng (với alpha=0.5):**")
@@ -906,7 +1219,7 @@ User 1 <---[weight=0.5]---> Product B
                     'Final Score (α=0.5)': [0.9, 0.55, 0.3],
                     'Final Score (α=0.8)': [0.96, 0.52, 0.24]
                 })
-                st.table(ex_combine)
+                st.dataframe(ex_combine, use_container_width=True)
                 
                 st.write("**Tính toán chi tiết cho P1 (α=0.5):**")
                 st.write("$$Score_{final}(P1) = 0.5 \\times 1.0 + 0.5 \\times 0.8 = 0.5 + 0.4 = 0.9$$")
@@ -937,7 +1250,47 @@ User 1 <---[weight=0.5]---> Product B
                 st.write("3. Sắp xếp và lấy Top-K recommendations")
                 st.write("4. So sánh với ground truth và tính các metrics")
                 
-                st.markdown("---")
+                # Load parsed log data
+                _, log_text = load_evaluation_log("Hybrid (GNN + Content-Based)")
+                parsed_log = parse_evaluation_log(log_text) if log_text else {}
+                
+                # Get metrics from comparison_df
+                hybrid_metrics_row = None
+                if comparison_df is not None:
+                    hybrid_rows = comparison_df[comparison_df['model_name'] == 'Hybrid (GNN + Content-Based)']
+                    if len(hybrid_rows) > 0:
+                        hybrid_metrics_row = hybrid_rows.iloc[0]
+                
+                # Hiển thị Training Time và Inference Time
+                st.markdown("#### ⏱️ Thời gian Training & Inference")
+                col_time1, col_time2 = st.columns(2)
+                with col_time1:
+                    training_time = parsed_log['metrics'].get('training_time',
+                        hybrid_metrics_row['training_time'] if hybrid_metrics_row is not None else None)
+                    if training_time is not None:
+                        st.metric("Training Time (s)", f"{training_time:.4f}")
+                with col_time2:
+                    inference_time = parsed_log['metrics'].get('avg_inference_time',
+                        hybrid_metrics_row['avg_inference_time'] if hybrid_metrics_row is not None else None)
+                    if inference_time is not None:
+                        st.metric("Inference Time (s)", f"{inference_time:.4f}")
+                
+                # Hiển thị metrics @10
+                st.markdown("#### 📈 Metrics @10")
+                metrics_10 = ['recall@10', 'precision@10', 'ndcg@10', 'coverage@10', 'diversity@10']
+                if hybrid_metrics_row is not None:
+                    render_metrics_in_step(hybrid_metrics_row, metrics_10, "Bước 3", "hybrid_10", model_name="Hybrid (GNN + Content-Based)")
+                elif parsed_log:
+                    render_metrics_in_step(parsed_log, metrics_10, "Bước 3", "hybrid_10", model_name="Hybrid (GNN + Content-Based)")
+                
+                # Hiển thị metrics @20
+                st.markdown("#### 📈 Metrics @20")
+                metrics_20 = ['recall@20', 'precision@20', 'ndcg@20', 'coverage@20', 'diversity@20']
+                if hybrid_metrics_row is not None:
+                    render_metrics_in_step(hybrid_metrics_row, metrics_20, "Bước 3", "hybrid_20", model_name="Hybrid (GNN + Content-Based)")
+                elif parsed_log:
+                    render_metrics_in_step(parsed_log, metrics_20, "Bước 3", "hybrid_20", model_name="Hybrid (GNN + Content-Based)")
+                
                 st.markdown("#### 📐 Công thức tính các chỉ số (tương tự các models khác):")
                 
                 # Tóm tắt công thức
@@ -947,11 +1300,9 @@ User 1 <---[weight=0.5]---> Product B
                 st.write("**Coverage@K:** Tỷ lệ sản phẩm trong catalog được gợi ý")
                 st.write("**Diversity@K:** Độ đa dạng của danh sách gợi ý")
                 
-                st.markdown("---")
-                st.markdown("#### 📊 Kết quả đánh giá:")
+                st.markdown("#### 📊 Bảng Tổng Hợp")
                 render_metrics_table(comparison_df, highlight_model="Hybrid (GNN + Content-Based)")
-                
-                st.markdown("---")
+                render_evaluation_log_section("Hybrid (GNN + Content-Based)", "hybrid")
                 st.markdown("### 🏆 Phân tích & Kết luận (Focus on Hybrid)")
                 st.success("""
                 **Tại sao Hybrid là tối ưu nhất?**
@@ -992,7 +1343,7 @@ User 1 <---[weight=0.5]---> Product B
             st.plotly_chart(fig, use_container_width=True)
             
             # Analysis Text
-            st.markdown("### 📝 Đánh giá chi tiết")
+            st.markdown("### Đánh giá chi tiết")
             best_model = comparison_df.loc[comparison_df['ndcg@10'].idxmax()]['model_name']
             st.info(f"Dựa trên chỉ số quan trọng **NDCG@10**, mô hình tốt nhất là: **{best_model}**")
             
