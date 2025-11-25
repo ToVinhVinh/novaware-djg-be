@@ -686,6 +686,7 @@ def recommend_hybrid(
             top_k=top_k_personal
         )
         
+        current_product_id_str = str(current_product_id)
         personalized = []
         for prod_idx, score in recommendations:
             product_info = preprocessor.get_product_info(prod_idx)
@@ -700,7 +701,10 @@ def recommend_hybrid(
                     )
                     continue
             
-            product_id = product_info.get('id', str(prod_idx))
+            product_id = str(product_info.get('id', prod_idx))
+            if product_id == current_product_id_str:
+                logger.debug(f"Skipping payload product {product_id} from personalized list")
+                continue
             
             product_data = _get_product_data_with_images(product_info, product_id)
             
@@ -721,7 +725,7 @@ def recommend_hybrid(
                 payload_product_info=payload_product_info,
                 payload_article_type=payload_article_type,
                 top_k=top_k_personal,
-                exclude_product_ids={str(current_product_id)},
+                exclude_product_ids={current_product_id_str},
             )
             personalized.extend(fallback_items)
         
