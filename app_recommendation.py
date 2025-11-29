@@ -21,6 +21,11 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
+# Add apps/utils to path for export_data
+apps_utils_path = os.path.join(current_dir, 'apps', 'utils')
+if apps_utils_path not in sys.path:
+    sys.path.insert(0, apps_utils_path)
+
 # Import train_recommendation (will be used when training button is clicked)
 _train_import_error = None
 try:
@@ -29,6 +34,15 @@ except ImportError as e:
     # Don't fail immediately, just show warning when needed
     train_recommendation = None
     _train_import_error = str(e)
+
+# Import export_data (will be used for MongoDB export)
+_export_import_error = None
+try:
+    from apps.utils.export_data import export_all_data, ensure_export_directory
+except ImportError as e:
+    export_all_data = None
+    ensure_export_directory = None
+    _export_import_error = str(e)
 
 # Page config
 st.set_page_config(
@@ -624,17 +638,200 @@ def run_training(model_type: str):
 def main():
     """Main app"""
     
+    # Header
     st.markdown('<div class="main-header">👔 Fashion Recommendation System</div>', unsafe_allow_html=True)
     
-    page = "📚 Algorithms & Steps"
+    # Sidebar
+    st.sidebar.title("⚙️ Menu")
+    
+    page = st.sidebar.radio(
+        "Chọn chức năng",
+        ["📚 Algorithms & Steps", "📊 Model Comparison", "🎯 Personalized Recommendations", "👗 Outfit Recommendations"]
+    )
     
     # Load data initially
     preprocessor, cb_model, gnn_model, hybrid_model = load_models()
     comparison_df = load_comparison_results()
 
-    # ========== PAGE 1: ALGORITHMS & STEPS ==========
     if page == "📚 Algorithms & Steps":
+        st.markdown("## PHẦN I: TIỀN XỬ LÝ DỮ LIỆU & TẠO TẬP DỮ LIỆU CHUNG")
+        
+        with st.expander("Bước 0: Xuất dữ liệu từ MongoDB thành CSV", expanded=True):
+            st.write("**Nội dung thực hiện:** Xuất dữ liệu từ MongoDB (products, users, interactions) thành các file CSV để sử dụng cho training và evaluation.")
+            
+            # Kiểm tra xem export_data có sẵn không
+            if export_all_data is None:
+                st.error(f"❌ Không thể import export_data module: {_export_import_error}")
+                st.info("Vui lòng đảm bảo file apps/utils/export_data.py tồn tại và có thể import được.")
+            else:
+                col_export1, col_export2 = st.columns([2, 1])
+                with col_export1:
+                    st.write("**Các file sẽ được xuất:**")
+                    st.write("- `products.csv`: id, gender, masterCategory, subCategory, articleType, baseColour, season, year, usage, productDisplayName, images")
+                    st.write("- `users.csv`: id, name, email, age, gender, interaction_history")
+                    st.write("- `interactions.csv`: user_id, product_id, interaction_type, timestamp")
+                    st.write("**Vị trí lưu:** `apps/exports/`")
+                
+                with col_export2:
+                    export_button_clicked = st.button("📥 Xuất dữ liệu từ MongoDB", type="primary", use_container_width=True)
+                
+                # Xử lý export và hiển thị kết quả (nằm ngoài columns để full-width)
+                if export_button_clicked:
+                    with st.spinner("Đang xuất dữ liệu từ MongoDB..."):
+                        try:
+                            result = export_all_data()
+                            
+                            if result['success']:
+                                st.success(f"✅ {result['message']}")
+                                
+                                # Hiển thị kết quả chi tiết
+                                st.markdown("#### 📊 Kết quả xuất dữ liệu:")
+                                col_res1, col_res2, col_res3 = st.columns(3)
+                                
+                                with col_res1:
+                                    products_result = result['results']['products']
+                                    if products_result['success']:
+                                        st.success(f"✅ Products: {products_result['count']} records")
+                                    else:
+                                        st.error(f"❌ Products: {products_result.get('error', 'Lỗi')}")
+                                
+                                with col_res2:
+                                    users_result = result['results']['users']
+                                    if users_result['success']:
+                                        st.success(f"✅ Users: {users_result['count']} records")
+                                    else:
+                                        st.error(f"❌ Users: {users_result.get('error', 'Lỗi')}")
+                                
+                                with col_res3:
+                                    interactions_result = result['results']['interactions']
+                                    if interactions_result['success']:
+                                        st.success(f"✅ Interactions: {interactions_result['count']} records")
+                                    else:
+                                        st.error(f"❌ Interactions: {interactions_result.get('error', 'Lỗi')}")
+                                
+                                # Auto load và hiển thị dữ liệu sau khi export (full-width)
+                                st.markdown("---")
+                                st.markdown("#### 📋 Tự động tải và xem dữ liệu đã xuất:")
+                                
+                                # Load và hiển thị từng file (full-width, vertical layout)
+                                export_dir = ensure_export_directory()
+                                
+                                # Products - Full width
+                                products_path = export_dir / 'products.csv'
+                                if products_path.exists() and products_result['success']:
+                                    st.markdown("##### 📦 Products Data")
+                                    try:
+                                        products_df = pd.read_csv(products_path)
+                                        st.success(f"✅ Đã tải products.csv: {len(products_df)} rows × {len(products_df.columns)} columns")
+                                        
+                                        col_p1, col_p2 = st.columns(2)
+                                        with col_p1:
+                                            st.metric("Số dòng (rows)", len(products_df))
+                                        with col_p2:
+                                            st.metric("Số cột (columns)", len(products_df.columns))
+                                        
+                                        st.markdown("**👀 Xem trước dữ liệu (tối đa 100 dòng đầu):**")
+                                        st.dataframe(products_df.head(100), use_container_width=True)
+                                        
+                                        st.markdown("**📉 Biểu đồ độ thưa (tỉ lệ giá trị null trên mỗi cột):**")
+                                        render_sparsity_chart(products_df, "Độ thưa - Products", "products_export")
+                                        
+                                        st.markdown("**📊 Biểu đồ tỉ lệ / phân bố:**")
+                                        render_distribution_chart(products_df, "products_export")
+                                        
+                                        st.markdown("**📈 Bảng thống kê dữ liệu:**")
+                                        render_data_statistics(products_df)
+                                    except Exception as e:
+                                        st.error(f"Lỗi khi đọc products.csv: {str(e)}")
+                                
+                                st.markdown("---")
+                                
+                                # Users - Full width
+                                users_path = export_dir / 'users.csv'
+                                if users_path.exists() and users_result['success']:
+                                    st.markdown("##### 👤 Users Data")
+                                    try:
+                                        users_df = pd.read_csv(users_path)
+                                        st.success(f"✅ Đã tải users.csv: {len(users_df)} rows × {len(users_df.columns)} columns")
+                                        
+                                        col_u1, col_u2 = st.columns(2)
+                                        with col_u1:
+                                            st.metric("Số dòng (rows)", len(users_df))
+                                        with col_u2:
+                                            st.metric("Số cột (columns)", len(users_df.columns))
+                                        
+                                        st.markdown("**👀 Xem trước dữ liệu (tối đa 100 dòng đầu):**")
+                                        st.dataframe(users_df.head(100), use_container_width=True)
+                                        
+                                        st.markdown("**📉 Biểu đồ độ thưa (tỉ lệ giá trị null trên mỗi cột):**")
+                                        render_sparsity_chart(users_df, "Độ thưa - Users", "users_export")
+                                        
+                                        st.markdown("**📊 Biểu đồ tỉ lệ / phân bố:**")
+                                        render_distribution_chart(users_df, "users_export")
+                                        
+                                        st.markdown("**📈 Bảng thống kê dữ liệu:**")
+                                        render_data_statistics(users_df)
+                                    except Exception as e:
+                                        st.error(f"Lỗi khi đọc users.csv: {str(e)}")
+                                
+                                st.markdown("---")
+                                
+                                # Interactions - Full width
+                                interactions_path = export_dir / 'interactions.csv'
+                                if interactions_path.exists() and interactions_result['success']:
+                                    st.markdown("##### 🔗 Interactions Data")
+                                    try:
+                                        interactions_df = pd.read_csv(interactions_path)
+                                        st.success(f"✅ Đã tải interactions.csv: {len(interactions_df)} rows × {len(interactions_df.columns)} columns")
+                                        
+                                        col_i1, col_i2 = st.columns(2)
+                                        with col_i1:
+                                            st.metric("Số dòng (rows)", len(interactions_df))
+                                        with col_i2:
+                                            st.metric("Số cột (columns)", len(interactions_df.columns))
+                                        
+                                        st.markdown("**👀 Xem trước dữ liệu (tối đa 100 dòng đầu):**")
+                                        st.dataframe(interactions_df.head(100), use_container_width=True)
+                                        
+                                        st.markdown("**📉 Biểu đồ độ thưa (tỉ lệ giá trị null trên mỗi cột):**")
+                                        render_sparsity_chart(interactions_df, "Độ thưa - Interactions", "interactions_export")
+                                        
+                                        st.markdown("**📊 Biểu đồ tỉ lệ / phân bố:**")
+                                        render_distribution_chart(interactions_df, "interactions_export")
+                                        
+                                        st.markdown("**📈 Bảng thống kê dữ liệu:**")
+                                        render_data_statistics(interactions_df)
+                                    except Exception as e:
+                                        st.error(f"Lỗi khi đọc interactions.csv: {str(e)}")
+                                
+                                # Lưu vào session state để có thể sử dụng sau
+                                st.session_state['exported_data'] = {
+                                    'products_path': str(products_path) if products_path.exists() else None,
+                                    'users_path': str(users_path) if users_path.exists() else None,
+                                    'interactions_path': str(interactions_path) if interactions_path.exists() else None,
+                                    'export_dir': str(export_dir)
+                                }
+                                
+                            else:
+                                st.error(f"❌ Có lỗi xảy ra khi xuất dữ liệu")
+                                for key, res in result['results'].items():
+                                    if not res['success']:
+                                        st.error(f"❌ {key}: {res.get('error', 'Lỗi không xác định')}")
+                        
+                        except Exception as e:
+                            st.error(f"❌ Lỗi: {str(e)}")
+                            import traceback
+                            st.code(traceback.format_exc())
+                
+                # Hiển thị thông tin về export directory
+                export_dir = ensure_export_directory() if ensure_export_directory else None
+                if export_dir:
+                    st.info(f"💡 **Lưu ý:** Các file CSV sẽ được lưu tại: `{export_dir}`")
+        
+        st.markdown("---")
         st.markdown("### Upload & Khám Phá Bộ Dữ Liệu")
+        st.write("**Sau khi xuất dữ liệu từ MongoDB ở Bước 0, bạn có thể upload các file CSV để xem chi tiết hoặc sử dụng file đã xuất:**")
+        
         dataset_sections = [
             (
                 "users",
@@ -1315,7 +1512,6 @@ User 1 <---[weight=0.5]---> Product B
                 4. **Robustness:** Hybrid ít bị ảnh hưởng bởi dữ liệu thiếu hoặc không cân bằng hơn các model đơn lẻ
                 """)
 
-    # ========== PAGE 2: MODEL COMPARISON ==========
     elif page == "📊 Model Comparison":
         st.markdown('<div class="sub-header">📊 So Sánh Hiệu Suất Các Mô Hình</div>', unsafe_allow_html=True)
         
@@ -1343,7 +1539,6 @@ User 1 <---[weight=0.5]---> Product B
         else:
             st.warning("Vui lòng chạy tính toán ở trang 'Algorithms & Steps' trước.")
 
-    # ========== PAGE 3: PERSONALIZED RECOMMENDATIONS ==========
     elif page == "🎯 Personalized Recommendations":
         st.markdown('<div class="sub-header">🎯 Gợi Ý Cá Nhân Hóa (Personalized)</div>', unsafe_allow_html=True)
         
@@ -1395,7 +1590,6 @@ User 1 <---[weight=0.5]---> Product B
                 with st.expander(f"#{i} - Score: {score:.4f}"):
                     display_product_info(preprocessor.get_product_info(pid), score)
 
-    # ========== PAGE 4: OUTFIT RECOMMENDATIONS ==========
     elif page == "👗 Outfit Recommendations":
         st.markdown('<div class="sub-header">👗 Gợi Ý Trang Phục (Outfit)</div>', unsafe_allow_html=True)
         

@@ -69,17 +69,53 @@ def evaluate_and_record(
     return results
 
 
-def get_or_create_preprocessor():
-    """Load preprocessor nếu đã có, nếu không thì tạo mới"""
+def delete_old_pkl_files():
+    """Xóa tất cả các file pkl cũ để force retrain"""
+    base_dir = Path(__file__).parent
+    files_to_delete = [
+        "recommendation_system/data/preprocessor.pkl",
+        "recommendation_system/models/content_based_model.pkl",
+        "recommendation_system/models/gnn_model.pkl",
+        "recommendation_system/models/hybrid_model.pkl",
+        "artifacts/cbf/artifacts.pkl",
+        "artifacts/gnn/artifacts.pkl",
+        "artifacts/hybrid/artifacts.pkl",
+    ]
+    
+    deleted_count = 0
+    for file_path in files_to_delete:
+        full_path = base_dir / file_path
+        if full_path.exists():
+            try:
+                full_path.unlink()
+                print(f"[DELETE] Deleted: {file_path}")
+                deleted_count += 1
+            except Exception as e:
+                print(f"[WARN] Error deleting {file_path}: {e}")
+    
+    if deleted_count > 0:
+        print(f"[OK] Deleted {deleted_count} old pkl file(s)\n")
+
+
+def get_or_create_preprocessor(force_retrain=False):
+    """Load preprocessor nếu đã có, nếu không thì tạo mới
+    
+    Args:
+        force_retrain: Nếu True, xóa preprocessor cũ và tạo mới
+    """
     base_dir = Path(__file__).parent
     preprocessor_path = base_dir / "recommendation_system" / "data" / "preprocessor.pkl"
     
+    if force_retrain and preprocessor_path.exists():
+        print(f"[FORCE RETRAIN] Deleting existing preprocessor...")
+        preprocessor_path.unlink()
+    
     if preprocessor_path.exists():
-        print(f"📂 Loading existing preprocessor from {preprocessor_path}")
+        print(f"[LOAD] Loading existing preprocessor from {preprocessor_path}")
         with open(preprocessor_path, 'rb') as f:
             return pickle.load(f)
     else:
-        print("📂 Creating new preprocessor...")
+        print("[LOAD] Creating new preprocessor...")
         # Paths
         users_path = base_dir / "exports" / "users.csv"
         products_path = base_dir / "exports" / "products.csv"
@@ -108,19 +144,32 @@ def get_or_create_preprocessor():
         preprocessor_path.parent.mkdir(parents=True, exist_ok=True)
         with open(preprocessor_path, 'wb') as f:
             pickle.dump(preprocessor, f)
-        print(f"✅ Saved preprocessor to {preprocessor_path}")
+        print(f"[OK] Saved preprocessor to {preprocessor_path}")
         
         return preprocessor
 
 
-def train_content_based(evaluate=True):
-    """Train Content-Based model"""
+def train_content_based(evaluate=True, force_retrain=False):
+    """Train Content-Based model
+    
+    Args:
+        evaluate: Có evaluate model sau khi train không
+        force_retrain: Nếu True, xóa model cũ và train lại từ đầu
+    """
     print("="*80)
     print("TRAINING CONTENT-BASED MODEL")
     print("="*80)
     
+    # Delete old model if force_retrain
+    if force_retrain:
+        base_dir = Path(__file__).parent
+        cb_model_path = base_dir / "recommendation_system" / "models" / "content_based_model.pkl"
+        if cb_model_path.exists():
+            cb_model_path.unlink()
+            print("[FORCE RETRAIN] Deleted old Content-Based model")
+    
     # Get preprocessor
-    preprocessor = get_or_create_preprocessor()
+    preprocessor = get_or_create_preprocessor(force_retrain=force_retrain)
     
     # Train model
     cb_model = ContentBasedRecommender(preprocessor.products_df)
@@ -132,7 +181,7 @@ def train_content_based(evaluate=True):
     cb_model_path.parent.mkdir(parents=True, exist_ok=True)
     with open(cb_model_path, 'wb') as f:
         pickle.dump(cb_model, f)
-    print(f"✅ Saved Content-Based model to {cb_model_path}")
+    print(f"[OK] Saved Content-Based model to {cb_model_path}")
     
     # Evaluate if requested
     if evaluate:
@@ -156,14 +205,27 @@ def train_content_based(evaluate=True):
     return cb_model
 
 
-def train_gnn(evaluate=True):
-    """Train GNN model"""
+def train_gnn(evaluate=True, force_retrain=False):
+    """Train GNN model
+    
+    Args:
+        evaluate: Có evaluate model sau khi train không
+        force_retrain: Nếu True, xóa model cũ và train lại từ đầu
+    """
     print("="*80)
     print("TRAINING GNN MODEL")
     print("="*80)
     
+    # Delete old model if force_retrain
+    if force_retrain:
+        base_dir = Path(__file__).parent
+        gnn_model_path = base_dir / "recommendation_system" / "models" / "gnn_model.pkl"
+        if gnn_model_path.exists():
+            gnn_model_path.unlink()
+            print("[FORCE RETRAIN] Deleted old GNN model")
+    
     # Get preprocessor
-    preprocessor = get_or_create_preprocessor()
+    preprocessor = get_or_create_preprocessor(force_retrain=force_retrain)
     
     # Train model
     gnn_model = GNNRecommender(
@@ -183,7 +245,7 @@ def train_gnn(evaluate=True):
     gnn_model_path = base_dir / "recommendation_system" / "models" / "gnn_model.pkl"
     with open(gnn_model_path, 'wb') as f:
         pickle.dump(gnn_model, f)
-    print(f"✅ Saved GNN model to {gnn_model_path}")
+    print(f"[OK] Saved GNN model to {gnn_model_path}")
     
     # Evaluate if requested
     if evaluate:
@@ -207,37 +269,50 @@ def train_gnn(evaluate=True):
     return gnn_model
 
 
-def train_hybrid(evaluate=True):
-    """Train Hybrid model (requires GNN and Content-Based models)"""
+def train_hybrid(evaluate=True, force_retrain=False):
+    """Train Hybrid model (requires GNN and Content-Based models)
+    
+    Args:
+        evaluate: Có evaluate model sau khi train không
+        force_retrain: Nếu True, xóa model cũ và train lại từ đầu
+    """
     print("="*80)
     print("TRAINING HYBRID MODEL")
     print("="*80)
     
+    # Delete old model if force_retrain
+    if force_retrain:
+        base_dir = Path(__file__).parent
+        hybrid_model_path = base_dir / "recommendation_system" / "models" / "hybrid_model.pkl"
+        if hybrid_model_path.exists():
+            hybrid_model_path.unlink()
+            print("[FORCE RETRAIN] Deleted old Hybrid model")
+    
     # Get preprocessor
-    preprocessor = get_or_create_preprocessor()
+    preprocessor = get_or_create_preprocessor(force_retrain=force_retrain)
     
     # Load or train required models
     base_dir = Path(__file__).parent
     
     # Load Content-Based model
     cb_model_path = base_dir / "recommendation_system" / "models" / "content_based_model.pkl"
-    if cb_model_path.exists():
-        print(f"📂 Loading Content-Based model from {cb_model_path}")
+    if cb_model_path.exists() and not force_retrain:
+        print(f"[LOAD] Loading Content-Based model from {cb_model_path}")
         with open(cb_model_path, 'rb') as f:
             cb_model = pickle.load(f)
     else:
-        print("⚠️  Content-Based model not found. Training it first...")
-        cb_model = train_content_based(evaluate=False)
+        print("[WARN] Content-Based model not found or force retrain. Training it first...")
+        cb_model = train_content_based(evaluate=False, force_retrain=force_retrain)
     
     # Load GNN model
     gnn_model_path = base_dir / "recommendation_system" / "models" / "gnn_model.pkl"
-    if gnn_model_path.exists():
-        print(f"📂 Loading GNN model from {gnn_model_path}")
+    if gnn_model_path.exists() and not force_retrain:
+        print(f"[LOAD] Loading GNN model from {gnn_model_path}")
         with open(gnn_model_path, 'rb') as f:
             gnn_model = pickle.load(f)
     else:
-        print("⚠️  GNN model not found. Training it first...")
-        gnn_model = train_gnn(evaluate=False)
+        print("[WARN] GNN model not found or force retrain. Training it first...")
+        gnn_model = train_gnn(evaluate=False, force_retrain=force_retrain)
     
     # Train hybrid model
     hybrid_model = HybridRecommender(
@@ -251,7 +326,7 @@ def train_hybrid(evaluate=True):
     hybrid_model_path = base_dir / "recommendation_system" / "models" / "hybrid_model.pkl"
     with open(hybrid_model_path, 'wb') as f:
         pickle.dump(hybrid_model, f)
-    print(f"✅ Saved Hybrid model to {hybrid_model_path}")
+    print(f"[OK] Saved Hybrid model to {hybrid_model_path}")
     
     # Evaluate if requested
     if evaluate:
@@ -292,28 +367,31 @@ def save_evaluation_result(result, base_dir):
     
     # Save
     results_df.to_csv(results_path, index=False)
-    print(f"✅ Saved evaluation results to {results_path}")
+    print(f"[OK] Saved evaluation results to {results_path}")
 
 
-def train_and_evaluate():
-    """Train và evaluate tất cả models"""
+def train_and_evaluate(force_retrain=False):
+    """Train và evaluate tất cả models
     
+    Args:
+        force_retrain: Nếu True, xóa tất cả models cũ và train lại từ đầu
+    """
     print("="*80)
     print("RECOMMENDATION SYSTEM TRAINING PIPELINE")
     print("="*80)
     
-    """Train và evaluate tất cả models (legacy function, use individual train functions instead)"""
-    print("="*80)
-    print("RECOMMENDATION SYSTEM TRAINING PIPELINE (ALL MODELS)")
-    print("="*80)
+    if force_retrain:
+        print("[FORCE RETRAIN] FORCE RETRAIN MODE: Deleting all old models and preprocessor")
+        print("="*80)
+        delete_old_pkl_files()
     
     # Get preprocessor
-    preprocessor = get_or_create_preprocessor()
+    preprocessor = get_or_create_preprocessor(force_retrain=force_retrain)
     
     # Train all models
-    cb_model = train_content_based(evaluate=False)
-    gnn_model = train_gnn(evaluate=False)
-    hybrid_model = train_hybrid(evaluate=False)
+    cb_model = train_content_based(evaluate=False, force_retrain=force_retrain)
+    gnn_model = train_gnn(evaluate=False, force_retrain=force_retrain)
+    hybrid_model = train_hybrid(evaluate=False, force_retrain=force_retrain)
     
     # Evaluate all
     base_dir = Path(__file__).parent
@@ -342,7 +420,7 @@ def train_and_evaluate():
     print("\n" + "="*80)
     print("TRAINING & EVALUATION COMPLETE")
     print("="*80)
-    print("\n📊 Results Summary:")
+    print("\n[INFO] Results Summary:")
     print(results_df.to_string(index=False))
     
     return preprocessor, cb_model, gnn_model, hybrid_model, results_df
@@ -350,11 +428,33 @@ def train_and_evaluate():
 
 def main():
     """Main entry point"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(
+        description='Train recommendation system models',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Train normally (use existing models if available)
+  python train_recommendation.py
+  
+  # Force retrain all models from scratch
+  python train_recommendation.py --force-retrain
+        """
+    )
+    parser.add_argument(
+        '--force-retrain',
+        action='store_true',
+        help='Delete all existing pkl files and retrain from scratch'
+    )
+    
+    args = parser.parse_args()
+    
     try:
-        train_and_evaluate()
-        print("\n✅ Pipeline completed successfully!")
+        train_and_evaluate(force_retrain=args.force_retrain)
+        print("\n[OK] Pipeline completed successfully!")
     except Exception as e:
-        print(f"\n❌ Error in pipeline: {e}")
+        print(f"\n[ERROR] Error in pipeline: {e}")
         import traceback
         traceback.print_exc()
         raise
