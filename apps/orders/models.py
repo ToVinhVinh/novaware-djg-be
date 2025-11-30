@@ -26,7 +26,7 @@ class Order(models.Model):
         ordering = ["-created_at"]
 
     def __str__(self) -> str:
-        return f"Order
+        return f"Order {self.id}"
 
     def mark_paid(self, timestamp: timezone.datetime | None = None):
         self.is_paid = True

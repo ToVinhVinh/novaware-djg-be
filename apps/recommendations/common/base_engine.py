@@ -86,6 +86,7 @@ class BaseRecommendationEngine(ABC):
 
     @abstractmethod
     def _train_impl(self) -> dict[str, Any]:
+        pass
 
     @abstractmethod
     def _score_candidates(
@@ -93,6 +94,7 @@ class BaseRecommendationEngine(ABC):
         context: RecommendationContext,
         artifacts: dict[str, Any],
     ) -> dict[int, float]:
+        pass
 
 def _extract_style_tokens(product: Product) -> list[str]:
     tokens: list[str] = []

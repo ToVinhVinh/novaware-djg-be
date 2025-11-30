@@ -45,7 +45,7 @@ class RecommendationRequest(me.Document):
     created_at = fields.DateTimeField(default=datetime.utcnow)
 
     def __str__(self) -> str:
-        return f"RecommendationRequest
+        return f"RecommendationRequest {self.id}"
 
 class RecommendationResult(me.Document):
 

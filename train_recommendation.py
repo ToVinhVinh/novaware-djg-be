@@ -361,4 +361,18 @@ Examples:
   python train_recommendation.py
 
   python train_recommendation.py --force-retrain
+        """
+    )
 
+    parser.add_argument(
+        '--force-retrain',
+        action='store_true',
+        help='Force retrain all models (delete existing models first)'
+    )
+
+    args = parser.parse_args()
+
+    train_and_evaluate(force_retrain=args.force_retrain)
+
+if __name__ == "__main__":
+    main()

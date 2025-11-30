@@ -818,7 +818,6 @@ class RecommendGNNView(APIView):
 
             personalized_recommendations = payload.get("personalized", [])
 
-            Debug logging
             import logging
             logger = logging.getLogger(__name__)
             logger.info(

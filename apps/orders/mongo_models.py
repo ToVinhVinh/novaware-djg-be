@@ -66,5 +66,5 @@ class Order(me.Document):
         self.save()
 
     def __str__(self) -> str:
-        return f"Order
+        return f"Order {self.id}"
 

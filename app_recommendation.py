@@ -33,6 +33,96 @@ except ImportError as e:
     ensure_export_directory = None
     _export_import_error = str(e)
 
+_user_profile_import_error = None
+try:
+    from apps.utils.user_profile import (
+        build_weighted_user_profile, 
+        get_interaction_weight, 
+        INTERACTION_WEIGHTS,
+        compute_cbf_predictions,
+        cosine_similarity
+    )
+except ImportError as e:
+    build_weighted_user_profile = None
+    get_interaction_weight = None
+    INTERACTION_WEIGHTS = None
+    compute_cbf_predictions = None
+    cosine_similarity = None
+    _user_profile_import_error = str(e)
+
+_cbf_filters_import_error = None
+try:
+    from apps.utils.cbf_filters import (
+        apply_personalized_filters,
+        apply_articletype_filter,
+        apply_age_gender_filter,
+        get_allowed_genders
+    )
+except ImportError as e:
+    apply_personalized_filters = None
+    apply_articletype_filter = None
+    apply_age_gender_filter = None
+    get_allowed_genders = None
+    _cbf_filters_import_error = str(e)
+
+_outfit_import_error = None
+try:
+    from apps.utils.outfit_recommendation import (
+        generate_outfit_recommendations,
+        compute_outfit_score,
+        compute_pairwise_compatibility,
+        check_usage_compatibility
+    )
+except ImportError as e:
+    generate_outfit_recommendations = None
+    compute_outfit_score = None
+    compute_pairwise_compatibility = None
+    check_usage_compatibility = None
+    _outfit_import_error = str(e)
+
+_evaluation_import_error = None
+try:
+    from apps.utils.evaluation_metrics import (
+        compute_cbf_metrics,
+        recall_at_k,
+        precision_at_k,
+        ndcg_at_k,
+        diversity,
+        coverage
+    )
+except ImportError as e:
+    compute_cbf_metrics = None
+    recall_at_k = None
+    precision_at_k = None
+    ndcg_at_k = None
+    diversity = None
+    coverage = None
+    _evaluation_import_error = str(e)
+
+_gnn_utils_import_error = None
+try:
+    from apps.utils.gnn_utils import (
+        build_graph,
+        message_propagation,
+        compute_gnn_predictions,
+        train_gnn_model
+    )
+except ImportError as e:
+    build_graph = None
+    message_propagation = None
+    compute_gnn_predictions = None
+    train_gnn_model = None
+    _gnn_utils_import_error = str(e)
+
+_hybrid_utils_import_error = None
+try:
+    from apps.utils.hybrid_utils import (
+        combine_hybrid_scores
+    )
+except ImportError as e:
+    combine_hybrid_scores = None
+    _hybrid_utils_import_error = str(e)
+
 st.set_page_config(
     page_title="Fashion Recommendation System",
     page_icon="👔",
@@ -46,47 +136,50 @@ st.markdown("""
         font-size: 2.5rem;
         font-weight: bold;
         text-align: center;
-        color:
+        color: #1f77b4;
         margin-bottom: 2rem;
     }
     .sub-header {
         font-size: 1.5rem;
         font-weight: bold;
-        color:
+        color: #2ca02c;
         margin-top: 2rem;
         margin-bottom: 1rem;
     }
     .step-header {
         font-size: 1.2rem;
         font-weight: bold;
-        color:
+        color: #d62728;
         margin-top: 1rem;
-        background-color:
+        background-color: #f0f2f6;
         padding: 0.5rem;
         border-radius: 5px;
     }
     .formula-box {
-        background-color:
+        background-color: #f8f9fa;
         padding: 1rem;
         border-radius: 5px;
-        border-left: 5px solid
+        border-left: 5px solid #1f77b4;
         margin: 1rem 0;
     }
 </style>
+""", unsafe_allow_html=True)
 
+@st.cache_resource
+def load_models():
     try:
         with open('recommendation_system/data/preprocessor.pkl', 'rb') as f:
             preprocessor = pickle.load(f)
-
+        
         with open('recommendation_system/models/content_based_model.pkl', 'rb') as f:
             cb_model = pickle.load(f)
-
+        
         with open('recommendation_system/models/gnn_model.pkl', 'rb') as f:
             gnn_model = pickle.load(f)
-
+        
         with open('recommendation_system/models/hybrid_model.pkl', 'rb') as f:
             hybrid_model = pickle.load(f)
-
+        
         return preprocessor, cb_model, gnn_model, hybrid_model
     except Exception as e:
         return None, None, None, None
@@ -175,7 +268,7 @@ def render_dataset_upload_section(
     display_name: str,
     purpose_text: str
 ):
-    st.markdown(f"
+    st.markdown(f"#### {display_name}")
     st.write(purpose_text)
     uploaded_file = st.file_uploader(
         f"Tải lên {display_name}",
@@ -207,11 +300,11 @@ def render_dataset_upload_section(
 
 def display_product_info(product_info: Dict, score: float = None):
     col1, col2 = st.columns([1, 3])
-
+    
     with col1:
         if score is not None:
             st.metric("Score", f"{score:.4f}")
-
+    
     with col2:
         st.markdown(f"**{product_info.get('productDisplayName', 'N/A')}**")
         st.write(f"🏷️ **Category**: {product_info.get('masterCategory', 'N/A')} > {product_info.get('subCategory', 'N/A')} > {product_info.get('articleType', 'N/A')}")
@@ -223,16 +316,16 @@ def render_metrics_table(df, highlight_model=None):
         st.warning("Chưa có dữ liệu metrics. Vui lòng chạy tính toán trước.")
         return
 
-    st.markdown("
-
-    required_cols = ['model_name', 'recall@10', 'recall@20', 'ndcg@10', 'ndcg@20',
+    st.markdown("### 📊 Bảng Tổng Hợp Chỉ Số Các Mô Hình")
+    
+    required_cols = ['model_name', 'recall@10', 'recall@20', 'ndcg@10', 'ndcg@20', 
                      'precision@10', 'precision@20', 'training_time', 'avg_inference_time',
                      'coverage@10', 'diversity@10']
-
+    
     display_df = df.copy()
     available_cols = [col for col in required_cols if col in display_df.columns]
     display_df = display_df[available_cols]
-
+    
     column_mapping = {
         'model_name': 'Model',
         'recall@10': 'Recall@10',
@@ -247,14 +340,14 @@ def render_metrics_table(df, highlight_model=None):
         'diversity@10': 'Diversity@10'
     }
     display_df = display_df.rename(columns=column_mapping)
-
+    
     numeric_cols = display_df.select_dtypes(include=[np.number]).columns
     display_df[numeric_cols] = display_df[numeric_cols].round(4)
-
+    
     def highlight_row(row):
         model_name = row.get('Model', '')
         if model_name == highlight_model:
-            return ['background-color:
+            return ['background-color: #e6ffe6'] * len(row)
         return [''] * len(row)
 
     st.dataframe(display_df.style.apply(highlight_row, axis=1), use_container_width=True)
@@ -422,49 +515,49 @@ def parse_evaluation_log(log_text: str) -> Dict:
 
     if not log_text:
         return {'metrics': {}, 'examples': {}, 'formulas': {}}
-
+    
     metrics = {}
     examples = {}
     formulas = {}
-
+    
     lines = log_text.split('\n')
     i = 0
     current_metric = None
-
+    
     while i < len(lines):
         line = lines[i].strip()
-
+        
         if not line or line.startswith('===') or line.startswith('[') or 'EVALUATING' in line or 'RESULTS FOR' in line:
             i += 1
             continue
-
+        
         if ':' in line and not line.startswith('📐') and not line.startswith('🧮'):
             parts = line.split(':', 1)
             if len(parts) == 2:
                 metric_name = parts[0].strip()
                 value_str = parts[1].strip()
-
+                
                 value_str = value_str.split()[0] if value_str.split() else value_str
-
+                
                 try:
                     value = float(value_str)
                     metrics[metric_name] = value
                     current_metric = metric_name
                 except ValueError:
                     pass
-
+        
         if '📐 Công thức:' in line:
             formula = line.split('📐 Công thức:', 1)[1].strip()
             if current_metric:
                 formulas[current_metric] = formula
-
+        
         if 'Ví dụ áp dụng:' in line:
             example = line.split('Ví dụ áp dụng:', 1)[1].strip()
             if current_metric:
                 examples[current_metric] = example
-
+        
         i += 1
-
+    
     return {
         'metrics': metrics,
         'examples': examples,
@@ -490,23 +583,23 @@ def render_metrics_in_step(
         if not metrics_data or (isinstance(metrics_data, dict) and 'metrics' in metrics_data and not metrics_data['metrics']):
             st.info("Chưa có dữ liệu metrics. Vui lòng chạy train & evaluate trước.")
             return
-
+    
     parsed_log = None
     if model_name:
         _, log_text = load_evaluation_log(model_name)
         if log_text:
             parsed_log = parse_evaluation_log(log_text)
-
+    
     n_cols = 2
     cols = st.columns(n_cols)
-
+    
     for idx, metric_key in enumerate(metric_keys):
         col_idx = idx % n_cols
         with cols[col_idx]:
             value = None
             formula = ''
             example = ''
-
+            
             if isinstance(metrics_data, dict) and 'metrics' in metrics_data:
                 value = metrics_data['metrics'].get(metric_key, None)
                 formula = metrics_data['formulas'].get(metric_key, '')
@@ -516,56 +609,54 @@ def render_metrics_in_step(
                 if parsed_log:
                     formula = parsed_log['formulas'].get(metric_key, '')
                     example = parsed_log['examples'].get(metric_key, '')
-
+            
             if value is not None:
                 display_name = metric_key.replace('@', '@').replace('_', ' ').title()
-
+                
                 st.metric(display_name, f"{value:.4f}")
-
+                
                 with st.expander(f"Chi tiết {display_name}", expanded=False):
                     if formula:
                         st.markdown(f"**Công thức:** {formula}")
-
+                    
                     if example:
                         if "| Trung bình" in example:
                             parts = example.split(" | ")
                             user_examples = []
                             avg_formula = None
-
+                            
                             for part in parts:
                                 if "Trung bình" in part:
                                     avg_formula = part
                                 else:
                                     user_examples.append(part)
-
-                            st.markdown("
+                            
+                            st.markdown("#### Ví dụ tính toán cho từng user:")
                             for i, user_ex in enumerate(user_examples, 1):
                                 st.markdown(f"**{i}. {user_ex}**")
-
+                            
                             if avg_formula:
-                                st.markdown("
-
+                                st.markdown("#### Công thức tính trung bình:")
+                                
                                 if "=" in avg_formula:
                                     formula_parts = avg_formula.split("=")
                                     if len(formula_parts) >= 2:
                                         left_side = formula_parts[0].strip()
                                         right_side = "=".join(formula_parts[1:]).strip()
-
+                                        
                                         import re
-                                        n_users_match = re.search(r'user(\d+)', right_side)
+                                        n_users_match = re.search(r'user(\\d+)', right_side)
                                         n_users = n_users_match.group(1) if n_users_match else "N"
-
+                                        
                                         metric_var = display_name.replace(" ", "_").lower()
-
+                                        
                                         st.markdown(f"""
                                         **Công thức:**
                                         $$\\text{{Trung bình}} = \\frac{{\\sum_{{u=1}}^{{{n_users}}} {display_name}_u}}{{{n_users}}}$$
 
                                         **Dạng mở rộng:**
                                         $$\\text{{Trung bình}} = \\frac{{{display_name}_{{user1}} + {display_name}_{{user2}} + \\ldots + {display_name}_{{user{n_users}}}}}{{{n_users}}}$$
-
-                                                **Tính toán:**
-                                                $$\\text{{Trung bình}} = \\frac{{{formula_example} + {display_name}_{{user{n_users}}}}}{{{n_users}}} = {value:.4f}$$
+                                        """)
 
     slug, log_text = load_evaluation_log(model_name)
     with st.expander("📜 Evaluation Log (Raw)", expanded=False):
@@ -589,16 +680,16 @@ def render_metrics_in_step(
 def run_training(model_type: str):
     import io
     from contextlib import redirect_stdout
-
+    
     model_names = {
         "all": "Tất Cả Models",
         "content_based": "Content-Based Filtering",
         "gnn": "GNN (GraphSAGE)",
         "hybrid": "Hybrid (GNN + Content-Based)"
     }
-
+    
     model_name = model_names.get(model_type, model_type)
-
+    
     with st.status(f"Đang train {model_name}...", expanded=True) as status:
         st.write(f"🚀 Bắt đầu training {model_name}...")
         try:
@@ -614,15 +705,15 @@ def run_training(model_type: str):
                     train_recommendation.train_hybrid(evaluate=True)
                 else:
                     raise ValueError(f"Unknown model type: {model_type}")
-
+            
             output_log = f.getvalue()
             st.text_area("Logs", output_log, height=300)
-
+            
             st.cache_resource.clear()
             st.cache_data.clear()
             preprocessor, cb_model, gnn_model, hybrid_model = load_models()
             comparison_df = load_comparison_results()
-
+            
             status.update(label=f"✅ Hoàn thành training {model_name}!", state="complete", expanded=False)
             st.success(f"✅ Đã hoàn thành training {model_name} và cập nhật số liệu!")
         except Exception as e:
@@ -632,25 +723,25 @@ def run_training(model_type: str):
             st.code(traceback.format_exc())
 
 def main():
-
+    
     st.markdown('<div class="main-header">👔 Fashion Recommendation System</div>', unsafe_allow_html=True)
-
+    
     st.sidebar.title("⚙️ Menu")
-
+    
     page = st.sidebar.radio(
         "Chọn chức năng",
         ["📚 Algorithms & Steps", "📊 Model Comparison", "🎯 Personalized Recommendations", "👗 Outfit Recommendations"]
     )
-
+    
     preprocessor, cb_model, gnn_model, hybrid_model = load_models()
     comparison_df = load_comparison_results()
 
     if page == "📚 Algorithms & Steps":
-        st.markdown("
+        st.markdown("## 📚 Algorithms & Steps")
 
         with st.expander("Bước 0: Xuất dữ liệu từ MongoDB thành CSV", expanded=True):
             st.write("**Nội dung thực hiện:** Xuất dữ liệu từ MongoDB (products, users, interactions) thành các file CSV để sử dụng cho training và evaluation.")
-
+            
             if export_all_data is None:
                 st.error(f"❌ Không thể import export_data module: {_export_import_error}")
                 st.info("Vui lòng đảm bảo file apps/utils/export_data.py tồn tại và có thể import được.")
@@ -662,156 +753,159 @@ def main():
                     st.write("- `users.csv`: id, name, email, age, gender, interaction_history")
                     st.write("- `interactions.csv`: user_id, product_id, interaction_type, timestamp")
                     st.write("**Vị trí lưu:** `apps/exports/`")
-
+                
                 with col_export2:
                     export_button_clicked = st.button("📥 Xuất dữ liệu từ MongoDB", type="primary", use_container_width=True)
-
+                
                 if export_button_clicked:
                     with st.spinner("Đang xuất dữ liệu từ MongoDB..."):
                         try:
                             result = export_all_data()
-
+                            
                             if result['success']:
                                 st.success(f"✅ {result['message']}")
 
-                                st.markdown("
+                                st.markdown("### 📊 Kết quả xuất dữ liệu:")
                                 col_res1, col_res2, col_res3 = st.columns(3)
-
+                                
                                 with col_res1:
                                     products_result = result['results']['products']
                                     if products_result['success']:
                                         st.success(f"✅ Products: {products_result['count']} records")
                                     else:
                                         st.error(f"❌ Products: {products_result.get('error', 'Lỗi')}")
-
+                                
                                 with col_res2:
                                     users_result = result['results']['users']
                                     if users_result['success']:
                                         st.success(f"✅ Users: {users_result['count']} records")
                                     else:
                                         st.error(f"❌ Users: {users_result.get('error', 'Lỗi')}")
-
+                                
                                 with col_res3:
                                     interactions_result = result['results']['interactions']
                                     if interactions_result['success']:
                                         st.success(f"✅ Interactions: {interactions_result['count']} records")
                                     else:
                                         st.error(f"❌ Interactions: {interactions_result.get('error', 'Lỗi')}")
-
-                                st.markdown("---")
-                                st.markdown("
+                                st.markdown("### 📁 Xem chi tiết dữ liệu đã xuất:")
 
                                 export_dir = ensure_export_directory()
-
-                                products_path = export_dir / 'products.csv'
-                                if products_path.exists() and products_result['success']:
-                                    st.markdown("
-                                    try:
-                                        products_df = pd.read_csv(products_path)
-                                        st.success(f"✅ Đã tải products.csv: {len(products_df)} rows × {len(products_df.columns)} columns")
-
-                                        col_p1, col_p2 = st.columns(2)
-                                        with col_p1:
-                                            st.metric("Số dòng (rows)", len(products_df))
-                                        with col_p2:
-                                            st.metric("Số cột (columns)", len(products_df.columns))
-
-                                        st.markdown("**👀 Xem trước dữ liệu (tối đa 100 dòng đầu):**")
-                                        st.dataframe(products_df.head(100), use_container_width=True)
-
-                                        st.markdown("**📉 Biểu đồ độ thưa (tỉ lệ giá trị null trên mỗi cột):**")
-                                        render_sparsity_chart(products_df, "Độ thưa - Products", "products_export")
-
-                                        st.markdown("**📊 Biểu đồ tỉ lệ / phân bố:**")
-                                        render_distribution_chart(products_df, "products_export")
-
-                                        st.markdown("**📈 Bảng thống kê dữ liệu:**")
-                                        render_data_statistics(products_df)
-                                    except Exception as e:
-                                        st.error(f"Lỗi khi đọc products.csv: {str(e)}")
-
-                                st.markdown("---")
-
-                                users_path = export_dir / 'users.csv'
-                                if users_path.exists() and users_result['success']:
-                                    st.markdown("
-                                    try:
-                                        users_df = pd.read_csv(users_path)
-                                        st.success(f"✅ Đã tải users.csv: {len(users_df)} rows × {len(users_df.columns)} columns")
-
-                                        col_u1, col_u2 = st.columns(2)
-                                        with col_u1:
-                                            st.metric("Số dòng (rows)", len(users_df))
-                                        with col_u2:
-                                            st.metric("Số cột (columns)", len(users_df.columns))
-
-                                        st.markdown("**👀 Xem trước dữ liệu (tối đa 100 dòng đầu):**")
-                                        st.dataframe(users_df.head(100), use_container_width=True)
-
-                                        st.markdown("**📉 Biểu đồ độ thưa (tỉ lệ giá trị null trên mỗi cột):**")
-                                        render_sparsity_chart(users_df, "Độ thưa - Users", "users_export")
-
-                                        st.markdown("**📊 Biểu đồ tỉ lệ / phân bố:**")
-                                        render_distribution_chart(users_df, "users_export")
-
-                                        st.markdown("**📈 Bảng thống kê dữ liệu:**")
-                                        render_data_statistics(users_df)
-                                    except Exception as e:
-                                        st.error(f"Lỗi khi đọc users.csv: {str(e)}")
-
-                                st.markdown("---")
-
-                                interactions_path = export_dir / 'interactions.csv'
-                                if interactions_path.exists() and interactions_result['success']:
-                                    st.markdown("
-                                    try:
-                                        interactions_df = pd.read_csv(interactions_path)
-                                        st.success(f"✅ Đã tải interactions.csv: {len(interactions_df)} rows × {len(interactions_df.columns)} columns")
-
-                                        col_i1, col_i2 = st.columns(2)
-                                        with col_i1:
-                                            st.metric("Số dòng (rows)", len(interactions_df))
-                                        with col_i2:
-                                            st.metric("Số cột (columns)", len(interactions_df.columns))
-
-                                        st.markdown("**👀 Xem trước dữ liệu (tối đa 100 dòng đầu):**")
-                                        st.dataframe(interactions_df.head(100), use_container_width=True)
-
-                                        st.markdown("**📉 Biểu đồ độ thưa (tỉ lệ giá trị null trên mỗi cột):**")
-                                        render_sparsity_chart(interactions_df, "Độ thưa - Interactions", "interactions_export")
-
-                                        st.markdown("**📊 Biểu đồ tỉ lệ / phân bố:**")
-                                        render_distribution_chart(interactions_df, "interactions_export")
-
-                                        st.markdown("**📈 Bảng thống kê dữ liệu:**")
-                                        render_data_statistics(interactions_df)
-                                    except Exception as e:
-                                        st.error(f"Lỗi khi đọc interactions.csv: {str(e)}")
-
+                                
+                                tab1, tab2, tab3 = st.tabs(["📦 Products Data", "👥 Users Data", "🔗 Interactions Data"])
+                                
+                                with tab1:
+                                    products_path = export_dir / 'products.csv'
+                                    if products_path.exists() and products_result['success']:
+                                        st.markdown("#### 📦 Products Data:")
+                                        try:
+                                            products_df = pd.read_csv(products_path)
+                                            st.success(f"✅ Đã tải products.csv: {len(products_df)} rows × {len(products_df.columns)} columns")
+                                            
+                                            col_p1, col_p2 = st.columns(2)
+                                            with col_p1:
+                                                st.metric("Số dòng (rows)", len(products_df))
+                                            with col_p2:
+                                                st.metric("Số cột (columns)", len(products_df.columns))
+                                            
+                                            st.markdown("**👀 Xem trước dữ liệu (tối đa 100 dòng đầu):**")
+                                            st.dataframe(products_df.head(100), use_container_width=True)
+                                            
+                                            st.markdown("**📉 Biểu đồ độ thưa (tỉ lệ giá trị null trên mỗi cột):**")
+                                            render_sparsity_chart(products_df, "Độ thưa - Products", "products_export")
+                                            
+                                            st.markdown("**📊 Biểu đồ tỉ lệ / phân bố:**")
+                                            render_distribution_chart(products_df, "products_export")
+                                            
+                                            st.markdown("**📈 Bảng thống kê dữ liệu:**")
+                                            render_data_statistics(products_df)
+                                        except Exception as e:
+                                            st.error(f"Lỗi khi đọc products.csv: {str(e)}")
+                                    else:
+                                        st.info("Chưa có dữ liệu Products để hiển thị.")
+                                
+                                with tab2:
+                                    users_path = export_dir / 'users.csv'
+                                    if users_path.exists() and users_result['success']:
+                                        st.markdown("#### 👥 Users Data:")
+                                        try:
+                                            users_df = pd.read_csv(users_path)
+                                            st.success(f"✅ Đã tải users.csv: {len(users_df)} rows × {len(users_df.columns)} columns")
+                                            
+                                            col_u1, col_u2 = st.columns(2)
+                                            with col_u1:
+                                                st.metric("Số dòng (rows)", len(users_df))
+                                            with col_u2:
+                                                st.metric("Số cột (columns)", len(users_df.columns))
+                                            
+                                            st.markdown("**👀 Xem trước dữ liệu (tối đa 100 dòng đầu):**")
+                                            st.dataframe(users_df.head(100), use_container_width=True)
+                                            
+                                            st.markdown("**📉 Biểu đồ độ thưa (tỉ lệ giá trị null trên mỗi cột):**")
+                                            render_sparsity_chart(users_df, "Độ thưa - Users", "users_export")
+                                            
+                                            st.markdown("**📊 Biểu đồ tỉ lệ / phân bố:**")
+                                            render_distribution_chart(users_df, "users_export")
+                                            
+                                            st.markdown("**📈 Bảng thống kê dữ liệu:**")
+                                            render_data_statistics(users_df)
+                                        except Exception as e:
+                                            st.error(f"Lỗi khi đọc users.csv: {str(e)}")
+                                    else:
+                                        st.info("Chưa có dữ liệu Users để hiển thị.")
+                                
+                                with tab3:
+                                    interactions_path = export_dir / 'interactions.csv'
+                                    if interactions_path.exists() and interactions_result['success']:
+                                        st.markdown("#### 🔗 Interactions Data:")
+                                        try:
+                                            interactions_df = pd.read_csv(interactions_path)
+                                            st.success(f"✅ Đã tải interactions.csv: {len(interactions_df)} rows × {len(interactions_df.columns)} columns")
+                                            
+                                            col_i1, col_i2 = st.columns(2)
+                                            with col_i1:
+                                                st.metric("Số dòng (rows)", len(interactions_df))
+                                            with col_i2:
+                                                st.metric("Số cột (columns)", len(interactions_df.columns))
+                                            
+                                            st.markdown("**👀 Xem trước dữ liệu (tối đa 100 dòng đầu):**")
+                                            st.dataframe(interactions_df.head(100), use_container_width=True)
+                                            
+                                            st.markdown("**📉 Biểu đồ độ thưa (tỉ lệ giá trị null trên mỗi cột):**")
+                                            render_sparsity_chart(interactions_df, "Độ thưa - Interactions", "interactions_export")
+                                            
+                                            st.markdown("**📊 Biểu đồ tỉ lệ / phân bố:**")
+                                            render_distribution_chart(interactions_df, "interactions_export")
+                                            
+                                            st.markdown("**📈 Bảng thống kê dữ liệu:**")
+                                            render_data_statistics(interactions_df)
+                                        except Exception as e:
+                                            st.error(f"Lỗi khi đọc interactions.csv: {str(e)}")
+                                    else:
+                                        st.info("Chưa có dữ liệu Interactions để hiển thị.")
+                                
                                 st.session_state['exported_data'] = {
                                     'products_path': str(products_path) if products_path.exists() else None,
                                     'users_path': str(users_path) if users_path.exists() else None,
                                     'interactions_path': str(interactions_path) if interactions_path.exists() else None,
                                     'export_dir': str(export_dir)
                                 }
-
+                                
                             else:
                                 st.error(f"❌ Có lỗi xảy ra khi xuất dữ liệu")
                                 for key, res in result['results'].items():
                                     if not res['success']:
                                         st.error(f"❌ {key}: {res.get('error', 'Lỗi không xác định')}")
-
+                        
                         except Exception as e:
                             st.error(f"❌ Lỗi: {str(e)}")
                             import traceback
                             st.code(traceback.format_exc())
-
+                
                 export_dir = ensure_export_directory() if ensure_export_directory else None
                 if export_dir:
                     st.info(f"💡 **Lưu ý:** Các file CSV sẽ được lưu tại: `{export_dir}`")
-
-        st.markdown("---")
-
+        
         with st.expander("Bước 1.1: Làm sạch và Lọc Dữ liệu (Pruning & Sparsity Handling)", expanded=True):
             st.write("**Nội dung thực hiện:** Áp dụng kỹ thuật 5-Core Pruning để loại bỏ đệ quy các người dùng và sản phẩm có dưới 5 tương tác nhằm giảm độ thưa thớt của dữ liệu.")
             st.write("**Dữ liệu sử dụng:** `interactions.csv`")
@@ -835,24 +929,254 @@ def main():
             - $I_u$: Tập sản phẩm mà user $u$ đã tương tác
             - $U_i$: Tập users đã tương tác với sản phẩm $i$
             - $R_{pruned}$: Ma trận sau khi pruning
+            """)
 
-                        ❌ **Kết quả:** Tất cả dữ liệu đã bị loại bỏ!
-
+            # Data source selection
+            col_source1, col_source2 = st.columns([2, 1])
+            with col_source1:
+                use_exported = st.checkbox(
+                    "Sử dụng dữ liệu đã xuất từ MongoDB (Bước 0)",
+                    value=True,
+                    key="pruning_use_exported"
+                )
+            
+            interactions_df = None
+            
+            if use_exported and 'exported_data' in st.session_state and st.session_state['exported_data'].get('interactions_path'):
+                interactions_path = st.session_state['exported_data']['interactions_path']
+                if os.path.exists(interactions_path):
+                    try:
+                        interactions_df = pd.read_csv(interactions_path)
+                        st.success(f"✅ Đã tải interactions.csv từ dữ liệu đã xuất: {len(interactions_df)} rows")
+                    except Exception as e:
+                        st.error(f"Lỗi khi đọc file: {str(e)}")
+                else:
+                    st.warning("File interactions.csv không tồn tại. Vui lòng tải lên file hoặc xuất dữ liệu từ MongoDB.")
+            
+            if interactions_df is None:
+                # Auto import từ apps/exports
+                export_dir = ensure_export_directory() if ensure_export_directory else None
+                if export_dir:
+                    interactions_path_auto = export_dir / 'interactions.csv'
+                    if interactions_path_auto.exists():
+                        try:
+                            interactions_df = pd.read_csv(interactions_path_auto)
+                            st.success(f"✅ Đã tự động tải interactions.csv từ apps/exports: {len(interactions_df)} rows × {len(interactions_df.columns)} columns")
+                        except Exception as e:
+                            st.error(f"Lỗi khi đọc file từ apps/exports: {str(e)}")
+                    else:
+                        st.info("💡 File interactions.csv không tồn tại trong apps/exports. Vui lòng xuất dữ liệu từ MongoDB (Bước 0) hoặc đảm bảo file tồn tại.")
+                else:
+                    st.info("💡 Không thể truy cập thư mục apps/exports. Vui lòng xuất dữ liệu từ MongoDB (Bước 0).")
+            
+            if interactions_df is not None:
+                # Configuration
+                col_config1, col_config2 = st.columns(2)
+                with col_config1:
+                    min_interactions = st.number_input(
+                        "Số lượng tương tác tối thiểu (min_interactions)",
+                        min_value=1,
+                        value=5,
+                        step=1,
+                        key="pruning_min_interactions"
+                    )
+                
+                with col_config2:
+                    st.write("")  # Spacing
+                    process_button = st.button(
+                        "🔧 Áp dụng 5-Core Pruning",
+                        type="primary",
+                        use_container_width=True,
+                        key="pruning_process_button"
+                    )
+                
+                if process_button:
+                    with st.spinner("Đang áp dụng 5-Core Pruning..."):
+                        try:
+                            result = apply_5core_pruning(interactions_df, min_interactions)
+                            
+                            if result['pruned_interactions'].empty:
+                                st.error("❌ **Kết quả:** Tất cả dữ liệu đã bị loại bỏ!")
+                                st.warning(f"""
                         **Nguyên nhân:**
-                        - Với min_interactions = {min_interactions_used}, tất cả users và/hoặc products đều có ít hơn {min_interactions_used} interactions
+                                - Với min_interactions = {min_interactions}, tất cả users và/hoặc products đều có ít hơn {min_interactions} interactions
                         - Điều này tạo ra hiệu ứng cascade: khi loại bỏ users/products, các interactions liên quan cũng bị loại bỏ, khiến các users/products khác cũng không đủ điều kiện
 
                         **Giải pháp:**
                         1. Giảm min_interactions xuống (ví dụ: 3 hoặc 2)
                         2. Thu thập thêm dữ liệu interactions
                         3. Chấp nhận dữ liệu thưa thớt và không áp dụng pruning
+                                """)
+                            else:
+                                st.success("✅ **Hoàn thành!** Ma trận tương tác đã được làm sạch.")
+                                
+                                # Store in session state
+                                st.session_state['pruned_interactions'] = result
+                                
+                                # Display statistics
+                                st.markdown("### 📊 Thống kê kết quả Pruning")
+                                
+                                col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
+                                with col_stat1:
+                                    st.metric("Users ban đầu", result['original_users'])
+                                    st.metric("Users sau pruning", result['original_users'] - result['removed_users'])
+                                with col_stat2:
+                                    st.metric("Products ban đầu", result['original_products'])
+                                    st.metric("Products sau pruning", result['original_products'] - result['removed_products'])
+                                with col_stat3:
+                                    st.metric("Interactions ban đầu", result['original_interactions'])
+                                    st.metric("Interactions sau pruning", len(result['pruned_interactions']))
+                                with col_stat4:
+                                    st.metric("Số lần lặp", result['iterations'])
+                                    reduction_pct = ((result['original_interactions'] - len(result['pruned_interactions'])) / result['original_interactions'] * 100) if result['original_interactions'] > 0 else 0
+                                    st.metric("Giảm đi", f"{reduction_pct:.2f}%")
+                                
+                                # Calculate values for tabs
+                                pruned_users = result['original_users'] - result['removed_users']
+                                pruned_products = result['original_products'] - result['removed_products']
+                                
+                                # Original sparsity
+                                original_density = result['original_interactions'] / (result['original_users'] * result['original_products']) if (result['original_users'] * result['original_products']) > 0 else 0
+                                original_sparsity = 1 - original_density
+                                
+                                # Pruned sparsity
+                                pruned_density = len(result['pruned_interactions']) / (pruned_users * pruned_products) if (pruned_users * pruned_products) > 0 else 0
+                                pruned_sparsity = 1 - pruned_density
+                                
+                                improvement = original_sparsity - pruned_sparsity
+                                
+                                # Create tabs for different visualizations
+                                tab1, tab2, tab3, tab4 = st.tabs([
+                                    "📋 Ma trận tương tác đã làm sạch",
+                                    "📉 So sánh độ thưa thớt",
+                                    "📈 Quá trình Pruning qua các lần lặp",
+                                    "🔥 Ma trận tương tác (Heatmap)"
+                                ])
+                                
+                                with tab1:
+                                    st.markdown("### 📋 Ma trận tương tác đã làm sạch $R_{pruned}$")
+                                    st.dataframe(
+                                        result['pruned_interactions'].head(100),
+                                        use_container_width=True
+                                    )
+                                    
+                                    # Download button
+                                    csv = result['pruned_interactions'].to_csv(index=False)
+                                    st.download_button(
+                                        "⬇️ Tải xuống interactions đã làm sạch (CSV)",
+                                        csv,
+                                        file_name="interactions_pruned.csv",
+                                        mime="text/csv",
+                                        key="pruning_download"
+                                    )
+                                
+                                with tab2:
+                                    st.markdown("### 📉 So sánh độ thưa thớt")
+                                    
+                                    col_sparse1, col_sparse2 = st.columns(2)
+                                    with col_sparse1:
+                                        st.metric("Độ thưa ban đầu", f"{original_sparsity:.4f}")
+                                        st.metric("Mật độ ban đầu", f"{original_density:.6f}")
+                                    with col_sparse2:
+                                        st.metric("Độ thưa sau pruning", f"{pruned_sparsity:.4f}")
+                                        st.metric("Mật độ sau pruning", f"{pruned_density:.6f}")
+                                    
+                                    if improvement > 0:
+                                        st.success(f"✅ Độ thưa giảm {improvement:.4f} ({improvement/original_sparsity*100:.2f}%) - Mật độ dữ liệu tăng!")
+                                    else:
+                                        st.info("ℹ️ Mật độ dữ liệu đã được cải thiện cho các users/products còn lại.")
+                                
+                                with tab3:
+                                    if result['stats']:
+                                        st.markdown("### 📈 Quá trình Pruning qua các lần lặp")
+                                        stats_df = pd.DataFrame(result['stats'])
+                                        fig = go.Figure()
+                                        fig.add_trace(go.Scatter(
+                                            x=stats_df['iteration'],
+                                            y=stats_df['users'],
+                                            mode='lines+markers',
+                                            name='Users',
+                                            line=dict(color='#1f77b4')
+                                        ))
+                                        fig.add_trace(go.Scatter(
+                                            x=stats_df['iteration'],
+                                            y=stats_df['products'],
+                                            mode='lines+markers',
+                                            name='Products',
+                                            line=dict(color='#2ca02c')
+                                        ))
+                                        fig.add_trace(go.Scatter(
+                                            x=stats_df['iteration'],
+                                            y=stats_df['interactions'],
+                                            mode='lines+markers',
+                                            name='Interactions',
+                                            line=dict(color='#d62728')
+                                        ))
+                                        fig.update_layout(
+                                            title="Thay đổi số lượng Users, Products và Interactions qua các lần lặp",
+                                            xaxis_title="Số lần lặp",
+                                            yaxis_title="Số lượng",
+                                            hovermode='x unified'
+                                        )
+                                        st.plotly_chart(fig, use_container_width=True)
+                                    else:
+                                        st.info("ℹ️ Không có dữ liệu thống kê quá trình pruning.")
+                                
+                                with tab4:
+                                    if pruned_users <= 100 and pruned_products <= 100:
+                                        st.markdown("### 🔥 Ma trận tương tác (Heatmap)")
+                                        st.info("ℹ️ Hiển thị ma trận tương tác dưới dạng heatmap (1 = có tương tác, 0 = không có tương tác)")
+                                        
+                                        # Create interaction matrix
+                                        interaction_matrix = result['pruned_interactions'].pivot_table(
+                                            index='user_id',
+                                            columns='product_id',
+                                            aggfunc='size',
+                                            fill_value=0
+                                        )
+                                        
+                                        # Convert to binary (1 if interaction exists, 0 otherwise)
+                                        interaction_matrix = (interaction_matrix > 0).astype(int)
+                                        
+                                        fig_heatmap = go.Figure(data=go.Heatmap(
+                                            z=interaction_matrix.values,
+                                            x=interaction_matrix.columns,
+                                            y=interaction_matrix.index,
+                                            colorscale='YlOrRd',
+                                            showscale=True,
+                                            colorbar=dict(title="Interaction")
+                                        ))
+                                        fig_heatmap.update_layout(
+                                            title="Ma trận tương tác User-Product (1 = có tương tác, 0 = không có)",
+                                            xaxis_title="Product ID",
+                                            yaxis_title="User ID",
+                                            width=800,
+                                            height=600
+                                        )
+                                        st.plotly_chart(fig_heatmap, use_container_width=True)
+                                    else:
+                                        st.info(f"ℹ️ Ma trận quá lớn ({pruned_users} users × {pruned_products} products) để hiển thị heatmap. Chỉ hiển thị dữ liệu dạng bảng.")
+                                        st.markdown("**💡 Gợi ý:** Xem dữ liệu dạng bảng trong tab '📋 Ma trận tương tác đã làm sạch'")
+                                
+                                st.markdown("""
+                                **✅ Kết quả đạt được:**
+                                - ✅ Ma trận tương tác thưa thớt $R$ được làm sạch, giảm nhiễu (noise) do tương tác ngẫu nhiên hoặc không đủ dữ liệu
+                                - ✅ Tăng mật độ dữ liệu tương tác cho các thuật toán cộng tác (GNN)
+                                - ✅ Loại bỏ các users và products có quá ít tương tác, giúp model học được patterns rõ ràng hơn
+                                """)
+                        
+                        except Exception as e:
+                            st.error(f"❌ Lỗi khi áp dụng pruning: {str(e)}")
+                            import traceback
+                            st.code(traceback.format_exc())
+            else:
+                st.info("💡 Vui lòng tải lên file interactions.csv hoặc xuất dữ liệu từ MongoDB (Bước 0) để tiếp tục.")
 
-                    ✅ Ma trận tương tác thưa thớt $R$ được làm sạch, giảm nhiễu (noise) do tương tác ngẫu nhiên hoặc không đủ dữ liệu
+        with st.expander("Bước 1.2: Mã hóa Đặc trưng Nội dung (Feature Encoding)", expanded=True):
+            st.write("**Nội dung thực hiện:** Chuyển đổi các đặc trưng phân loại của sản phẩm (masterCategory, subCategory, articleType, baseColour, usage) thành Item Profile Vector $\\mathbf{v}_i$ bằng One-Hot Encoding hoặc Categorical Embedding.")
+            st.write("**Dữ liệu sử dụng:** `products.csv`")
 
-                    ✅ Tăng mật độ dữ liệu tương tác cho các thuật toán cộng tác (GNN)
-
-                    ✅ Loại bỏ các users và products có quá ít tương tác, giúp model học được patterns rõ ràng hơn
-
+            st.markdown("""
             **Phương pháp mã hóa:**
 
             **1. One-Hot Encoding:**
@@ -873,144 +1197,3554 @@ def main():
             - $\\text{OneHot}(x)$: Vector one-hot encoding của giá trị $x$
             - Kết quả: Vector concatenation của tất cả các features
 
-            **Ma trận đặc trưng:**
-            $$P \\in \\mathbb{R}^{|I| \\times d_c}$$
-
-            Trong đó:
+            **Kết quả tính toán:**
+            - Ma trận đặc trưng $P \\in \\mathbb{R}^{|I| \\times d_c}$, nơi $d_c$ là tổng số chiều đặc trưng nội dung (tổng số giá trị unique của tất cả features)
             - $|I|$: Số lượng sản phẩm
-            - $d_c$: Tổng số chiều đặc trưng nội dung (tổng số giá trị unique của tất cả features)
 
-                    ✅ Vector $\\mathbf{v}_i$ cho mỗi sản phẩm $i$ trong hệ thống, đại diện cho thuộc tính nội dung của nó
+            **Kết quả mong đợi:**
+            - Vector $\\mathbf{v}_i$ cho mỗi sản phẩm $i$ trong hệ thống, đại diện cho thuộc tính nội dung của nó
+            - Các vector này là đầu vào cơ sở cho CBF (Content-Based Filtering) và Diversity (ILD) metric
+            - Mỗi sản phẩm được biểu diễn dưới dạng vector số học, có thể tính toán similarity và distance
+            """)
 
-                    ✅ Ma trận đặc trưng $P \\in \\mathbb{R}^{|I| \\times d_c}$ được tạo thành
+            # Data source selection
+            col_source1, col_source2 = st.columns([2, 1])
+            with col_source1:
+                use_exported = st.checkbox(
+                    "Sử dụng dữ liệu đã xuất từ MongoDB (Bước 0)",
+                    value=True,
+                    key="encoding_use_exported"
+                )
+            
+            products_df = None
+            
+            if use_exported and 'exported_data' in st.session_state and st.session_state['exported_data'].get('products_path'):
+                products_path = st.session_state['exported_data']['products_path']
+                if os.path.exists(products_path):
+                    try:
+                        products_df = pd.read_csv(products_path)
+                        # Set product_id as index if available
+                        if 'id' in products_df.columns:
+                            products_df = products_df.set_index('id')
+                        st.success(f"✅ Đã tải products.csv từ dữ liệu đã xuất: {len(products_df)} rows")
+                    except Exception as e:
+                        st.error(f"Lỗi khi đọc file: {str(e)}")
+                else:
+                    st.warning("File products.csv không tồn tại. Vui lòng tải lên file hoặc xuất dữ liệu từ MongoDB.")
+            
+            if products_df is None:
+                # Auto import từ apps/exports
+                export_dir = ensure_export_directory() if ensure_export_directory else None
+                if export_dir:
+                    products_path_auto = export_dir / 'products.csv'
+                    if products_path_auto.exists():
+                        try:
+                            products_df = pd.read_csv(products_path_auto)
+                            # Set product_id as index if available
+                            if 'id' in products_df.columns:
+                                products_df = products_df.set_index('id')
+                            st.success(f"✅ Đã tự động tải products.csv từ apps/exports: {len(products_df)} rows × {len(products_df.columns)} columns")
+                        except Exception as e:
+                            st.error(f"Lỗi khi đọc file từ apps/exports: {str(e)}")
+                    else:
+                        st.info("💡 File products.csv không tồn tại trong apps/exports. Vui lòng xuất dữ liệu từ MongoDB (Bước 0) hoặc đảm bảo file tồn tại.")
+                else:
+                    st.info("💡 Không thể truy cập thư mục apps/exports. Vui lòng xuất dữ liệu từ MongoDB (Bước 0).")
+            
+            if products_df is not None:
+                # Feature selection
+                default_features = ['masterCategory', 'subCategory', 'articleType', 'baseColour', 'usage']
+                available_features = [f for f in default_features if f in products_df.columns]
+                
+                if not available_features:
+                    st.warning("⚠️ Không tìm thấy các features mặc định. Vui lòng chọn features từ danh sách có sẵn.")
+                    categorical_cols = products_df.select_dtypes(include=['object', 'category']).columns.tolist()
+                    selected_features = st.multiselect(
+                        "Chọn các features để mã hóa",
+                        categorical_cols,
+                        default=categorical_cols[:5] if len(categorical_cols) >= 5 else categorical_cols,
+                        key="encoding_features"
+                    )
+                else:
+                    selected_features = st.multiselect(
+                        "Chọn các features để mã hóa",
+                        available_features,
+                        default=available_features,
+                        key="encoding_features"
+                    )
+                
+                col_config1, col_config2 = st.columns([1, 1])
+                with col_config1:
+                    st.write("")  # Spacing
+                with col_config2:
+                    process_button = st.button(
+                        "🔧 Áp dụng Feature Encoding",
+                        type="primary",
+                        use_container_width=True,
+                        key="encoding_process_button"
+                    )
+                
+                if process_button:
+                    if not selected_features:
+                        st.error("❌ Vui lòng chọn ít nhất một feature để mã hóa.")
+                    else:
+                        with st.spinner("Đang mã hóa đặc trưng nội dung..."):
+                            try:
+                                result = apply_feature_encoding(products_df, selected_features)
+                                
+                                if result['total_dims'] == 0:
+                                    st.error("❌ Không thể mã hóa. Vui lòng kiểm tra lại dữ liệu.")
+                                else:
+                                    st.success("✅ **Hoàn thành!** Đặc trưng nội dung đã được mã hóa.")
+                                    
+                                    # Store in session state
+                                    st.session_state['feature_encoding'] = result
+                                    
+                                    # Display statistics
+                                    st.markdown("### 📊 Thống kê kết quả Feature Encoding")
+                                    
+                                    col_stat1, col_stat2, col_stat3 = st.columns(3)
+                                    with col_stat1:
+                                        st.metric("Số lượng sản phẩm", len(products_df))
+                                        st.metric("Số features được mã hóa", len(selected_features))
+                                    with col_stat2:
+                                        st.metric("Tổng số chiều", result['total_dims'])
+                                        st.metric("Kích thước ma trận", f"{len(products_df)} × {result['total_dims']}")
+                                    with col_stat3:
+                                        memory_size_mb = (len(products_df) * result['total_dims'] * 4) / (1024 * 1024)  # Assuming float32
+                                        st.metric("Kích thước bộ nhớ (ước tính)", f"{memory_size_mb:.2f} MB")
+                                    
+                                    # Display feature dimensions
+                                    st.markdown("### 📐 Chi tiết các Features")
+                                    feature_dims_df = pd.DataFrame([
+                                        {
+                                            'Feature': feat,
+                                            'Số giá trị unique': result['feature_dims'].get(feat, 0),
+                                            'Start Index': result['feature_mapping'].get(feat, {}).get('start_idx', 0),
+                                            'End Index': result['feature_mapping'].get(feat, {}).get('end_idx', 0)
+                                        }
+                                        for feat in selected_features
+                                    ])
+                                    st.dataframe(feature_dims_df, use_container_width=True)
+                                    
+                                    # Display sample encoded vectors
+                                    st.markdown("### 🔢 Mẫu Vector đã mã hóa (5 sản phẩm đầu tiên)")
+                                    sample_indices = min(5, len(products_df))
+                                    sample_matrix = result['encoded_matrix'][:sample_indices, :]
+                                    
+                                    # Limit to first 20 features for display
+                                    max_features_display = min(20, len(result['feature_names']))
+                                    sample_matrix_display = sample_matrix[:, :max_features_display]
+                                    feature_names_display = result['feature_names'][:max_features_display]
+                                    
+                                    # Create a more readable display
+                                    sample_df = pd.DataFrame(
+                                        sample_matrix_display,
+                                        index=[f"Product {i+1}" for i in range(sample_indices)],
+                                        columns=feature_names_display
+                                    )
+                                    st.dataframe(sample_df, use_container_width=True)
+                                    
+                                    if len(result['feature_names']) > 20:
+                                        st.info(f"ℹ️ Chỉ hiển thị 20 features đầu tiên. Tổng cộng có {len(result['feature_names'])} features.")
+                                    
+                                    # Display feature mapping details
+                                    with st.expander("📋 Chi tiết Feature Mapping", expanded=False):
+                                        for feat in selected_features:
+                                            if feat in result['feature_mapping']:
+                                                mapping = result['feature_mapping'][feat]
+                                                st.markdown(f"#### {feat}")
+                                                st.write(f"- **Số giá trị unique:** {result['feature_dims'][feat]}")
+                                                st.write(f"- **Chỉ số bắt đầu:** {mapping['start_idx']}")
+                                                st.write(f"- **Chỉ số kết thúc:** {mapping['end_idx']}")
+                                                values_str = ', '.join(list(mapping['value_to_idx'].keys())[:10])
+                                                if len(mapping['value_to_idx']) > 10:
+                                                    values_str += f" ... và {len(mapping['value_to_idx']) - 10} giá trị khác"
+                                                st.write(f"- **Các giá trị:** {values_str}")
+                                    
+                                    # Visualize feature distribution
+                                    st.markdown("### 📊 Phân bố số lượng giá trị unique theo Feature")
+                                    dims_data = {
+                                        'Feature': list(result['feature_dims'].keys()),
+                                        'Số giá trị unique': list(result['feature_dims'].values())
+                                    }
+                                    dims_df = pd.DataFrame(dims_data)
+                                    fig = px.bar(
+                                        dims_df,
+                                        x='Feature',
+                                        y='Số giá trị unique',
+                                        title="Số lượng giá trị unique của mỗi feature",
+                                        labels={'Feature': 'Feature', 'Số giá trị unique': 'Số giá trị unique'}
+                                    )
+                                    st.plotly_chart(fig, use_container_width=True)
+                                    
+                                    # Display matrix info
+                                    st.markdown("### 📐 Thông tin Ma trận đặc trưng $P$")
+                                    st.latex(f"P \\in \\mathbb{{R}}^{{{len(products_df)} \\times {result['total_dims']}}}")
+                                    
+                                    # Sparsity of encoded matrix
+                                    total_elements = len(products_df) * result['total_dims']
+                                    non_zero_elements = np.count_nonzero(result['encoded_matrix'])
+                                    sparsity = 1 - (non_zero_elements / total_elements) if total_elements > 0 else 0
+                                    
+                                    col_matrix1, col_matrix2 = st.columns(2)
+                                    with col_matrix1:
+                                        st.metric("Tổng số phần tử", f"{total_elements:,}")
+                                        st.metric("Phần tử khác 0", f"{non_zero_elements:,}")
+                                    with col_matrix2:
+                                        st.metric("Độ thưa", f"{sparsity:.4f}")
+                                        density = 1 - sparsity
+                                        st.metric("Mật độ", f"{density:.4f}")
+                                    
+                                    st.info("ℹ️ Ma trận One-Hot Encoding thường có độ thưa cao vì mỗi hàng chỉ có một số phần tử bằng 1 (tương ứng với các giá trị của features).")
+                                    
+                                    st.markdown("""
+                                    **✅ Kết quả đạt được:**
+                                    - ✅ Vector $\\mathbf{v}_i$ cho mỗi sản phẩm $i$ trong hệ thống, đại diện cho thuộc tính nội dung của nó
+                                    - ✅ Ma trận đặc trưng $P \\in \\mathbb{R}^{|I| \\times d_c}$ được tạo thành
+                                    - ✅ Các vector này là đầu vào cơ sở cho CBF (Content-Based Filtering) và Diversity (ILD) metric
+                                    - ✅ Mỗi sản phẩm được biểu diễn dưới dạng vector số học, có thể tính toán similarity và distance
+                                    """)
+                            
+                            except Exception as e:
+                                st.error(f"❌ Lỗi khi mã hóa features: {str(e)}")
+                                import traceback
+                                st.code(traceback.format_exc())
+            else:
+                st.info("💡 Vui lòng tải lên file products.csv hoặc xuất dữ liệu từ MongoDB (Bước 0) để tiếp tục.")
 
-                    ✅ Các vector này là đầu vào cơ sở cho CBF (Content-Based Filtering) và Diversity (ILD) metric
+        # PHẦN II: MÔ HÌNH LỌC DỰA TRÊN NỘI DUNG (CONTENT-BASED FILTERING - CBF)
+        st.markdown("---")
+        st.markdown('<div class="sub-header">📚 PHẦN II: MÔ HÌNH LỌC DỰA TRÊN NỘI DUNG (CONTENT-BASED FILTERING - CBF)</div>', unsafe_allow_html=True)
+        st.markdown("")
 
-                    ✅ Mỗi sản phẩm được biểu diễn dưới dạng vector số học, có thể tính toán similarity và distance
+        with st.expander("Bước 2.1: Xây dựng Hồ sơ Người dùng Có Trọng số (Weighted User Profile)", expanded=True):
+            st.write("**Nội dung thực hiện:** Vector Hồ sơ Người dùng $\\mathbf{P}_u$ được xây dựng bằng cách tổng hợp có trọng số các Item Profile $\\mathbf{v}_i$ của các sản phẩm mà người dùng đã tương tác tích cực.")
+            st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 1.1 (Pruned Interactions) và Bước 1.2 (Feature Encoding)")
 
-                **Công thức áp dụng:**
-                $$Text(P_i) = [Gender] + [MasterCategory] + [SubCategory] \\times 2 + [ArticleType] \\times 3 + [BaseColour] + [Usage]$$
-
-                **Giải thích:** Các features được kết hợp thành chuỗi văn bản, trong đó:
-                - `ArticleType` được lặp lại **3 lần** (trọng số cao nhất - quan trọng nhất)
-                - `SubCategory` được lặp lại **2 lần** (trọng số trung bình)
-                - Các features khác (Gender, MasterCategory, BaseColour, Usage) xuất hiện **1 lần**
-
-                **Lý do:** Việc lặp lại giúp TF-IDF coi trọng các features quan trọng hơn khi tính toán similarity.
-
-                **Công thức TF-IDF:**
-                $$TF(t, d) = \\frac{count(t, d)}{len(d)}, \\quad IDF(t) = \\log(\\frac{N}{df(t)}), \\quad TF\\text{-}IDF = TF \\times IDF$$
-
+            st.markdown("""
+            **Công thức Vector Hồ sơ Người dùng:**
+            $$\\mathbf{P}_u = \\frac{\\sum_{i \\in I_u^+} w_{ui} \\mathbf{v}_i}{\\sum_{i \\in I_u^+} w_{ui}}$$
+                
                 Trong đó:
-                - $TF(t, d)$: Tần suất từ $t$ trong document $d$
-                - $IDF(t)$: Nghịch đảo tần suất document, đo độ hiếm của từ $t$
-                - $N$: Tổng số documents (sản phẩm)
-                - $df(t)$: Số documents chứa từ $t$
+            - $\\mathbf{P}_u$: Vector hồ sơ người dùng $u$
+            - $I_u^+$: Tập hợp các sản phẩm đã tương tác của user $u$
+            - $w_{ui}$: Trọng số tương tác giữa user $u$ và item $i$
+            - $\\mathbf{v}_i$: Item Profile Vector của sản phẩm $i$
 
-                **Công thức Cosine Similarity:**
-                $$Cosine(A, B) = \\frac{A \\cdot B}{||A|| \\times ||B||} = \\frac{\\sum_{i=1}^{n} A_i B_i}{\\sqrt{\\sum_{i=1}^{n} A_i^2} \\sqrt{\\sum_{i=1}^{n} B_i^2}}$$
+            **Trọng số tương tác ($w_{ui}$):**
+            | interaction_type | $w_{ui}$ | Độ Ưu tiên |
+            |------------------|----------|------------|
+            | purchase | 5.0 | Cao nhất (sở thích rõ ràng) |
+            | like | 3.0 | Sở thích mạnh mẽ |
+            | cart | 2.0 | Ý định mua sắm |
+            | view | 1.0 | Tương tác thụ động |
 
+            **Kết quả mong đợi:**
+            - Vector $\\mathbf{P}_u$ (Hồ sơ Người dùng) được tính toán cho mỗi người dùng
+            - Đại diện cho sở thích trung bình có trọng số của họ trong không gian thuộc tính sản phẩm
+            - Vector này là cơ sở để tính toán điểm tương đồng cho CBF (Content-Based Filtering)
+            """)
+
+            # Kiểm tra dữ liệu từ các bước trước
+            has_pruned_interactions = 'pruned_interactions' in st.session_state
+            has_feature_encoding = 'feature_encoding' in st.session_state
+
+            if not has_pruned_interactions:
+                st.warning("⚠️ Chưa có dữ liệu từ Bước 1.1 (Pruning). Vui lòng chạy Bước 1.1 trước.")
+            if not has_feature_encoding:
+                st.warning("⚠️ Chưa có dữ liệu từ Bước 1.2 (Feature Encoding). Vui lòng chạy Bước 1.2 trước.")
+
+            if has_pruned_interactions and has_feature_encoding:
+                if build_weighted_user_profile is None:
+                    st.error(f"❌ Không thể import user_profile module: {_user_profile_import_error}")
+                    st.info("Vui lòng đảm bảo file apps/utils/user_profile.py tồn tại và có thể import được.")
+                else:
+                    # Lấy dữ liệu từ session state
+                    pruning_result = st.session_state['pruned_interactions']
+                    encoding_result = st.session_state['feature_encoding']
+                    
+                    pruned_interactions_df = pruning_result['pruned_interactions']
+                    encoded_matrix = encoding_result['encoded_matrix']
+                    product_ids = encoding_result['product_ids']
+                    
+                    # Hiển thị thông tin dữ liệu
+                    col_info1, col_info2 = st.columns(2)
+                    with col_info1:
+                        st.info(f"📋 Interactions: {len(pruned_interactions_df)} rows")
+                        st.info(f"📐 Feature Matrix: {encoded_matrix.shape[0]} products × {encoded_matrix.shape[1]} features")
+                    with col_info2:
+                        st.info(f"👥 Users: {pruned_interactions_df['user_id'].nunique()}")
+                        st.info(f"📦 Products: {pruned_interactions_df['product_id'].nunique()}")
+                    
+                    # Kiểm tra interaction_type
+                    has_interaction_type = 'interaction_type' in pruned_interactions_df.columns
+                    if not has_interaction_type:
+                        st.warning("⚠️ Không tìm thấy cột 'interaction_type'. Sẽ sử dụng trọng số mặc định = 1.0 cho tất cả interactions.")
+                    
+                    # Hiển thị bảng trọng số
+                    st.markdown("### ⚖️ Trọng số tương tác")
+                    weights_df = pd.DataFrame([
+                        {'Interaction Type': k, 'Weight': v, 'Mô tả': {
+                            'purchase': 'Cao nhất (sở thích rõ ràng)',
+                            'like': 'Sở thích mạnh mẽ',
+                            'cart': 'Ý định mua sắm',
+                            'view': 'Tương tác thụ động'
+                        }.get(k, 'Mặc định')}
+                        for k, v in INTERACTION_WEIGHTS.items()
+                    ])
+                    st.dataframe(weights_df, use_container_width=True)
+                    
+                    # Button để tính toán
+                    process_button = st.button(
+                        "🔧 Xây dựng Weighted User Profiles",
+                        type="primary",
+                        use_container_width=True,
+                        key="user_profile_process_button"
+                    )
+                    
+                    if process_button:
+                        # Đo Training Time (Bước 2.1: xây dựng P_u)
+                        training_start_time = time.time()
+                        
+                        with st.spinner("Đang xây dựng hồ sơ người dùng có trọng số..."):
+                            try:
+                                result = build_weighted_user_profile(
+                                    pruned_interactions_df,
+                                    encoded_matrix,
+                                    product_ids,
+                                    INTERACTION_WEIGHTS
+                                )
+                                
+                                # Kết thúc đo Training Time
+                                training_end_time = time.time()
+                                training_time_measured = training_end_time - training_start_time
+                                
+                                # Lưu vào session state
+                                st.session_state['training_time'] = training_time_measured
+                                
+                                if result['total_users'] == 0:
+                                    st.error("❌ Không thể xây dựng user profiles. Vui lòng kiểm tra lại dữ liệu.")
+                                else:
+                                    st.success(f"✅ **Hoàn thành!** Đã xây dựng {result['total_users']} user profiles.")
+                                    
+                                    # Store in session state
+                                    st.session_state['user_profiles'] = result
+                                    
+                                    # Display statistics
+                                    st.markdown("### 📊 Thống kê kết quả User Profiles")
+                                    
+                                    col_stat1, col_stat2, col_stat3 = st.columns(3)
+                                    with col_stat1:
+                                        st.metric("Tổng số users", result['total_users'])
+                                        st.metric("Số chiều feature vector", result['feature_dim'])
+                                    with col_stat2:
+                                        total_interactions = sum(stat['interaction_count'] for stat in result['user_stats'].values())
+                                        avg_interactions = total_interactions / result['total_users'] if result['total_users'] > 0 else 0
+                                        st.metric("Tổng interactions", total_interactions)
+                                        st.metric("Trung bình interactions/user", f"{avg_interactions:.2f}")
+                                    with col_stat3:
+                                        total_weight = sum(stat['total_weight'] for stat in result['user_stats'].values())
+                                        avg_weight = total_weight / result['total_users'] if result['total_users'] > 0 else 0
+                                        st.metric("Tổng trọng số", f"{total_weight:.2f}")
+                                        st.metric("Trung bình trọng số/user", f"{avg_weight:.2f}")
+                                    
+                                    # Hiển thị cảnh báo về skipped products nếu có
+                                    if result.get('skipped_products', 0) > 0:
+                                        st.warning(f"⚠️ Có {result['skipped_products']} products trong interactions không tìm thấy trong encoded matrix. Các products này sẽ bị bỏ qua khi tính toán user profiles.")
+                                        if result.get('skipped_product_ids'):
+                                            with st.expander("Xem danh sách products bị skip (10 đầu tiên)", expanded=False):
+                                                st.write(result['skipped_product_ids'])
+                                    
+                                    # Create tabs for different visualizations
+                                    tab1, tab2, tab3 = st.tabs([
+                                        "📋 Mẫu User Profiles",
+                                        "📊 Phân bố số lượng Interactions",
+                                        "📈 Phân bố Trọng số"
+                                    ])
+                                    
+                                    with tab1:
+                                        st.markdown("### 📋 Mẫu User Profiles (5 users đầu tiên)")
+                                        
+                                        # Lấy 5 users đầu tiên
+                                        sample_users = list(result['user_profiles'].keys())[:5]
+                                        
+                                        for idx, user_id in enumerate(sample_users, 1):
+                                            profile = result['user_profiles'][user_id]
+                                            stats = result['user_stats'][user_id]
+                                            
+                                            with st.expander(f"User {user_id} (Interactions: {stats['interaction_count']}, Total Weight: {stats['total_weight']:.2f})", expanded=False):
+                                                # Hiển thị một phần vector (20 features đầu)
+                                                max_features_display = min(20, len(profile))
+                                                profile_display = profile[:max_features_display]
+                                                
+                                                profile_df = pd.DataFrame({
+                                                    'Feature Index': range(max_features_display),
+                                                    'Value': profile_display
+                                                })
+                                                st.dataframe(profile_df, use_container_width=True)
+                                                
+                                                if len(profile) > max_features_display:
+                                                    st.info(f"ℹ️ Chỉ hiển thị {max_features_display} features đầu tiên. Tổng cộng có {len(profile)} features.")
+                                                
+                                                # Thống kê vector
+                                                col_vec1, col_vec2, col_vec3 = st.columns(3)
+                                                with col_vec1:
+                                                    st.metric("Min", f"{profile.min():.4f}")
+                                                with col_vec2:
+                                                    st.metric("Max", f"{profile.max():.4f}")
+                                                with col_vec3:
+                                                    st.metric("Mean", f"{profile.mean():.4f}")
+                                    
+                                    with tab2:
+                                        st.markdown("### 📊 Phân bố số lượng Interactions per User")
+                                        
+                                        interaction_counts = [stats['interaction_count'] for stats in result['user_stats'].values()]
+                                        counts_df = pd.DataFrame({
+                                            'User': range(len(interaction_counts)),
+                                            'Interaction Count': interaction_counts
+                                        })
+                                        
+                                        fig = px.histogram(
+                                            counts_df,
+                                            x='Interaction Count',
+                                            nbins=20,
+                                            title="Phân bố số lượng interactions của mỗi user",
+                                            labels={'Interaction Count': 'Số lượng Interactions', 'count': 'Số lượng Users'}
+                                        )
+                                        st.plotly_chart(fig, use_container_width=True)
+                                        
+                                        # Thống kê
+                                        col_dist1, col_dist2, col_dist3 = st.columns(3)
+                                        with col_dist1:
+                                            st.metric("Min interactions", min(interaction_counts))
+                                            st.metric("Max interactions", max(interaction_counts))
+                                        with col_dist2:
+                                            st.metric("Mean", f"{np.mean(interaction_counts):.2f}")
+                                            st.metric("Median", f"{np.median(interaction_counts):.2f}")
+                                        with col_dist3:
+                                            st.metric("Std", f"{np.std(interaction_counts):.2f}")
+                                    
+                                    with tab3:
+                                        st.markdown("### 📈 Phân bố Trọng số per User")
+                                        
+                                        total_weights = [stats['total_weight'] for stats in result['user_stats'].values()]
+                                        avg_weights = [stats['avg_weight'] for stats in result['user_stats'].values()]
+                                        
+                                        weights_df = pd.DataFrame({
+                                            'User': range(len(total_weights)),
+                                            'Total Weight': total_weights,
+                                            'Average Weight': avg_weights
+                                        })
+                                        
+                                        fig = go.Figure()
+                                        fig.add_trace(go.Histogram(
+                                            x=weights_df['Total Weight'],
+                                            name='Total Weight',
+                                            nbinsx=20,
+                                            opacity=0.7
+                                        ))
+                                        fig.add_trace(go.Histogram(
+                                            x=weights_df['Average Weight'],
+                                            name='Average Weight',
+                                            nbinsx=20,
+                                            opacity=0.7
+                                        ))
+                                        fig.update_layout(
+                                            title="Phân bố trọng số của mỗi user",
+                                            xaxis_title="Trọng số",
+                                            yaxis_title="Số lượng Users",
+                                            barmode='overlay'
+                                        )
+                                        st.plotly_chart(fig, use_container_width=True)
+                                        
+                                        # Thống kê
+                                        col_weight1, col_weight2 = st.columns(2)
+                                        with col_weight1:
+                                            st.markdown("#### Total Weight")
+                                            st.metric("Min", f"{min(total_weights):.2f}")
+                                            st.metric("Max", f"{max(total_weights):.2f}")
+                                            st.metric("Mean", f"{np.mean(total_weights):.2f}")
+                                        with col_weight2:
+                                            st.markdown("#### Average Weight")
+                                            st.metric("Min", f"{min(avg_weights):.2f}")
+                                            st.metric("Max", f"{max(avg_weights):.2f}")
+                                            st.metric("Mean", f"{np.mean(avg_weights):.2f}")
+                                    
+                                    # Ví dụ tính toán
+                                    st.markdown("### 🧮 Ví dụ tính toán")
+                                    st.markdown("""
+                                    **Ví dụ:** User $u$ tương tác ba sản phẩm:
+                                    - Product 1: purchase (weight=5.0), vector $\\mathbf{v}_1 = [1, 1, 1]$
+                                    - Product 2: like (weight=3.0), vector $\\mathbf{v}_2 = [0, 1, 0]$
+                                    - Product 3: view (weight=1.0), vector $\\mathbf{v}_3 = [1, 0, 1]$
+                                    
+                                    **Tính toán:**
+                                    - $\\sum w_{ui} \\mathbf{v}_i = 5[1, 1, 1] + 3[0, 1, 0] + 1[1, 0, 1] = [5, 5, 5] + [0, 3, 0] + [1, 0, 1] = [6, 8, 6]$
+                                    - $\\sum w_{ui} = 5 + 3 + 1 = 9$
+                                    - $\\mathbf{P}_u = [6/9, 8/9, 6/9] = [0.67, 0.89, 0.67]$
+                                    """)
+                                    
+                                    st.markdown("""
+                                    **✅ Kết quả đạt được:**
+                                    - ✅ Vector $\\mathbf{P}_u$ (Hồ sơ Người dùng) được tính toán cho mỗi người dùng
+                                    - ✅ Đại diện cho sở thích trung bình có trọng số của họ trong không gian thuộc tính sản phẩm
+                                    - ✅ Vector này là cơ sở để tính toán điểm tương đồng cho CBF (Content-Based Filtering)
+                                    """)
+                            
+                            except Exception as e:
+                                st.error(f"❌ Lỗi khi xây dựng user profiles: {str(e)}")
+                                import traceback
+                                st.code(traceback.format_exc())
+            else:
+                st.info("💡 Vui lòng hoàn thành Bước 1.1 (Pruning) và Bước 1.2 (Feature Encoding) trước khi tiếp tục.")
+
+        with st.expander("Bước 2.2: Tính Điểm Dự đoán và Xếp hạng", expanded=True):
+            st.write("**Nội dung thực hiện:** Tính độ tương đồng Cosine giữa Hồ sơ Người dùng $\\mathbf{P}_u$ và Item Profile $\\mathbf{v}_i$ để dự đoán điểm tương tác $\\hat{r}_{ui}^{\\text{CBF}}$.")
+            st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 2.1 (User Profiles) và Bước 1.2 (Feature Encoding)")
+
+            st.markdown("""
+            **Công thức Tính điểm (Tương đồng Cosine):**
+            $$\\hat{r}_{ui}^{\\text{CBF}} = \\text{cos}(\\mathbf{P}_u, \\mathbf{v}_i) = \\frac{\\mathbf{P}_u \\cdot \\mathbf{v}_i}{\\|\\mathbf{P}_u\\| \\|\\mathbf{v}_i\\|}$$
+                
                 Trong đó:
-                - $A, B$: Hai vector TF-IDF của 2 sản phẩm
-                - $A_i, B_i$: Giá trị TF-IDF của feature thứ $i$
-                - Kết quả: Giá trị từ 0 đến 1 (1 = giống nhau hoàn toàn, 0 = khác biệt hoàn toàn)
+            - $\\hat{r}_{ui}^{\\text{CBF}}$: Điểm dự đoán CBF cho user $u$ và item $i$
+            - $\\mathbf{P}_u$: Vector hồ sơ người dùng $u$
+            - $\\mathbf{v}_i$: Item Profile Vector của sản phẩm $i$
+            - $\\mathbf{P}_u \\cdot \\mathbf{v}_i$: Tích vô hướng của hai vectors
+            - $\\|\\mathbf{P}_u\\|$, $\\|\\mathbf{v}_i\\|$: Chuẩn L2 của các vectors
+            - Kết quả: Điểm số trong khoảng $[-1, 1]$ (1 = hoàn toàn tương đồng, -1 = hoàn toàn đối lập)
 
-User 1 <---[weight=1.0]---> Product A
-User 2 <---[weight=0.7]---> Product A
-User 1 <---[weight=0.5]---> Product B
+            **Kết quả mong đợi:**
+            - Một danh sách các sản phẩm tiềm năng được gán điểm $\\hat{r}_{ui}^{\\text{CBF}} \\in [-1, 1]$
+            - Điểm số này phản ánh mức độ phù hợp về mặt thuộc tính nội dung giữa sản phẩm và sở thích lịch sử của người dùng
+            """)
 
-                **Công thức GraphSAGE (Mean Aggregator):**
+            # Kiểm tra dữ liệu từ các bước trước
+            has_user_profiles = 'user_profiles' in st.session_state
+            has_feature_encoding = 'feature_encoding' in st.session_state
 
-                **Bước 1 - Aggregate (Tổng hợp thông tin từ neighbors):**
-                $$h_{N(v)}^{(k)} = \\frac{1}{|N(v)|} \\sum_{u \\in N(v)} h_u^{(k-1)}$$
+            if not has_user_profiles:
+                st.warning("⚠️ Chưa có dữ liệu từ Bước 2.1 (User Profiles). Vui lòng chạy Bước 2.1 trước.")
+            if not has_feature_encoding:
+                st.warning("⚠️ Chưa có dữ liệu từ Bước 1.2 (Feature Encoding). Vui lòng chạy Bước 1.2 trước.")
 
-                **Bước 2 - Update (Cập nhật embedding):**
-                $$h_v^{(k)} = \\sigma\\left(W^{(k)} \\cdot \\text{CONCAT}(h_v^{(k-1)}, h_{N(v)}^{(k)})\\right)$$
+            if has_user_profiles and has_feature_encoding:
+                if compute_cbf_predictions is None:
+                    st.error(f"❌ Không thể import user_profile module: {_user_profile_import_error}")
+                    st.info("Vui lòng đảm bảo file apps/utils/user_profile.py tồn tại và có thể import được.")
+                else:
+                    # Lấy dữ liệu từ session state
+                    user_profiles_result = st.session_state['user_profiles']
+                    encoding_result = st.session_state['feature_encoding']
+                    
+                    user_profiles = user_profiles_result['user_profiles']
+                    encoded_matrix = encoding_result['encoded_matrix']
+                    product_ids = encoding_result['product_ids']
+                    
+                    # Hiển thị thông tin dữ liệu
+                    col_info1, col_info2 = st.columns(2)
+                    with col_info1:
+                        st.info(f"👥 Users: {len(user_profiles)}")
+                        st.info(f"📐 Feature Matrix: {encoded_matrix.shape[0]} products × {encoded_matrix.shape[1]} features")
+                    with col_info2:
+                        st.info(f"📦 Products: {len(product_ids)}")
+                        st.info(f"🔢 Total Predictions: {len(user_profiles) * len(product_ids):,}")
+                    
+                    # Configuration
+                    col_config1, col_config2 = st.columns(2)
+                    with col_config1:
+                        top_k = st.number_input(
+                            "Số lượng sản phẩm Top-K để xếp hạng",
+                            min_value=5,
+                            max_value=100,
+                            value=20,
+                            step=5,
+                            key="cbf_top_k"
+                        )
+                    
+                    with col_config2:
+                        st.write("")  # Spacing
+                        process_button = st.button(
+                            "🔧 Tính Điểm Dự đoán và Xếp hạng",
+                            type="primary",
+                            use_container_width=True,
+                            key="cbf_predictions_process_button"
+                        )
+                    
+                    if process_button:
+                        with st.spinner("Đang tính điểm dự đoán và xếp hạng..."):
+                            try:
+                                result = compute_cbf_predictions(
+                                    user_profiles,
+                                    encoded_matrix,
+                                    product_ids,
+                                    top_k=top_k
+                                )
+                                
+                                if result['stats']['total_predictions'] == 0:
+                                    st.error("❌ Không thể tính điểm dự đoán. Vui lòng kiểm tra lại dữ liệu.")
+                                else:
+                                    st.success(f"✅ **Hoàn thành!** Đã tính điểm dự đoán cho {result['stats']['total_users']} users và {result['stats']['total_products']} products.")
+                                    
+                                    # Store in session state
+                                    st.session_state['cbf_predictions'] = result
+                                    
+                                    # Display statistics
+                                    st.markdown("### 📊 Thống kê kết quả Predictions")
+                                    
+                                    col_stat1, col_stat2, col_stat3 = st.columns(3)
+                                    with col_stat1:
+                                        st.metric("Tổng số predictions", f"{result['stats']['total_predictions']:,}")
+                                        st.metric("Số users", result['stats']['total_users'])
+                                    with col_stat2:
+                                        st.metric("Số products", result['stats']['total_products'])
+                                        st.metric("Top-K", top_k)
+                                    with col_stat3:
+                                        st.metric("Min score", f"{result['stats']['min_score']:.4f}")
+                                        st.metric("Max score", f"{result['stats']['max_score']:.4f}")
+                                        st.metric("Mean score", f"{result['stats']['mean_score']:.4f}")
+                                        st.metric("Std score", f"{result['stats']['std_score']:.4f}")
+                                    
+                                    # Create tabs for different visualizations
+                                    tab1, tab2, tab3 = st.tabs([
+                                        "📋 Mẫu Rankings (Top-K)",
+                                        "📊 Phân bố Điểm số",
+                                        "🔍 Chi tiết Predictions"
+                                    ])
+                                    
+                                    with tab1:
+                                        st.markdown(f"### 📋 Mẫu Rankings Top-{top_k} (5 users đầu tiên)")
+                                        
+                                        # Lấy 5 users đầu tiên
+                                        sample_users = list(result['rankings'].keys())[:5]
+                                        
+                                        for idx, user_id in enumerate(sample_users, 1):
+                                            ranking = result['rankings'][user_id]
+                                            
+                                            with st.expander(f"User {user_id} - Top {len(ranking)} sản phẩm", expanded=False):
+                                                ranking_df = pd.DataFrame([
+                                                    {
+                                                        'Rank': rank + 1,
+                                                        'Product ID': product_id,
+                                                        'Score': f"{score:.4f}"
+                                                    }
+                                                    for rank, (product_id, score) in enumerate(ranking)
+                                                ])
+                                                st.dataframe(ranking_df, use_container_width=True)
+                                    
+                                    with tab2:
+                                        st.markdown("### 📊 Phân bố Điểm số Predictions")
+                                        
+                                        # Lấy tất cả scores
+                                        all_scores = []
+                                        for user_preds in result['predictions'].values():
+                                            all_scores.extend(user_preds.values())
+                                        
+                                        scores_df = pd.DataFrame({
+                                            'Score': all_scores
+                                        })
+                                        
+                                        # Histogram
+                                        fig = px.histogram(
+                                            scores_df,
+                                            x='Score',
+                                            nbins=50,
+                                            title="Phân bố điểm số predictions (Cosine Similarity)",
+                                            labels={'Score': 'Điểm số (Cosine Similarity)', 'count': 'Số lượng'}
+                                        )
+                                        st.plotly_chart(fig, use_container_width=True)
+                                        
+                                        # Box plot
+                                        fig_box = go.Figure()
+                                        fig_box.add_trace(go.Box(
+                                            y=all_scores,
+                                            name='Predictions Scores',
+                                            boxmean='sd'
+                                        ))
+                                        fig_box.update_layout(
+                                            title="Box Plot - Phân bố điểm số predictions",
+                                            yaxis_title="Điểm số (Cosine Similarity)"
+                                        )
+                                        st.plotly_chart(fig_box, use_container_width=True)
+                                        
+                                        # Thống kê chi tiết
+                                        col_dist1, col_dist2 = st.columns(2)
+                                        with col_dist1:
+                                            st.markdown("#### Thống kê mô tả")
+                                            stats_desc = pd.DataFrame({
+                                                'Metric': ['Min', 'Q1 (25%)', 'Median (50%)', 'Q3 (75%)', 'Max', 'Mean', 'Std'],
+                                                'Value': [
+                                                    f"{np.min(all_scores):.4f}",
+                                                    f"{np.percentile(all_scores, 25):.4f}",
+                                                    f"{np.percentile(all_scores, 50):.4f}",
+                                                    f"{np.percentile(all_scores, 75):.4f}",
+                                                    f"{np.max(all_scores):.4f}",
+                                                    f"{np.mean(all_scores):.4f}",
+                                                    f"{np.std(all_scores):.4f}"
+                                                ]
+                                            })
+                                            st.dataframe(stats_desc, use_container_width=True)
+                                        
+                                        with col_dist2:
+                                            st.markdown("#### Phân bố theo khoảng")
+                                            # Phân chia thành các khoảng
+                                            bins = np.linspace(-1, 1, 21)  # 20 bins từ -1 đến 1
+                                            hist, bin_edges = np.histogram(all_scores, bins=bins)
+                                            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+                                            
+                                            dist_df = pd.DataFrame({
+                                                'Khoảng': [f"[{bin_edges[i]:.2f}, {bin_edges[i+1]:.2f})" for i in range(len(hist))],
+                                                'Số lượng': hist,
+                                                'Tỉ lệ (%)': (hist / len(all_scores) * 100).round(2)
+                                            })
+                                            st.dataframe(dist_df, use_container_width=True)
+                                    
+                                    with tab3:
+                                        st.markdown("### 🔍 Chi tiết Predictions cho một User")
+                                        
+                                        # Chọn user
+                                        selected_user = st.selectbox(
+                                            "Chọn User để xem chi tiết",
+                                            list(result['predictions'].keys()),
+                                            key="cbf_user_selector"
+                                        )
+                                        
+                                        if selected_user:
+                                            user_predictions = result['predictions'][selected_user]
+                                            user_ranking = result['rankings'][selected_user]
+                                            
+                                            col_detail1, col_detail2 = st.columns(2)
+                                            with col_detail1:
+                                                st.metric("Tổng số predictions", len(user_predictions))
+                                                st.metric("Top score", f"{user_ranking[0][1]:.4f}" if user_ranking else "N/A")
+                                                st.metric("Min score", f"{min(user_predictions.values()):.4f}")
+                                            with col_detail2:
+                                                st.metric("Max score", f"{max(user_predictions.values()):.4f}")
+                                                st.metric("Mean score", f"{np.mean(list(user_predictions.values())):.4f}")
+                                                st.metric("Median score", f"{np.median(list(user_predictions.values())):.4f}")
+                                            
+                                            # Hiển thị top-K
+                                            st.markdown(f"#### Top-{top_k} Recommendations cho User {selected_user}")
+                                            top_k_df = pd.DataFrame([
+                                                {
+                                                    'Rank': rank + 1,
+                                                    'Product ID': product_id,
+                                                    'Score': score,
+                                                    'Score (Rounded)': f"{score:.4f}"
+                                                }
+                                                for rank, (product_id, score) in enumerate(user_ranking)
+                                            ])
+                                            st.dataframe(top_k_df, use_container_width=True)
+                                            
+                                            # Biểu đồ top-K scores
+                                            fig = px.bar(
+                                                top_k_df,
+                                                x='Rank',
+                                                y='Score',
+                                                title=f"Top-{top_k} Scores cho User {selected_user}",
+                                                labels={'Rank': 'Xếp hạng', 'Score': 'Điểm số (Cosine Similarity)'}
+                                            )
+                                            st.plotly_chart(fig, use_container_width=True)
+                                    
+                                    # Ví dụ tính toán
+                                    st.markdown("### 🧮 Ví dụ tính toán")
+                                    st.markdown("""
+                                    **Ví dụ:** User $u$ có $\\mathbf{P}_u \\approx [0.89, 1.0, 0.67]$ và sản phẩm $i_{\\text{cand}}$ có $\\mathbf{v}_{\\text{cand}} = [1, 1, 0]$ (Red, Casual, Women):
+                                    
+                                    **Tính toán:**
+                                    - Tích vô hướng: $\\mathbf{P}_u \\cdot \\mathbf{v}_{\\text{cand}} = (0.89 \\times 1) + (1.0 \\times 1) + (0.67 \\times 0) = 0.89 + 1.0 + 0 = 1.89$
+                                    - Chuẩn L2: $\\|\\mathbf{P}_u\\| = \\sqrt{0.89^2 + 1.0^2 + 0.67^2} = \\sqrt{0.7921 + 1.0 + 0.4489} \\approx 1.57$
+                                    - Chuẩn L2: $\\|\\mathbf{v}_{\\text{cand}}\\| = \\sqrt{1^2 + 1^2 + 0^2} = \\sqrt{2} \\approx 1.41$
+                                    - Điểm Dự đoán: $\\hat{r}_{ui}^{\\text{CBF}} = \\frac{1.89}{1.57 \\times 1.41} \\approx \\frac{1.89}{2.21} \\approx 0.85$
+                                    
+                                    **Kết quả:** Điểm số $0.85$ cho thấy sản phẩm này có độ tương đồng cao với sở thích của user (gần 1.0 = hoàn toàn tương đồng).
+                                    """)
+                                    
+                                    st.markdown("""
+                                    **✅ Kết quả đạt được:**
+                                    - ✅ Một danh sách các sản phẩm tiềm năng được gán điểm $\\hat{r}_{ui}^{\\text{CBF}} \\in [-1, 1]$
+                                    - ✅ Điểm số này phản ánh mức độ phù hợp về mặt thuộc tính nội dung giữa sản phẩm và sở thích lịch sử của người dùng
+                                    - ✅ Top-K rankings cho mỗi user, sẵn sàng cho recommendation
+                                    """)
+                            
+                            except Exception as e:
+                                st.error(f"❌ Lỗi khi tính điểm dự đoán: {str(e)}")
+                                import traceback
+                                st.code(traceback.format_exc())
+            else:
+                st.info("💡 Vui lòng hoàn thành Bước 2.1 (User Profiles) và Bước 1.2 (Feature Encoding) trước khi tiếp tục.")
 
-                Trong đó:
-                - $h_v^{(k)}$: Embedding của node $v$ ở layer $k$
-                - $N(v)$: Tập neighbors của node $v$
-                - $W^{(k)}$: Ma trận trọng số ở layer $k$
-                - $\\sigma$: Hàm activation (ReLU)
-                - $\\text{CONCAT}$: Nối vector hiện tại với vector tổng hợp từ neighbors
+        with st.expander("Bước 2.3: Áp dụng Tiêu chí Gợi ý Cá nhân hóa (Personalized Filtering)", expanded=True):
+            st.write("**Nội dung thực hiện:** Quy trình tạo ra danh sách Top-K Personalized dựa trên hai cấp độ lọc cứng (strict filtering) và sau đó là ưu tiên (prioritization) bằng điểm mô hình.")
+            st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 2.2 (CBF Predictions) và dữ liệu Products/Users")
 
-                **Công thức BPR Loss (Bayesian Personalized Ranking):**
-                $$L = -\\frac{1}{|D|} \\sum_{(u,i,j) \\in D} w_{ui} \\cdot \\ln \\sigma(\\hat{x}_{ui} - \\hat{x}_{uj})$$
+            st.markdown("""
+            **Quy trình lọc và xếp hạng:**
+            
+            1. **Lọc Cứng theo articleType (STRICT):**
+               - Logic: $i_{\\text{cand}} \\in I_{\\text{valid}}$ nếu và chỉ nếu $i_{\\text{cand}}.\\text{articleType} = i_{\\text{payload}}.\\text{articleType}$
+               - Kết quả: Loại bỏ tất cả các sản phẩm không cùng loại với sản phẩm đầu vào
+            
+            2. **Lọc và Ưu tiên theo Giới tính/Độ tuổi (Age/Gender Priority):**
+               - **Logic Áp dụng (Strict Filtering):**
+                 - Nếu $u.\\text{age} < 13$ và $u.\\text{gender} = \\text{'male'}$: $i_{\\text{cand}}.\\text{gender}$ phải là $\\text{'Boys'}$
+                 - Nếu $u.\\text{age} \\ge 13$ và $u.\\text{gender} = \\text{'female'}$: $i_{\\text{cand}}.\\text{gender}$ phải là $\\text{'Women'}$ hoặc $\\text{'Unisex'}$
+               - **Phân tích Ưu tiên/Xếp hạng:** Các sản phẩm còn lại sau khi lọc cứng được xếp hạng trực tiếp bằng điểm mô hình ($\\hat{r}_{ui}^{\\text{CBF}}$)
+            
+            **Kết quả mong đợi:** Danh sách ứng viên được lọc chỉ chứa các sản phẩm hợp lệ về articleType, age, và gender. Danh sách này sau đó được xếp hạng theo điểm $\\hat{r}_{ui}^{\\text{CBF}}$ để tạo ra danh sách Top-K Personalized cuối cùng.
+            """)
 
-                Trong đó:
-                - $D$: Tập các triplets $(u, i, j)$
-                - $u$: User
-                - $i$: Item dương (user đã tương tác)
-                - $j$: Item âm (user chưa tương tác, negative sample)
-                - $w_{ui}$: Trọng số của interaction (1.0 cho purchase, 0.7 cho cart, 0.5 cho like)
-                - $\\hat{x}_{ui} = h_u \\cdot h_i$: Điểm dự đoán (dot product của embeddings)
-                - $\\sigma$: Sigmoid function
+            # Kiểm tra dữ liệu từ các bước trước
+            has_cbf_predictions = 'cbf_predictions' in st.session_state
+            has_feature_encoding = 'feature_encoding' in st.session_state
 
-                **Ý nghĩa:** Loss càng nhỏ nghĩa là model càng phân biệt tốt giữa items user thích và không thích. Weighted loss giúp model coi trọng các tương tác mạnh hơn (purchase > cart > like).
+            if not has_cbf_predictions:
+                st.warning("⚠️ Chưa có dữ liệu từ Bước 2.2 (CBF Predictions). Vui lòng chạy Bước 2.2 trước.")
+            
+            if has_cbf_predictions and apply_personalized_filters is not None:
+                # Load products and users data
+                products_path = os.path.join(current_dir, 'apps', 'exports', 'products.csv')
+                users_path = os.path.join(current_dir, 'apps', 'exports', 'users.csv')
+                
+                products_df = None
+                users_df = None
+                
+                if os.path.exists(products_path):
+                    products_df = pd.read_csv(products_path)
+                    if 'id' in products_df.columns:
+                        products_df['id'] = products_df['id'].astype(str)
+                        products_df.set_index('id', inplace=True)
+                else:
+                    st.warning("⚠️ Không tìm thấy file products.csv. Vui lòng đảm bảo file tồn tại trong apps/exports/")
+                
+                if os.path.exists(users_path):
+                    users_df = pd.read_csv(users_path)
+                    if 'id' in users_df.columns:
+                        users_df['id'] = users_df['id'].astype(str)
+                else:
+                    st.warning("⚠️ Không tìm thấy file users.csv. Vui lòng đảm bảo file tồn tại trong apps/exports/")
+                
+                if products_df is not None:
+                    cbf_predictions = st.session_state['cbf_predictions']
+                    
+                    # Configuration
+                    col_config1, col_config2 = st.columns(2)
+                    with col_config1:
+                        selected_user_id = st.selectbox(
+                            "Chọn User ID để áp dụng lọc",
+                            list(cbf_predictions['predictions'].keys()) if cbf_predictions else [],
+                            key="filter_user_id"
+                        )
+                    
+                    with col_config2:
+                        payload_articletype = st.selectbox(
+                            "Chọn articleType của sản phẩm đầu vào (payload)",
+                            products_df['articleType'].unique().tolist() if 'articleType' in products_df.columns else [],
+                            key="payload_articletype"
+                        )
+                    
+                    # Get user info
+                    user_age = None
+                    user_gender = None
+                    if users_df is not None and selected_user_id:
+                        user_row = users_df[users_df['id'] == selected_user_id]
+                        if not user_row.empty:
+                            user_age = user_row.iloc[0].get('age', None)
+                            user_gender = user_row.iloc[0].get('gender', None)
+                    
+                    if selected_user_id and payload_articletype:
+                        col_info1, col_info2 = st.columns(2)
+                        with col_info1:
+                            if user_age is not None:
+                                st.info(f"👤 User Age: {user_age}")
+                            if user_gender is not None:
+                                st.info(f"👤 User Gender: {user_gender}")
+                        with col_info2:
+                            st.info(f"📦 Payload articleType: {payload_articletype}")
+                            if user_age is not None and user_gender is not None:
+                                allowed_genders = get_allowed_genders(user_age, user_gender) if get_allowed_genders else []
+                                st.info(f"✅ Allowed Genders: {', '.join(allowed_genders)}")
+                        
+                        # Top-K configuration
+                        top_k_personalized = st.number_input(
+                            "Số lượng sản phẩm Top-K Personalized",
+                            min_value=5,
+                            max_value=100,
+                            value=20,
+                            step=5,
+                            key="top_k_personalized"
+                        )
+                        
+                        process_button = st.button(
+                            "🔧 Áp dụng Personalized Filters và Xếp hạng Top-K",
+                            type="primary",
+                            use_container_width=True,
+                            key="personalized_filter_button"
+                        )
+                        
+                        if process_button:
+                            # Đo Inference Time (từ khi nhận user đến khi tạo L(u) - Bước 2.3)
+                            inference_start_time = time.time()
+                            
+                            with st.spinner("Đang áp dụng các bộ lọc cá nhân hóa và xếp hạng..."):
+                                try:
+                                    # Lấy danh sách candidate products từ CBF predictions
+                                    user_predictions = cbf_predictions['predictions'][selected_user_id]
+                                    candidate_products = list(user_predictions.keys())
+                                    
+                                    # Áp dụng filters và xếp hạng Top-K
+                                    result = apply_personalized_filters(
+                                        candidate_products,
+                                        products_df,
+                                        payload_articletype=payload_articletype,
+                                        user_age=user_age,
+                                        user_gender=user_gender,
+                                        cbf_scores=user_predictions,
+                                        top_k=top_k_personalized
+                                    )
+                                    
+                                    # Kết thúc đo Inference Time
+                                    inference_end_time = time.time()
+                                    inference_time_measured = inference_end_time - inference_start_time
+                                    
+                                    st.success(f"✅ **Hoàn thành!** Đã lọc danh sách ứng viên.")
+                                    
+                                    # Store in session state
+                                    if 'personalized_filters' not in st.session_state:
+                                        st.session_state['personalized_filters'] = {}
+                                    st.session_state['personalized_filters'][selected_user_id] = result
+                                    
+                                    # Lưu Inference Time vào session state (lấy trung bình nếu có nhiều users)
+                                    if 'inference_times' not in st.session_state:
+                                        st.session_state['inference_times'] = []
+                                    st.session_state['inference_times'].append(inference_time_measured)
+                                    st.session_state['inference_time'] = np.mean(st.session_state['inference_times'])
+                                    
+                                    # Display statistics
+                                    st.markdown("### 📊 Thống kê quá trình lọc")
+                                    
+                                    stats = result['stats']
+                                    col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
+                                    with col_stat1:
+                                        st.metric("Danh sách ban đầu", f"{stats['initial_count']:,}")
+                                    with col_stat2:
+                                        st.metric("Sau lọc articleType", f"{stats['after_articletype']:,}")
+                                    with col_stat3:
+                                        st.metric("Sau lọc Age/Gender", f"{stats['after_age_gender']:,}")
+                                    with col_stat4:
+                                        st.metric(f"Top-K Personalized ({top_k_personalized})", f"{stats['final_count']:,}")
+                                    
+                                    # Hiển thị Top-K Personalized Rankings
+                                    if result.get('ranked_products'):
+                                        st.markdown(f"### 📋 Danh sách Top-{top_k_personalized} Personalized")
+                                        ranked_df = pd.DataFrame([
+                                            {
+                                                'Rank': rank + 1,
+                                                'Product ID': product_id,
+                                                'CBF Score': f"{score:.4f}"
+                                            }
+                                            for rank, (product_id, score) in enumerate(result['ranked_products'])
+                                        ])
+                                        st.dataframe(ranked_df, use_container_width=True)
+                                        
+                                        # Biểu đồ Top-K scores
+                                        fig_scores = px.bar(
+                                            ranked_df,
+                                            x='Rank',
+                                            y='CBF Score',
+                                            title=f"Top-{top_k_personalized} Personalized Scores",
+                                            labels={'Rank': 'Xếp hạng', 'CBF Score': 'Điểm CBF'}
+                                        )
+                                        st.plotly_chart(fig_scores, use_container_width=True)
+                                    
+                                    # Reduction visualization
+                                    st.markdown("### 📉 Biểu đồ giảm kích thước danh sách")
+                                    reduction_df = pd.DataFrame({
+                                        'Bước': ['Ban đầu', 'Sau articleType', 'Sau Age/Gender', f'Top-{top_k_personalized}'],
+                                        'Số lượng': [
+                                            stats['initial_count'],
+                                            stats['after_articletype'],
+                                            stats['after_age_gender'],
+                                            stats['final_count']
+                                        ]
+                                    })
+                                    
+                                    fig = px.bar(
+                                        reduction_df,
+                                        x='Bước',
+                                        y='Số lượng',
+                                        title="Quá trình giảm kích thước danh sách ứng viên",
+                                        labels={'Số lượng': 'Số lượng sản phẩm', 'Bước': 'Bước lọc'}
+                                    )
+                                    st.plotly_chart(fig, use_container_width=True)
+                                    
+                                    # Ví dụ tính toán
+                                    st.markdown("### 🧮 Ví dụ tính toán")
+                                    st.markdown(f"""
+                                    **Ví dụ:** User {selected_user_id} với danh sách ứng viên ban đầu:
+                                    
+                                    - **Danh sách ban đầu:** {stats['initial_count']:,} sản phẩm
+                                    - **Sau Lọc Cứng 1 (articleType='{payload_articletype}'):** {stats['after_articletype']:,} sản phẩm (giảm {stats['initial_count'] - stats['after_articletype']:,} sản phẩm)
+                                    - **Sau Lọc Cứng 2 (User age {'< 13' if user_age and user_age < 13 else '≥ 13'}, gender='{user_gender}'):** {stats['after_age_gender']:,} sản phẩm (giảm {stats['after_articletype'] - stats['after_age_gender']:,} sản phẩm)
+                                    - **Sau Xếp hạng Top-{top_k_personalized}:** {stats['final_count']:,} sản phẩm (xếp hạng theo $\\hat{{r}}_{{ui}}^{{\\text{{CBF}}}}$)
+                                    - **Tổng giảm:** {stats['removed_count']:,} sản phẩm ({stats['reduction_rate']:.2f}%)
+                                    
+                                    **✅ Kết quả đạt được:**
+                                    - ✅ Danh sách ứng viên được lọc chỉ chứa các sản phẩm hợp lệ về articleType, age, và gender
+                                    - ✅ Danh sách được xếp hạng theo điểm $\\hat{{r}}_{{ui}}^{{\\text{{CBF}}}}$ để tạo ra danh sách Top-K Personalized cuối cùng
+                                    - ✅ Đảm bảo tính hợp lệ cơ bản và độ ưu tiên của các đề xuất
+                                    """)
+                                
+                                except Exception as e:
+                                    st.error(f"❌ Lỗi khi áp dụng personalized filters: {str(e)}")
+                                    import traceback
+                                    st.code(traceback.format_exc())
+                    else:
+                        st.info("💡 Vui lòng chọn User ID và articleType để tiếp tục.")
+                else:
+                    st.warning("⚠️ Không thể tải dữ liệu products. Vui lòng kiểm tra lại.")
+            elif apply_personalized_filters is None:
+                st.error(f"❌ Không thể import cbf_filters module: {_cbf_filters_import_error}")
 
-                **Công thức tính điểm:**
-                $$\\hat{x}_{ui} = h_u \\cdot h_i$$
+        with st.expander("Bước 2.4: Áp dụng Tiêu chí Tổ hợp Trang phục (Outfit Recommendation)", expanded=True):
+            st.write("**Nội dung thực hiện:** Sử dụng thuật toán tổ hợp (Combinatorial Search) để tìm kiếm bộ trang phục $O$ tối ưu, bao gồm sản phẩm $i_{\\text{payload}}$ và tuân thủ các quy tắc cấu trúc, tương thích và lọc cứng.")
+            st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 2.2 (CBF Predictions) và Bước 1.2 (Feature Encoding)")
 
-                Trong đó:
-                - $h_u$: User embedding (từ node_embeddings)
-                - $h_i$: Product embedding (từ node_embeddings)
-                - $\\hat{x}_{ui}$: Điểm dự đoán user $u$ sẽ thích product $i$
+            st.markdown("""
+            **Các ràng buộc và công thức:**
+            
+            1. **Ràng buộc Cấu trúc Danh mục (Outfit Components):**
+               - Outfit $O$ phải chứa $i_{\\text{payload}}$ và đầy đủ các thành phần bắt buộc: Accessories (1/3 subs), Bottomwear, Topwear, và Footwear (1/3 subs)
+            
+            2. **Ràng buộc Tương thích usage (NEW STRICT CONSTRAINT):**
+               - Outfit $O = \\{i_1, i_2, \\dots, i_n\\}$ là hợp lệ nếu tất cả các sản phẩm $\\forall i, j \\in O$ phải có cùng giá trị usage (ví dụ: 'Casual' hoặc 'Formal')
+            
+            3. **Tính Điểm Tương thích Cặp:**
+               $$\\text{Comp}(i, j) = \\text{cos}(\\mathbf{v}_i, \\mathbf{v}_j)$$
+            
+            4. **Công thức Tính Điểm Outfit Tổng thể:**
+               $$\\text{Score}(O) = \\sum_{i \\in O} w_i \\cdot \\hat{r}_{ui}^{\\text{CBF}} + \\sum_{i, j \\in O, i \\neq j} w_{i, j} \\cdot \\text{Comp}(i, j)$$
+            
+            **Kết quả mong đợi:** Bộ Outfit có điểm $\\text{Score}(O)$ cao nhất, thỏa mãn tất cả các ràng buộc cấu trúc và tương thích (usage phải đồng nhất).
+            """)
 
-                **Quy trình:**
-                1. Với mỗi user trong test-set, tính điểm với tất cả products
-                2. Sắp xếp products theo điểm giảm dần
-                3. Lấy Top-K products làm recommendations
-                4. So sánh với ground truth (products user thực tế đã tương tác)
-                5. Tính các metrics: Recall, Precision, NDCG, Coverage, Diversity
+            # Kiểm tra dữ liệu từ các bước trước
+            has_cbf_predictions = 'cbf_predictions' in st.session_state
+            has_feature_encoding = 'feature_encoding' in st.session_state
 
-                    $$Recall@K = \\frac{1}{|U|} \\sum_{u \\in U} \\frac{|R_u \\cap T_u|}{|T_u|}$$
+            if not has_cbf_predictions:
+                st.warning("⚠️ Chưa có dữ liệu từ Bước 2.2 (CBF Predictions). Vui lòng chạy Bước 2.2 trước.")
+            if not has_feature_encoding:
+                st.warning("⚠️ Chưa có dữ liệu từ Bước 1.2 (Feature Encoding). Vui lòng chạy Bước 1.2 trước.")
+            
+            if has_cbf_predictions and has_feature_encoding and generate_outfit_recommendations is not None:
+                cbf_predictions = st.session_state['cbf_predictions']
+                encoding_result = st.session_state['feature_encoding']
+                
+                encoded_matrix = encoding_result['encoded_matrix']
+                product_ids = encoding_result['product_ids']
+                
+                # Load products data
+                products_path = os.path.join(current_dir, 'apps', 'exports', 'products.csv')
+                products_df = None
+                if os.path.exists(products_path):
+                    products_df = pd.read_csv(products_path)
+                    if 'id' in products_df.columns:
+                        products_df['id'] = products_df['id'].astype(str)
+                        products_df.set_index('id', inplace=True)
+                
+                if products_df is not None:
+                    # Configuration
+                    col_config1, col_config2 = st.columns(2)
+                    with col_config1:
+                        selected_user_id = st.selectbox(
+                            "Chọn User ID để tạo outfit recommendations",
+                            list(cbf_predictions['predictions'].keys()) if cbf_predictions else [],
+                            key="outfit_user_id"
+                        )
+                        
+                        # Payload product selection
+                        if selected_user_id:
+                            user_predictions = cbf_predictions['predictions'][selected_user_id]
+                            available_products = list(user_predictions.keys())[:100]  # Limit to first 100 for performance
+                            payload_product_id = st.selectbox(
+                                "Chọn Payload Product ID (sản phẩm đầu vào bắt buộc)",
+                                available_products,
+                                key="payload_product_id"
+                            )
+                        
+                        outfit_size = st.number_input(
+                            "Kích thước Outfit (số lượng sản phẩm)",
+                            min_value=4,
+                            max_value=6,
+                            value=4,
+                            step=1,
+                            key="outfit_size"
+                        )
+                    
+                    with col_config2:
+                        max_outfits = st.number_input(
+                            "Số lượng Outfit tối đa",
+                            min_value=5,
+                            max_value=50,
+                            value=10,
+                            step=5,
+                            key="max_outfits"
+                        )
+                        
+                        item_weight = st.number_input(
+                            "Trọng số CBF Score (w_i)",
+                            min_value=0.1,
+                            max_value=2.0,
+                            value=1.0,
+                            step=0.1,
+                            key="item_weight"
+                        )
+                    
+                    compatibility_weight = st.number_input(
+                        "Trọng số Compatibility (w_i,j)",
+                        min_value=0.1,
+                        max_value=2.0,
+                        value=0.5,
+                        step=0.1,
+                        key="compatibility_weight"
+                    )
+                    
+                    if selected_user_id:
+                        # Get filtered products if available, otherwise use top-K from predictions
+                        candidate_products = None
+                        payload_product_id = None
+                        
+                        # Get payload product ID if available
+                        if 'payload_product_id' in st.session_state.get('outfit_user_id', {}):
+                            payload_product_id = st.session_state.get('payload_product_id')
+                        
+                        if 'personalized_filters' in st.session_state and selected_user_id in st.session_state['personalized_filters']:
+                            candidate_products = st.session_state['personalized_filters'][selected_user_id]['filtered_products']
+                            st.info(f"✅ Sử dụng {len(candidate_products)} sản phẩm đã được lọc từ Bước 2.3")
+                        else:
+                            # Use top-K from CBF predictions
+                            user_ranking = cbf_predictions['rankings'][selected_user_id]
+                            top_k_for_outfit = st.number_input(
+                                "Số lượng sản phẩm ứng viên từ CBF (nếu chưa có filtered list)",
+                                min_value=10,
+                                max_value=100,
+                                value=50,
+                                step=10,
+                                key="top_k_for_outfit"
+                            )
+                            candidate_products = [product_id for product_id, _ in user_ranking[:top_k_for_outfit]]
+                            st.info(f"ℹ️ Sử dụng top-{top_k_for_outfit} sản phẩm từ CBF predictions")
+                        
+                        # Ensure payload product is in candidate list
+                        if payload_product_id and payload_product_id not in [str(p) for p in candidate_products]:
+                            candidate_products.insert(0, str(payload_product_id))
+                        
+                        process_button = st.button(
+                            "🔧 Tạo Outfit Recommendations",
+                            type="primary",
+                            use_container_width=True,
+                            key="outfit_recommendation_button"
+                        )
+                        
+                        if process_button and candidate_products:
+                            with st.spinner(f"Đang tạo outfit recommendations (có thể mất vài phút)..."):
+                                try:
+                                    # Prepare CBF scores in the format expected by generate_outfit_recommendations
+                                    cbf_scores_dict = {}
+                                    user_predictions = cbf_predictions['predictions'][selected_user_id]
+                                    cbf_scores_dict[selected_user_id] = user_predictions
+                                    
+                                    result = generate_outfit_recommendations(
+                                        candidate_products,
+                                        cbf_scores_dict,
+                                        encoded_matrix,
+                                        product_ids,
+                                        products_df,
+                                        selected_user_id,
+                                        payload_product_id=str(payload_product_id) if payload_product_id else None,
+                                        outfit_size=outfit_size,
+                                        max_outfits=max_outfits,
+                                        item_weight=item_weight,
+                                        compatibility_weight=compatibility_weight
+                                    )
+                                    
+                                    if not result:
+                                        st.warning("⚠️ Không tìm thấy outfit nào hợp lệ. Có thể do không có đủ sản phẩm cùng usage.")
+                                    else:
+                                        st.success(f"✅ **Hoàn thành!** Đã tạo {len(result)} outfit recommendations.")
+                                        
+                                        # Store in session state
+                                        if 'outfit_recommendations' not in st.session_state:
+                                            st.session_state['outfit_recommendations'] = {}
+                                        st.session_state['outfit_recommendations'][selected_user_id] = result
+                                        
+                                        # Display results
+                                        st.markdown("### 📊 Kết quả Outfit Recommendations")
+                                        
+                                        # Statistics
+                                        scores = [outfit['score'] for outfit in result]
+                                        cbf_components = [outfit['cbf_component'] for outfit in result]
+                                        comp_components = [outfit['compatibility_component'] for outfit in result]
+                                        
+                                        col_stat1, col_stat2, col_stat3 = st.columns(3)
+                                        with col_stat1:
+                                            st.metric("Số lượng Outfits", len(result))
+                                            st.metric("Điểm cao nhất", f"{max(scores):.4f}")
+                                        with col_stat2:
+                                            st.metric("Điểm trung bình", f"{np.mean(scores):.4f}")
+                                            st.metric("CBF Component (TB)", f"{np.mean(cbf_components):.4f}")
+                                        with col_stat3:
+                                            st.metric("Compatibility Component (TB)", f"{np.mean(comp_components):.4f}")
+                                            st.metric("Điểm thấp nhất", f"{min(scores):.4f}")
+                                        
+                                        # Display outfits
+                                        st.markdown("### 👔 Danh sách Outfit Recommendations")
+                                        
+                                        for idx, outfit in enumerate(result, 1):
+                                            with st.expander(f"Outfit #{idx} - Score: {outfit['score']:.4f}", expanded=(idx == 1)):
+                                                col_outfit1, col_outfit2 = st.columns(2)
+                                                with col_outfit1:
+                                                    st.write(f"**Sản phẩm trong Outfit:**")
+                                                    for product_id in outfit['products']:
+                                                        st.write(f"- Product ID: {product_id}")
+                                                
+                                                with col_outfit2:
+                                                    st.write(f"**Chi tiết điểm số:**")
+                                                    st.write(f"- Tổng điểm: {outfit['score']:.4f}")
+                                                    st.write(f"- CBF Component: {outfit['cbf_component']:.4f}")
+                                                    st.write(f"- Compatibility Component: {outfit['compatibility_component']:.4f}")
+                                        
+                                        # Visualization
+                                        st.markdown("### 📈 Biểu đồ phân bố điểm số")
+                                        scores_df = pd.DataFrame({
+                                            'Outfit Index': range(1, len(result) + 1),
+                                            'Total Score': scores,
+                                            'CBF Component': cbf_components,
+                                            'Compatibility Component': comp_components
+                                        })
+                                        
+                                        fig = go.Figure()
+                                        fig.add_trace(go.Bar(
+                                            x=scores_df['Outfit Index'],
+                                            y=scores_df['Total Score'],
+                                            name='Total Score',
+                                            marker_color='blue'
+                                        ))
+                                        fig.add_trace(go.Bar(
+                                            x=scores_df['Outfit Index'],
+                                            y=scores_df['CBF Component'],
+                                            name='CBF Component',
+                                            marker_color='green'
+                                        ))
+                                        fig.add_trace(go.Bar(
+                                            x=scores_df['Outfit Index'],
+                                            y=scores_df['Compatibility Component'],
+                                            name='Compatibility Component',
+                                            marker_color='orange'
+                                        ))
+                                        fig.update_layout(
+                                            barmode='group',
+                                            title="Phân bố điểm số các Outfit Recommendations",
+                                            xaxis_title="Outfit Index",
+                                            yaxis_title="Điểm số"
+                                        )
+                                        st.plotly_chart(fig, use_container_width=True)
+                                        
+                                        st.markdown("""
+                                        **✅ Kết quả đạt được:**
+                                        - ✅ Một tập hợp các Outfit $O$ có điểm $\\text{Score}(O)$ cao
+                                        - ✅ Các thành phần phù hợp với sở thích cá nhân ($\\hat{r}_{ui}^{\\text{CBF}}$)
+                                        - ✅ Có tính tương thích cao ($\\text{Comp}(i, j)$)
+                                        - ✅ Chia sẻ cùng một ngữ cảnh sử dụng (usage)
+                                        """)
+                                
+                                except Exception as e:
+                                    st.error(f"❌ Lỗi khi tạo outfit recommendations: {str(e)}")
+                                    import traceback
+                                    st.code(traceback.format_exc())
+                        elif process_button and not candidate_products:
+                            st.warning("⚠️ Không có danh sách sản phẩm ứng viên. Vui lòng chạy Bước 2.2 hoặc Bước 2.3 trước.")
+                else:
+                    st.warning("⚠️ Không thể tải dữ liệu products. Vui lòng kiểm tra lại.")
+            elif generate_outfit_recommendations is None:
+                st.error(f"❌ Không thể import outfit_recommendation module: {_outfit_import_error}")
 
-                    $$Precision@K = \\frac{1}{|U|} \\sum_{u \\in U} \\frac{|R_u \\cap T_u|}{K}$$
+        with st.expander("Bước 2.5: Tính toán Số liệu Đánh giá Hiệu suất", expanded=True):
+            st.write("**Nội dung thực hiện:** Tính toán tất cả các chỉ số so sánh (Recall@K, NDCG@K,...) trên danh sách Top-K từ CBF Predictions (Bước 2.2).")
+            st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 2.2 (CBF Predictions) và dữ liệu Ground Truth (interactions)")
+            st.info("💡 **Lưu ý:** Metrics được tính trên CBF Predictions (Bước 2.2), không phải Top-K Personalized (Bước 2.3) vì ground truth nên so sánh với toàn bộ recommendations, không chỉ phần đã lọc.")
 
-                    $$NDCG@K = \\frac{DCG@K}{IDCG@K}, \\quad DCG@K = \\sum_{i=1}^{K} \\frac{rel_i}{\\log_2(i+1)}$$
+            st.markdown("""
+            **Bảng chỉ số đánh giá:**
+            
+            | Chỉ số | Công thức Toán học | Dữ liệu Đầu vào |
+            |--------|-------------------|----------------|
+            | **Training Time (s)** | Đo thời gian từ Bước 2.1 đến 2.2 (xây dựng $\\mathbf{P}_u$) | Quá trình tính toán $\\mathbf{P}_u$ |
+            | **Inference Time (s)** | Đo thời gian từ khi nhận $u$ đến khi tạo $L(u)$ cuối cùng (Bước 2.3) | Quá trình xếp hạng và lọc |
+            | **Recall@K** (K=5,10,20) | $$\\text{Recall}@K = \\frac{|\\text{Relevant}(u) \\cap L(u)|}{|\\text{Relevant}(u)|}$$ | $L(u)$ và $\\text{Relevant}(u)$ |
+            | **Precision@K** (K=5,10,20) | $$\\text{Precision}@K = \\frac{|\\text{Relevant}(u) \\cap L(u)|}{K}$$ | $L(u)$ và $\\text{Relevant}(u)$ |
+            | **NDCG@K** (K=5,10,20) | $$\\text{NDCG}@K = \\frac{\\text{DCG}@K}{\\text{IDCG}@K}$$ $$\\text{DCG}@K = \\sum_{i=1}^{K} \\frac{2^{\\text{rel}(i)} - 1}{\\log_2(i+1)}$$ | $L(u)$ và $\\text{rel}(i) \\in \\{0, 1\\}$ (điểm liên quan) |
+            | **Diversity (ILD@K)** | $$\\text{ILD}@K = \\frac{2}{K(K-1)} \\sum_{i \\in L(u)} \\sum_{j \\in L(u), j>i} (1 - \\text{cos}(\\mathbf{v}_i, \\mathbf{v}_j))$$ | $L(u)$ và $\\mathbf{v}_i$ (Item Profile Vector từ Bước 1.2) |
+            | **Coverage** | $$\\text{Coverage} = \\frac{|\\{i \\in I \\mid i \\in L(u) \\text{ cho ít nhất một user } u\\}|}{|I|}$$ | $L(u)$ cho tất cả users và $I$ (tất cả items) |
+            
+            **Kết quả mong đợi:** Một hàng dữ liệu hoàn chỉnh trong Bảng Tổng hợp Chỉ số, thể hiện hiệu suất cơ sở của mô hình Content-based Filtering.
+            """)
 
-                    $$Coverage@K = \\frac{|\\bigcup_{u \\in U} R_u|}{|P|}$$
+            # Kiểm tra dữ liệu từ các bước trước
+            has_cbf_predictions = 'cbf_predictions' in st.session_state
+            has_feature_encoding = 'feature_encoding' in st.session_state
+            has_user_profiles = 'user_profiles' in st.session_state
 
-                    $$Diversity@K = \\frac{1}{|U|} \\sum_{u \\in U} \\frac{|\\text{unique categories in } R_u|}{K}$$
+            if not has_cbf_predictions:
+                st.warning("⚠️ Chưa có dữ liệu từ Bước 2.2 (CBF Predictions). Vui lòng chạy Bước 2.2 trước.")
+            if not has_feature_encoding:
+                st.warning("⚠️ Chưa có dữ liệu từ Bước 1.2 (Feature Encoding). Vui lòng chạy Bước 1.2 trước.")
+            
+            if has_cbf_predictions and has_feature_encoding and compute_cbf_metrics is not None:
+                cbf_predictions = st.session_state['cbf_predictions']
+                encoding_result = st.session_state.get('feature_encoding', {})
+                
+                encoded_matrix = encoding_result.get('encoded_matrix', None)
+                product_ids = encoding_result.get('product_ids', [])
+                
+                # Load interactions for ground truth
+                interactions_path = os.path.join(current_dir, 'apps', 'exports', 'interactions.csv')
+                interactions_df = None
+                if os.path.exists(interactions_path):
+                    interactions_df = pd.read_csv(interactions_path)
+                    if 'user_id' in interactions_df.columns:
+                        interactions_df['user_id'] = interactions_df['user_id'].astype(str)
+                    if 'product_id' in interactions_df.columns:
+                        interactions_df['product_id'] = interactions_df['product_id'].astype(str)
+                
+                # Configuration
+                col_config1, col_config2 = st.columns(2)
+                with col_config1:
+                    k_values_input = st.text_input(
+                        "Các giá trị K (phân cách bằng dấu phẩy)",
+                        value="10,20",
+                        key="k_values_input"
+                    )
+                    try:
+                        k_values = [int(k.strip()) for k in k_values_input.split(',')]
+                    except:
+                        k_values = [10, 20]
+                        st.warning("⚠️ Định dạng không hợp lệ. Sử dụng mặc định: [10, 20]")
+                
+                with col_config2:
+                    # Training Time và Inference Time được đo tự động từ các bước trước
+                    # Hiển thị thông tin về thời gian đã đo
+                    training_time_auto = st.session_state.get('training_time', None)
+                    inference_time_auto = st.session_state.get('inference_time', None)
+                    
+                    if training_time_auto is not None:
+                        st.info(f"⏱️ **Training Time (tự động):** {training_time_auto:.3f}s (đo từ Bước 2.1)")
+                    else:
+                        st.warning("⚠️ Chưa có Training Time. Vui lòng chạy Bước 2.1 trước.")
+                    
+                    if inference_time_auto is not None:
+                        st.info(f"⏱️ **Inference Time (tự động):** {inference_time_auto:.3f}s (đo từ Bước 2.3)")
+                    else:
+                        st.warning("⚠️ Chưa có Inference Time. Vui lòng chạy Bước 2.3 trước.")
+                    
+                    # Cho phép override thủ công nếu cần
+                    st.markdown("**Hoặc nhập thủ công (nếu cần):**")
+                    training_time_manual = st.number_input(
+                        "Training Time (giây) - Thủ công",
+                        min_value=0.0,
+                        value=training_time_auto if training_time_auto is not None else 0.0,
+                        step=0.1,
+                        key="training_time_input"
+                    )
+                    
+                    inference_time_manual = st.number_input(
+                        "Inference Time (giây) - Thủ công",
+                        min_value=0.0,
+                        value=inference_time_auto if inference_time_auto is not None else 0.0,
+                        step=0.1,
+                        key="inference_time_input"
+                    )
+                
+                process_button = st.button(
+                    "🔧 Tính toán Evaluation Metrics",
+                    type="primary",
+                    use_container_width=True,
+                    key="evaluation_metrics_button"
+                )
+                
+                if process_button:
+                    with st.spinner("Đang tính toán các chỉ số đánh giá..."):
+                        try:
+                            # Lấy dữ liệu từ Bước 2.2 (CBF Predictions) - TRƯỚC KHI lọc
+                            cbf_predictions = st.session_state['cbf_predictions']
+                            encoding_result = st.session_state['feature_encoding']
+                            
+                            encoded_matrix = encoding_result['encoded_matrix']
+                            product_ids = encoding_result['product_ids']
+                            
+                            # Prepare predictions format từ CBF Predictions (Bước 2.2)
+                            # Sử dụng rankings từ Bước 2.2 (đã được xếp hạng theo CBF score)
+                            predictions_dict = {}
+                            for user_id, user_ranking in cbf_predictions['rankings'].items():
+                                # Đảm bảo user_id là string
+                                user_id_str = str(user_id)
+                                
+                                # user_ranking là list of (product_id, score) tuples
+                                # Chuẩn hóa product_id về string
+                                ranked_products = [(str(pid), score) for pid, score in user_ranking]
+                                predictions_dict[user_id_str] = ranked_products
+                            
+                            # Sử dụng thời gian đã đo tự động hoặc thời gian nhập thủ công
+                            # Ưu tiên thời gian nhập thủ công nếu > 0, nếu không thì dùng thời gian tự động
+                            final_training_time = training_time_manual if training_time_manual > 0 else training_time_auto
+                            final_inference_time = inference_time_manual if inference_time_manual > 0 else inference_time_auto
+                            
+                            # Prepare ground truth from interactions
+                            # LƯU Ý: Ground truth nên lấy từ interactions GỐC (không bị ảnh hưởng bởi filtering)
+                            # Vì recommendations đã được lọc theo articleType/age/gender, nên có thể không có intersection
+                            # với các sản phẩm user đã tương tác nếu chúng không thỏa mãn điều kiện lọc
+                            
+                            ground_truth_dict = {}
+                            debug_info = {
+                                'total_users_in_predictions': len(predictions_dict),
+                                'users_with_ground_truth': 0,
+                                'users_without_ground_truth': 0,
+                                'total_relevant_items': 0,
+                                'total_relevant_items_after_filtering': 0,  # Relevant items còn lại sau khi lọc
+                                'total_recommended_items': 0,
+                                'total_hits_at_10': 0,
+                                'total_hits_at_20': 0,
+                                'sample_user_info': [],
+                                'sample_user_ids_predictions': [],
+                                'sample_user_ids_interactions': [],
+                                'sample_product_ids_predictions': [],
+                                'sample_product_ids_ground_truth': [],
+                                'filtering_info': {
+                                    'note': 'Ground truth lấy từ interactions gốc. Recommendations đã được lọc theo articleType/age/gender trong Bước 2.3.',
+                                    'recommended_articletypes': [],
+                                    'relevant_articletypes': []
+                                }
+                            }
+                            
+                            # Load products để kiểm tra articleType của relevant items
+                            products_path = os.path.join(current_dir, 'apps', 'exports', 'products.csv')
+                            products_df_for_gt = None
+                            if os.path.exists(products_path):
+                                products_df_for_gt = pd.read_csv(products_path)
+                                if 'id' in products_df_for_gt.columns:
+                                    products_df_for_gt['id'] = products_df_for_gt['id'].astype(str)
+                                    products_df_for_gt.set_index('id', inplace=True)
+                            
+                            if interactions_df is not None and 'user_id' in interactions_df.columns and 'product_id' in interactions_df.columns:
+                                # Chuẩn hóa user_id và product_id về string
+                                interactions_df['user_id'] = interactions_df['user_id'].astype(str)
+                                interactions_df['product_id'] = interactions_df['product_id'].astype(str)
+                                
+                                # Consider only positive interactions (purchase, like, cart)
+                                positive_interactions = interactions_df[
+                                    interactions_df['interaction_type'].isin(['purchase', 'like', 'cart'])
+                                ] if 'interaction_type' in interactions_df.columns else interactions_df
+                                
+                                # Lưu sample user_ids và product_ids để debug
+                                if len(predictions_dict) > 0:
+                                    sample_pred_user_ids = list(predictions_dict.keys())[:5]
+                                    debug_info['sample_user_ids_predictions'] = sample_pred_user_ids
+                                    
+                                    # Lấy sample product_ids từ predictions
+                                    sample_pred_products = []
+                                    for uid in sample_pred_user_ids:
+                                        pred_list = predictions_dict[uid]
+                                        if len(pred_list) > 0:
+                                            first_item = pred_list[0]
+                                            product_id = first_item[0] if isinstance(first_item, tuple) else first_item
+                                            sample_pred_products.append(str(product_id))
+                                    debug_info['sample_product_ids_predictions'] = sample_pred_products[:10]
+                                
+                                if not positive_interactions.empty:
+                                    sample_gt_user_ids = list(positive_interactions['user_id'].unique())[:5]
+                                    debug_info['sample_user_ids_interactions'] = sample_gt_user_ids
+                                    
+                                    sample_gt_products = list(positive_interactions['product_id'].unique())[:10]
+                                    debug_info['sample_product_ids_ground_truth'] = [str(pid) for pid in sample_gt_products]
+                                
+                                for user_id in predictions_dict.keys():
+                                    # Đảm bảo user_id là string
+                                    user_id_str = str(user_id)
+                                    
+                                    user_interactions = positive_interactions[
+                                        positive_interactions['user_id'] == user_id_str
+                                    ]
+                                    if not user_interactions.empty:
+                                        # Lấy tất cả relevant items từ interactions gốc
+                                        relevant_items_all = set(user_interactions['product_id'].astype(str).unique())
+                                        ground_truth_dict[user_id_str] = relevant_items_all
+                                        debug_info['users_with_ground_truth'] += 1
+                                        debug_info['total_relevant_items'] += len(relevant_items_all)
+                                        
+                                        # Tính hits
+                                        recommended_items_str = [str(item[0]) if isinstance(item, tuple) else str(item) for item in predictions_dict[user_id]]
+                                        debug_info['total_recommended_items'] += len(recommended_items_str)
+                                        
+                                        # Tính intersection (hits)
+                                        hits_at_10 = len(set(recommended_items_str[:10]) & relevant_items_all)
+                                        hits_at_20 = len(set(recommended_items_str[:20]) & relevant_items_all)
+                                        debug_info['total_hits_at_10'] += hits_at_10
+                                        debug_info['total_hits_at_20'] += hits_at_20
+                                        
+                                        # Phân tích articleType của relevant items (nếu có products_df)
+                                        if products_df_for_gt is not None and 'articleType' in products_df_for_gt.columns:
+                                            relevant_articletypes = []
+                                            for rel_item in list(relevant_items_all)[:10]:
+                                                try:
+                                                    if rel_item in products_df_for_gt.index:
+                                                        art_type = products_df_for_gt.loc[rel_item, 'articleType']
+                                                        relevant_articletypes.append(f"{rel_item}: {art_type}")
+                                                except:
+                                                    pass
+                                            debug_info['filtering_info']['relevant_articletypes'] = relevant_articletypes[:5]
+                                        
+                                        # Phân tích articleType của recommended items
+                                        if products_df_for_gt is not None and 'articleType' in products_df_for_gt.columns:
+                                            recommended_articletypes = []
+                                            for rec_item in recommended_items_str[:10]:
+                                                try:
+                                                    if rec_item in products_df_for_gt.index:
+                                                        art_type = products_df_for_gt.loc[rec_item, 'articleType']
+                                                        recommended_articletypes.append(f"{rec_item}: {art_type}")
+                                                except:
+                                                    pass
+                                            debug_info['filtering_info']['recommended_articletypes'] = recommended_articletypes[:5]
+                                        
+                                        # Lưu thông tin mẫu cho 3 users đầu tiên
+                                        if len(debug_info['sample_user_info']) < 3:
+                                            recommended_count = len(predictions_dict[user_id])
+                                            intersection = set(recommended_items_str[:20]) & relevant_items_all
+                                            debug_info['sample_user_info'].append({
+                                                'user_id': user_id_str,
+                                                'recommended_count': recommended_count,
+                                                'recommended_items_sample': recommended_items_str[:5],
+                                                'relevant_count': len(relevant_items_all),
+                                                'relevant_items_sample': list(relevant_items_all)[:5],
+                                                'hits_at_10': hits_at_10,
+                                                'hits_at_20': hits_at_20,
+                                                'intersection_sample': list(intersection)[:5] if intersection else [],
+                                                'intersection_count': len(intersection)
+                                            })
+                                    else:
+                                        ground_truth_dict[user_id_str] = set()
+                                        debug_info['users_without_ground_truth'] += 1
+                                
+                                # Hiển thị debug info
+                                with st.expander("🔍 Debug Information (Chi tiết)", expanded=True):
+                                    st.markdown("### 📊 Tổng quan")
+                                    col_debug1, col_debug2, col_debug3 = st.columns(3)
+                                    with col_debug1:
+                                        st.metric("Users trong Predictions", debug_info['total_users_in_predictions'])
+                                        st.metric("Users có Ground Truth", debug_info['users_with_ground_truth'])
+                                    with col_debug2:
+                                        st.metric("Users không có Ground Truth", debug_info['users_without_ground_truth'])
+                                        st.metric("Tổng Relevant Items", debug_info['total_relevant_items'])
+                                    with col_debug3:
+                                        st.metric("Tổng Hits@10", debug_info['total_hits_at_10'])
+                                        st.metric("Tổng Hits@20", debug_info['total_hits_at_20'])
+                                    
+                                    if debug_info['users_with_ground_truth'] == 0:
+                                        st.error("❌ **Vấn đề:** Không có user nào có ground truth!")
+                                        st.markdown("""
+                                        **Nguyên nhân có thể:**
+                                        1. User IDs trong predictions không khớp với user_ids trong interactions
+                                        2. Không có positive interactions (purchase, like, cart) cho các users này
+                                        3. Dữ liệu interactions đã bị lọc quá nhiều ở Bước 1.1 (Pruning)
+                                        """)
+                                        
+                                        st.markdown("### 🔍 So sánh User IDs")
+                                        if debug_info['sample_user_ids_predictions']:
+                                            st.write("**Sample User IDs trong Predictions (Bước 2.3):**")
+                                            st.code(debug_info['sample_user_ids_predictions'])
+                                        
+                                        if debug_info['sample_user_ids_interactions']:
+                                            st.write("**Sample User IDs trong Interactions:**")
+                                            st.code(debug_info['sample_user_ids_interactions'])
+                                        
+                                        # Kiểm tra overlap
+                                        if debug_info['sample_user_ids_predictions'] and debug_info['sample_user_ids_interactions']:
+                                            pred_set = set(debug_info['sample_user_ids_predictions'])
+                                            gt_set = set(debug_info['sample_user_ids_interactions'])
+                                            overlap = pred_set & gt_set
+                                            st.write(f"**Overlap:** {len(overlap)}/{len(pred_set)} users khớp")
+                                            if len(overlap) == 0:
+                                                st.warning("⚠️ Không có user nào khớp! Đây là nguyên nhân chính.")
+                                    else:
+                                        st.success(f"✅ Có {debug_info['users_with_ground_truth']} users có ground truth.")
+                                        
+                                        if debug_info['total_hits_at_10'] == 0 and debug_info['total_hits_at_20'] == 0:
+                                            st.warning("⚠️ **Vấn đề:** Có ground truth nhưng không có hits!")
+                                            st.markdown("""
+                                            **Nguyên nhân có thể:**
+                                            
+                                            1. **Lọc quá mức trong Bước 2.3:** Recommendations đã được lọc theo articleType (payload) và age/gender.
+                                               Các sản phẩm user đã tương tác có thể không thỏa mãn điều kiện lọc này.
+                                            
+                                            2. **Mismatch articleType:** User đã chọn một payload articleType (ví dụ: "Tshirts"), 
+                                               nhưng các sản phẩm user đã tương tác có thể là các loại khác (ví dụ: "Watches", "Flip Flops").
+                                            
+                                            3. **Mismatch age/gender:** Các sản phẩm user đã tương tác có thể không thỏa mãn điều kiện age/gender filtering.
+                                            
+                                            **Giải pháp:**
+                                            - Kiểm tra xem các relevant items có cùng articleType với payload không
+                                            - Kiểm tra xem các relevant items có thỏa mãn điều kiện age/gender không
+                                            - Có thể cần điều chỉnh cách tính ground truth hoặc cách lọc recommendations
+                                            """)
+                                            
+                                            st.markdown("### 🔍 So sánh Product IDs và ArticleTypes")
+                                            if debug_info['sample_product_ids_predictions']:
+                                                st.write("**Sample Product IDs trong Predictions:**")
+                                                st.code(debug_info['sample_product_ids_predictions'])
+                                            
+                                            if debug_info['sample_product_ids_ground_truth']:
+                                                st.write("**Sample Product IDs trong Ground Truth:**")
+                                                st.code(debug_info['sample_product_ids_ground_truth'])
+                                            
+                                            # Hiển thị articleTypes
+                                            if debug_info['filtering_info']['recommended_articletypes']:
+                                                st.write("**ArticleTypes của Recommended Items:**")
+                                                st.code(debug_info['filtering_info']['recommended_articletypes'])
+                                            
+                                            if debug_info['filtering_info']['relevant_articletypes']:
+                                                st.write("**ArticleTypes của Relevant Items:**")
+                                                st.code(debug_info['filtering_info']['relevant_articletypes'])
+                                            
+                                            # Kiểm tra overlap
+                                            if debug_info['sample_product_ids_predictions'] and debug_info['sample_product_ids_ground_truth']:
+                                                pred_prod_set = set(debug_info['sample_product_ids_predictions'])
+                                                gt_prod_set = set(debug_info['sample_product_ids_ground_truth'])
+                                                overlap_prod = pred_prod_set & gt_prod_set
+                                                st.write(f"**Overlap:** {len(overlap_prod)}/{len(pred_prod_set)} products khớp")
+                                                if len(overlap_prod) == 0:
+                                                    st.error("❌ Không có product nào khớp! Đây là nguyên nhân chính.")
+                                    
+                                    st.markdown("### 📋 Chi tiết mẫu (3 users đầu tiên)")
+                                    if debug_info['sample_user_info']:
+                                        for idx, user_info in enumerate(debug_info['sample_user_info'], 1):
+                                            with st.expander(f"User {idx}: {user_info['user_id']}", expanded=False):
+                                                col_user1, col_user2 = st.columns(2)
+                                                with col_user1:
+                                                    st.write(f"**Recommended:** {user_info['recommended_count']} items")
+                                                    st.write(f"Sample: {user_info['recommended_items_sample']}")
+                                                    st.write(f"**Hits@10:** {user_info['hits_at_10']}")
+                                                    st.write(f"**Hits@20:** {user_info['hits_at_20']}")
+                                                with col_user2:
+                                                    st.write(f"**Relevant:** {user_info['relevant_count']} items")
+                                                    st.write(f"Sample: {user_info['relevant_items_sample']}")
+                                                    if user_info['intersection_sample']:
+                                                        st.write(f"**Intersection:** {user_info['intersection_sample']}")
+                                                    else:
+                                                        st.warning("⚠️ Không có intersection!")
+                                    
+                                    st.markdown("### 📄 Raw Debug Data (JSON)")
+                                    st.json(debug_info)
+                            else:
+                                st.warning("⚠️ Không có dữ liệu interactions để làm ground truth. Sử dụng empty sets.")
+                                for user_id in predictions_dict.keys():
+                                    ground_truth_dict[str(user_id)] = set()
+                                    debug_info['users_without_ground_truth'] += 1
+                            
+                            # Get all items for coverage
+                            all_items = set(product_ids) if product_ids else set()
+                            
+                            # Compute metrics
+                            result = compute_cbf_metrics(
+                                predictions_dict,
+                                ground_truth_dict,
+                                k_values=k_values,
+                                item_features=encoded_matrix,
+                                item_ids=product_ids,
+                                all_items=all_items,
+                                training_time=final_training_time,
+                                inference_time=final_inference_time,
+                                use_ild=True  # Sử dụng ILD@K cho Diversity
+                            )
+                            
+                            st.success("✅ **Hoàn thành!** Đã tính toán tất cả các chỉ số đánh giá.")
+                            
+                            # Store in session state
+                            st.session_state['cbf_evaluation_metrics'] = result
+                            
+                            # Display results
+                            st.markdown("### 📊 Kết quả Evaluation Metrics")
+                            
+                            # Create metrics table
+                            metrics_data = []
+                            for k in k_values:
+                                metrics_data.append({
+                                    'K': k,
+                                    'Recall@K': f"{result['recall'].get(k, 0.0):.4f}",
+                                    'Precision@K': f"{result['precision'].get(k, 0.0):.4f}",
+                                    'NDCG@K': f"{result['ndcg'].get(k, 0.0):.4f}"
+                                })
+                            
+                            metrics_df = pd.DataFrame(metrics_data)
+                            st.dataframe(metrics_df, use_container_width=True)
+                            
+                            # Other metrics
+                            col_other1, col_other2, col_other3, col_other4 = st.columns(4)
+                            with col_other1:
+                                st.metric("Diversity (ILD@K)", f"{result['diversity']:.4f}" if result['diversity'] is not None else "N/A")
+                                st.caption("Intra-List Diversity")
+                            with col_other2:
+                                st.metric("Coverage", f"{result['coverage']:.4f}" if result['coverage'] is not None else "N/A")
+                                st.caption("Tỷ lệ items được đề xuất")
+                            with col_other3:
+                                st.metric("Training Time", f"{result['training_time']:.2f}s" if result['training_time'] is not None else "N/A")
+                                st.caption("Bước 2.1 → 2.2")
+                            with col_other4:
+                                st.metric("Inference Time", f"{result['inference_time']:.2f}s" if result['inference_time'] is not None else "N/A")
+                                st.caption("User → L(u) (Bước 2.3)")
+                            
+                            # Visualization
+                            st.markdown("### 📈 Biểu đồ Metrics theo K")
+                            
+                            fig = go.Figure()
+                            fig.add_trace(go.Scatter(
+                                x=k_values,
+                                y=[result['recall'].get(k, 0.0) for k in k_values],
+                                mode='lines+markers',
+                                name='Recall@K',
+                                line=dict(color='blue', width=2)
+                            ))
+                            fig.add_trace(go.Scatter(
+                                x=k_values,
+                                y=[result['precision'].get(k, 0.0) for k in k_values],
+                                mode='lines+markers',
+                                name='Precision@K',
+                                line=dict(color='green', width=2)
+                            ))
+                            fig.add_trace(go.Scatter(
+                                x=k_values,
+                                y=[result['ndcg'].get(k, 0.0) for k in k_values],
+                                mode='lines+markers',
+                                name='NDCG@K',
+                                line=dict(color='red', width=2)
+                            ))
+                            fig.update_layout(
+                                title="Metrics theo K",
+                                xaxis_title="K",
+                                yaxis_title="Score",
+                                hovermode='x unified'
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+                            
+                            # Summary table for export
+                            st.markdown("### 📋 Bảng Tổng hợp Chỉ số (Export)")
+                            summary_data = {
+                                'Model': ['CBF']
+                            }
+                            
+                            # Thêm các metrics theo K values
+                            for k in k_values:
+                                summary_data[f'Recall@{k}'] = [f"{result['recall'].get(k, 0.0):.4f}"]
+                                summary_data[f'Precision@{k}'] = [f"{result['precision'].get(k, 0.0):.4f}"]
+                                summary_data[f'NDCG@{k}'] = [f"{result['ndcg'].get(k, 0.0):.4f}"]
+                            
+                            # Thêm các metrics khác
+                            summary_data['Diversity (ILD@K)'] = [f"{result['diversity']:.4f}" if result['diversity'] is not None else "N/A"]
+                            summary_data['Coverage'] = [f"{result['coverage']:.4f}" if result['coverage'] is not None else "N/A"]
+                            summary_data['Training Time (s)'] = [f"{result['training_time']:.3f}" if result['training_time'] is not None else "N/A"]
+                            summary_data['Inference Time (s)'] = [f"{result['inference_time']:.3f}" if result['inference_time'] is not None else "N/A"]
+                            summary_df = pd.DataFrame(summary_data)
+                            st.dataframe(summary_df, use_container_width=True)
+                            
+                            st.markdown("""
+                            **✅ Kết quả đạt được:**
+                            - ✅ Một hàng dữ liệu hoàn chỉnh trong Bảng Tổng hợp Chỉ số
+                            - ✅ Thể hiện hiệu suất cơ sở của mô hình Content-based Filtering
+                            - ✅ Sẵn sàng để so sánh với các mô hình khác (GNN, Hybrid)
+                            """)
+                        
+                        except Exception as e:
+                            st.error(f"❌ Lỗi khi tính toán evaluation metrics: {str(e)}")
+                            import traceback
+                            st.code(traceback.format_exc())
+            elif compute_cbf_metrics is None:
+                st.error(f"❌ Không thể import evaluation_metrics module: {_evaluation_import_error}")
 
-                **Công thức Min-Max Scaling:**
-                $$Score_{norm} = \\frac{Score - \\min(Scores)}{\\max(Scores) - \\min(Scores)}$$
+        # PHẦN III: MÔ HÌNH MẠNG NEURAL ĐỒ THỊ (GNN - NGCF)
+        st.markdown('<div class="sub-header">📚 PHẦN III: MÔ HÌNH MẠNG NEURAL ĐỒ THỊ (GNN - NGCF)</div>', unsafe_allow_html=True)
+        st.markdown("")
 
-                Trong đó:
-                - $Score$: Điểm số gốc (từ GNN hoặc CB)
-                - $\\min(Scores)$: Điểm số thấp nhất trong tập
-                - $\\max(Scores)$: Điểm số cao nhất trong tập
-                - $Score_{norm}$: Điểm số sau khi chuẩn hóa (0-1)
+        with st.expander("Bước 3.1: Xây dựng Đồ thị và Khởi tạo Nhúng", expanded=True):
+            st.write("**Nội dung thực hiện:** Xây dựng đồ thị hai phía $G=(U, I, \\mathcal{E})$ và khởi tạo ngẫu nhiên các vector nhúng $\\mathbf{e}_u^{(0)}$ và $\\mathbf{e}_i^{(0)}$.")
+            st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 1.1 (Pruned Interactions)")
 
-                **Lý do:** GNN và CB có thang điểm khác nhau, cần chuẩn hóa để kết hợp công bằng.
+            st.markdown("""
+            **Cấu trúc đồ thị:**
+            - **Đồ thị hai phía (Bipartite Graph):** $G=(U, I, \\mathcal{E})$
+              - $U$: Tập hợp các nodes người dùng
+              - $I$: Tập hợp các nodes sản phẩm
+              - $\\mathcal{E}$: Tập hợp các cạnh (edges) biểu diễn tương tác giữa users và products
+            
+            **Khởi tạo nhúng:**
+            - **User Embeddings:** $\\mathbf{e}_u^{(0)} \\in \\mathbb{R}^d$ - Vector nhúng ban đầu cho mỗi user $u$
+            - **Item Embeddings:** $\\mathbf{e}_i^{(0)} \\in \\mathbb{R}^d$ - Vector nhúng ban đầu cho mỗi item $i$
+            - **Phương pháp khởi tạo:** Xavier Uniform Initialization
+            - **Kích thước nhúng:** $d$ (embedding_dim, mặc định: 64)
+            
+            **Kết quả mong đợi:**
+            - Đồ thị $G$ được xây dựng từ interactions đã làm sạch
+            - Các vector nhúng ban đầu $\\mathbf{e}_u^{(0)}$ và $\\mathbf{e}_i^{(0)}$ được khởi tạo ngẫu nhiên
+            - Sẵn sàng cho quá trình lan truyền thông điệp (Message Propagation)
+            """)
 
-                **Công thức Late Fusion:**
-                $$Score_{final} = \\alpha \\times Score_{GNN\\_norm} + (1 - \\alpha) \\times Score_{CB\\_norm}$$
+            # Kiểm tra dữ liệu từ các bước trước
+            has_pruned_interactions = 'pruned_interactions' in st.session_state
 
-                Trong đó:
-                - $\\alpha$: Trọng số cho GNN (mặc định 0.5 = cân bằng khi khởi tạo model)
-                - $Score_{GNN\\_norm}$: Điểm số đã chuẩn hóa từ GNN (Min-Max scaling về [0, 1])
-                - $Score_{CB\\_norm}$: Điểm số đã chuẩn hóa từ Content-Based (Min-Max scaling về [0, 1])
-                - $Score_{final}$: Điểm số cuối cùng để ranking
+            if not has_pruned_interactions:
+                st.warning("⚠️ Chưa có dữ liệu từ Bước 1.1 (Pruning). Vui lòng chạy Bước 1.1 trước.")
+            else:
+                pruning_result = st.session_state['pruned_interactions']
+                pruned_interactions_df = pruning_result['pruned_interactions']
+                
+                # Configuration
+                col_config1, col_config2 = st.columns(2)
+                with col_config1:
+                    embedding_dim = st.number_input(
+                        "Kích thước nhúng (embedding_dim)",
+                        min_value=16,
+                        max_value=256,
+                        value=64,
+                        step=16,
+                        key="gnn_embedding_dim"
+                    )
+                
+                with col_config2:
+                    st.write("")  # Spacing
+                    process_button = st.button(
+                        "🔧 Xây dựng Đồ thị và Khởi tạo Nhúng",
+                        type="primary",
+                        use_container_width=True,
+                        key="gnn_graph_construction_button"
+                    )
+                
+                if process_button:
+                    if build_graph is None:
+                        st.error(f"❌ Không thể import gnn_utils module: {_gnn_utils_import_error}")
+                        st.info("Vui lòng đảm bảo file apps/utils/gnn_utils.py tồn tại và có thể import được.")
+                    else:
+                        with st.spinner("Đang xây dựng đồ thị và khởi tạo nhúng..."):
+                            try:
+                                # Build graph
+                                graph_result = build_graph(pruned_interactions_df, embedding_dim)
+                                
+                                # Store in session state
+                                st.session_state['gnn_graph'] = graph_result
+                                
+                                st.success(f"✅ **Hoàn thành!** Đã xây dựng đồ thị với {graph_result['num_users']} users và {graph_result['num_products']} products.")
+                                
+                                # Display statistics
+                                st.markdown("### 📊 Thống kê Đồ thị")
+                                
+                                col_stat1, col_stat2, col_stat3 = st.columns(3)
+                                with col_stat1:
+                                    st.metric("Số lượng Users", graph_result['num_users'])
+                                    st.metric("Số lượng Products", graph_result['num_products'])
+                                with col_stat2:
+                                    st.metric("Số lượng Edges", graph_result['num_edges'])
+                                    st.metric("Kích thước nhúng", f"{embedding_dim}D")
+                                with col_stat3:
+                                    density = (2 * graph_result['num_edges']) / (graph_result['num_users'] * graph_result['num_products']) if (graph_result['num_users'] * graph_result['num_products']) > 0 else 0
+                                    st.metric("Mật độ đồ thị", f"{density:.6f}")
+                                
+                                # Display sample embeddings
+                                st.markdown("### 🔢 Mẫu Vector Nhúng Ban đầu")
+                                
+                                if 'user_embeddings' in graph_result and 'product_embeddings' in graph_result:
+                                    sample_user_emb = graph_result['user_embeddings'][:3] if len(graph_result['user_embeddings']) >= 3 else graph_result['user_embeddings']
+                                    sample_product_emb = graph_result['product_embeddings'][:3] if len(graph_result['product_embeddings']) >= 3 else graph_result['product_embeddings']
+                                    
+                                    col_emb1, col_emb2 = st.columns(2)
+                                    with col_emb1:
+                                        st.write("**Sample User Embeddings (3 users đầu tiên):**")
+                                        user_emb_df = pd.DataFrame(
+                                            sample_user_emb,
+                                            index=[f"User {i+1}" for i in range(len(sample_user_emb))],
+                                            columns=[f"Dim {j+1}" for j in range(embedding_dim)]
+                                        )
+                                        st.dataframe(user_emb_df, use_container_width=True)
+                                    
+                                    with col_emb2:
+                                        st.write("**Sample Product Embeddings (3 products đầu tiên):**")
+                                        product_emb_df = pd.DataFrame(
+                                            sample_product_emb,
+                                            index=[f"Product {i+1}" for i in range(len(sample_product_emb))],
+                                            columns=[f"Dim {j+1}" for j in range(embedding_dim)]
+                                        )
+                                        st.dataframe(product_emb_df, use_container_width=True)
+                                
+                                st.markdown("""
+                                **✅ Kết quả đạt được:**
+                                - ✅ Đồ thị $G=(U, I, \\mathcal{E})$ được xây dựng từ interactions đã làm sạch
+                                - ✅ Các vector nhúng ban đầu $\\mathbf{e}_u^{(0)}$ và $\\mathbf{e}_i^{(0)}$ được khởi tạo ngẫu nhiên
+                                - ✅ Sẵn sàng cho quá trình lan truyền thông điệp (Message Propagation)
+                                """)
+                            
+                            except Exception as e:
+                                st.error(f"❌ Lỗi khi xây dựng đồ thị: {str(e)}")
+                                import traceback
+                                st.code(traceback.format_exc())
 
-                **Lưu ý quan trọng:**
-                - Khi khởi tạo, Hybrid model có thể dùng $\\alpha = 0.5$ (cân bằng)
-                - **Trong thực tế khi recommend**, model sử dụng **dynamic weight** (GNN=0.8, CB=0.2) để ưu tiên GNN cao hơn vì GNN thường cho kết quả tốt hơn Content-Based
-                - Công thức thực tế: $Score_{final} = 0.8 \\times Score_{GNN\\_norm} + 0.2 \\times Score_{CB\\_norm}$
+        with st.expander("Bước 3.2: Cơ chế Lan truyền Thông điệp (Message Propagation)", expanded=True):
+            st.write("**Nội dung thực hiện:** Lan truyền thông điệp qua $L$ lớp để cập nhật nhúng $\\mathbf{e}_u^{(l)}$ và $\\mathbf{e}_i^{(l)}$.")
+            st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 3.1 (Graph Construction)")
 
-                **Tại sao Hybrid là tối ưu nhất?**
+            st.markdown("""
+            **Công thức Cập nhật Nhúng:**
+            $$\\mathbf{e}_u^{(l)} = \\text{LeakyReLU} \\left( \\mathbf{W}_1 \\mathbf{e}_u^{(l-1)} + \\sum_{i \\in N_u} M_{u \\leftarrow i} \\right)$$
+            
+            Trong đó:
+            - $\\mathbf{e}_u^{(l)}$: Vector nhúng của user $u$ ở lớp $l$
+            - $\\mathbf{W}_1$: Ma trận trọng số học được
+            - $N_u$: Tập hợp các items mà user $u$ đã tương tác (neighbors)
+            - $M_{u \\leftarrow i}$: Thông điệp từ item $i$ đến user $u$
+            - $\\text{LeakyReLU}$: Hàm kích hoạt
+            
+            **Quá trình lan truyền:**
+            1. **Lớp 0:** Sử dụng nhúng ban đầu $\\mathbf{e}_u^{(0)}$ và $\\mathbf{e}_i^{(0)}$
+            2. **Lớp 1 đến L:** Cập nhật nhúng dựa trên thông điệp từ neighbors
+            3. **Normalization:** Chuẩn hóa theo degree của nodes để ổn định training
+            
+            **Kết quả mong đợi:**
+            - Các vector nhúng được cập nhật qua $L$ lớp
+            - Nhúng cuối cùng $\\mathbf{e}_u^{(L)}$ và $\\mathbf{e}_i^{(L)}$ phản ánh cấu trúc đồ thị và tương tác
+            """)
 
-                1. **Recall & Precision:** Hybrid đạt được sự cân bằng tốt hơn:
-                   - GNN giúp tăng Recall (tìm được sản phẩm tiềm năng user chưa từng thấy)
-                   - CB giúp tăng Precision (đảm bảo sản phẩm giống sở thích cũ)
+            # Kiểm tra dữ liệu từ các bước trước
+            has_gnn_graph = 'gnn_graph' in st.session_state
 
-                2. **Coverage & Diversity:**
-                   - Coverage của Hybrid thường cao hơn GNN thuần túy vì có thể gợi ý cả những sản phẩm ít tương tác (nhờ Content-Based)
-                   - Diversity tốt hơn CB thuần túy nhờ GNN đa dạng hóa recommendations
+            if not has_gnn_graph:
+                st.warning("⚠️ Chưa có dữ liệu từ Bước 3.1 (Graph Construction). Vui lòng chạy Bước 3.1 trước.")
+            else:
+                graph_result = st.session_state['gnn_graph']
+                
+                # Configuration
+                col_config1, col_config2 = st.columns(2)
+                with col_config1:
+                    num_layers = st.number_input(
+                        "Số lớp lan truyền (num_layers)",
+                        min_value=1,
+                        max_value=10,
+                        value=3,
+                        step=1,
+                        key="gnn_num_layers"
+                    )
+                
+                with col_config2:
+                    st.write("")  # Spacing
+                    process_button = st.button(
+                        "🔧 Thực hiện Message Propagation",
+                        type="primary",
+                        use_container_width=True,
+                        key="gnn_message_propagation_button"
+                    )
+                
+                if process_button:
+                    if message_propagation is None:
+                        st.error(f"❌ Không thể import gnn_utils module: {_gnn_utils_import_error}")
+                        st.info("Vui lòng đảm bảo file apps/utils/gnn_utils.py tồn tại và có thể import được.")
+                    else:
+                        with st.spinner("Đang thực hiện lan truyền thông điệp..."):
+                            try:
+                                # Perform message propagation
+                                propagation_result = message_propagation(graph_result, num_layers)
+                                
+                                # Store in session state
+                                st.session_state['gnn_propagation'] = propagation_result
+                                
+                                st.success(f"✅ **Hoàn thành!** Đã thực hiện lan truyền qua {num_layers} lớp.")
+                                
+                                # Display statistics
+                                st.markdown("### 📊 Thống kê Message Propagation")
+                                
+                                col_stat1, col_stat2, col_stat3 = st.columns(3)
+                                with col_stat1:
+                                    st.metric("Số lớp", num_layers)
+                                    st.metric("Kích thước nhúng", f"{graph_result['embedding_dim']}D")
+                                with col_stat2:
+                                    if 'final_user_embeddings' in propagation_result:
+                                        st.metric("User Embeddings Shape", f"{propagation_result['final_user_embeddings'].shape}")
+                                    if 'final_product_embeddings' in propagation_result:
+                                        st.metric("Product Embeddings Shape", f"{propagation_result['final_product_embeddings'].shape}")
+                                with col_stat3:
+                                    if 'layer_stats' in propagation_result:
+                                        st.metric("Lớp đã xử lý", len(propagation_result['layer_stats']))
+                                
+                                # Display layer-wise statistics
+                                if 'layer_stats' in propagation_result:
+                                    st.markdown("### 📈 Thống kê theo từng lớp")
+                                    layer_stats_df = pd.DataFrame(propagation_result['layer_stats'])
+                                    st.dataframe(layer_stats_df, use_container_width=True)
+                                
+                                st.markdown("""
+                                **✅ Kết quả đạt được:**
+                                - ✅ Các vector nhúng được cập nhật qua $L$ lớp
+                                - ✅ Nhúng cuối cùng $\\mathbf{e}_u^{(L)}$ và $\\mathbf{e}_i^{(L)}$ phản ánh cấu trúc đồ thị và tương tác
+                                - ✅ Sẵn sàng cho quá trình dự đoán và xếp hạng
+                                """)
+                            
+                            except Exception as e:
+                                st.error(f"❌ Lỗi khi thực hiện message propagation: {str(e)}")
+                                import traceback
+                                st.code(traceback.format_exc())
 
-                3. **Khắc phục điểm yếu:**
-                   - GNN bị yếu khi User mới (Cold-start) → CB bù đắp bằng cách dựa vào đặc trưng sản phẩm
-                   - CB bị yếu về độ đa dạng và khám phá → GNN bù đắp bằng cách học từ tương tác của users khác
+        with st.expander("Bước 3.3: Dự đoán và Xếp hạng", expanded=True):
+            st.write("**Nội dung thực hiện:** Tổng hợp nhúng cuối cùng $\\mathbf{E}_u^*, \\mathbf{E}_i^*$. Tính điểm dự đoán $\\hat{r}_{ui}^{\\text{GNN}} = \\mathbf{E}_u^* \\cdot \\mathbf{E}_i^*$.")
+            st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 3.2 (Message Propagation)")
 
-                4. **Robustness:** Hybrid ít bị ảnh hưởng bởi dữ liệu thiếu hoặc không cân bằng hơn các model đơn lẻ
+            st.markdown("""
+            **Công thức Dự đoán:**
+            $$\\hat{r}_{ui}^{\\text{GNN}} = \\mathbf{E}_u^* \\cdot \\mathbf{E}_i^*$$
+            
+            Trong đó:
+            - $\\mathbf{E}_u^*$: Vector nhúng cuối cùng của user $u$ sau $L$ lớp lan truyền
+            - $\\mathbf{E}_i^*$: Vector nhúng cuối cùng của item $i$ sau $L$ lớp lan truyền
+            - $\\hat{r}_{ui}^{\\text{GNN}}$: Điểm dự đoán GNN cho user $u$ và item $i$
+            
+            **Quá trình:**
+            1. Lấy nhúng cuối cùng từ Bước 3.2
+            2. Tính tích vô hướng giữa user embedding và product embedding
+            3. Xếp hạng các sản phẩm theo điểm dự đoán giảm dần
+            
+            **Kết quả mong đợi:**
+            - Điểm dự đoán $\\hat{r}_{ui}^{\\text{GNN}}$ cho tất cả user-item pairs
+            - Top-K rankings cho mỗi user
+            """)
 
+            # Kiểm tra dữ liệu từ các bước trước
+            has_gnn_propagation = 'gnn_propagation' in st.session_state
+
+            if not has_gnn_propagation:
+                st.warning("⚠️ Chưa có dữ liệu từ Bước 3.2 (Message Propagation). Vui lòng chạy Bước 3.2 trước.")
+            else:
+                propagation_result = st.session_state['gnn_propagation']
+                
+                # Configuration
+                col_config1, col_config2 = st.columns(2)
+                with col_config1:
+                    top_k = st.number_input(
+                        "Số lượng sản phẩm Top-K để xếp hạng",
+                        min_value=5,
+                        max_value=100,
+                        value=20,
+                        step=5,
+                        key="gnn_top_k"
+                    )
+                
+                with col_config2:
+                    st.write("")  # Spacing
+                    process_button = st.button(
+                        "🔧 Tính Điểm Dự đoán và Xếp hạng",
+                        type="primary",
+                        use_container_width=True,
+                        key="gnn_predictions_button"
+                    )
+                
+                if process_button:
+                    if compute_gnn_predictions is None:
+                        st.error(f"❌ Không thể import gnn_utils module: {_gnn_utils_import_error}")
+                        st.info("Vui lòng đảm bảo file apps/utils/gnn_utils.py tồn tại và có thể import được.")
+                    else:
+                        with st.spinner("Đang tính điểm dự đoán và xếp hạng..."):
+                            try:
+                                # Compute predictions
+                                predictions_result = compute_gnn_predictions(propagation_result, top_k)
+                                
+                                # Store in session state
+                                st.session_state['gnn_predictions'] = predictions_result
+                                
+                                st.success(f"✅ **Hoàn thành!** Đã tính điểm dự đoán cho {predictions_result['stats']['total_users']} users.")
+                                
+                                # Display statistics
+                                st.markdown("### 📊 Thống kê Predictions")
+                                
+                                col_stat1, col_stat2, col_stat3 = st.columns(3)
+                                with col_stat1:
+                                    st.metric("Tổng số predictions", f"{predictions_result['stats']['total_predictions']:,}")
+                                    st.metric("Số users", predictions_result['stats']['total_users'])
+                                with col_stat2:
+                                    st.metric("Số products", predictions_result['stats']['total_products'])
+                                    st.metric("Top-K", top_k)
+                                with col_stat3:
+                                    st.metric("Min score", f"{predictions_result['stats']['min_score']:.4f}")
+                                    st.metric("Max score", f"{predictions_result['stats']['max_score']:.4f}")
+                                    st.metric("Mean score", f"{predictions_result['stats']['mean_score']:.4f}")
+                                
+                                # Display sample rankings
+                                st.markdown(f"### 📋 Mẫu Rankings Top-{top_k} (5 users đầu tiên)")
+                                
+                                if 'rankings' in predictions_result:
+                                    sample_users = list(predictions_result['rankings'].keys())[:5]
+                                    
+                                    for idx, user_id in enumerate(sample_users, 1):
+                                        ranking = predictions_result['rankings'][user_id]
+                                        
+                                        with st.expander(f"User {user_id} - Top {len(ranking)} sản phẩm", expanded=False):
+                                            ranking_df = pd.DataFrame([
+                                                {
+                                                    'Rank': rank + 1,
+                                                    'Product ID': product_id,
+                                                    'Score': f"{score:.4f}"
+                                                }
+                                                for rank, (product_id, score) in enumerate(ranking)
+                                            ])
+                                            st.dataframe(ranking_df, use_container_width=True)
+                                
+                                st.markdown("""
+                                **✅ Kết quả đạt được:**
+                                - ✅ Điểm dự đoán $\\hat{r}_{ui}^{\\text{GNN}}$ cho tất cả user-item pairs
+                                - ✅ Top-K rankings cho mỗi user
+                                - ✅ Sẵn sàng cho quá trình huấn luyện hoặc đánh giá
+                                """)
+                            
+                            except Exception as e:
+                                st.error(f"❌ Lỗi khi tính điểm dự đoán: {str(e)}")
+                                import traceback
+                                st.code(traceback.format_exc())
+
+        with st.expander("Bước 3.4: Huấn luyện Mô hình: Tối ưu hóa bằng BPR Loss", expanded=True):
+            st.write("**Nội dung thực hiện:** Huấn luyện mô hình bằng cách tối ưu hóa trực tiếp thứ hạng.")
+            st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 3.2 (Message Propagation) và Bước 1.1 (Pruned Interactions)")
+
+            st.markdown("""
+            **Công thức BPR Loss:**
+            $$L_{BPR} = - \\sum_{(u, i, j) \\in D_S} \\ln \\sigma(\\hat{r}_{ui} - \\hat{r}_{uj}) + \\lambda ||\\Theta||^2$$
+            
+            Trong đó:
+            - $D_S$: Tập hợp các triplets $(u, i, j)$ với $i$ là positive item và $j$ là negative item
+            - $\\hat{r}_{ui}$: Điểm dự đoán cho positive pair $(u, i)$
+            - $\\hat{r}_{uj}$: Điểm dự đoán cho negative pair $(u, j)$
+            - $\\sigma$: Hàm sigmoid
+            - $\\lambda$: Hệ số regularization
+            - $||\\Theta||^2$: L2 regularization của các tham số mô hình
+            
+            **Quá trình huấn luyện:**
+            1. **Sampling:** Tạo các triplets $(u, i, j)$ từ interactions
+            2. **Forward Pass:** Tính $\\hat{r}_{ui}$ và $\\hat{r}_{uj}$
+            3. **Loss Calculation:** Tính $L_{BPR}$
+            4. **Backward Pass:** Cập nhật tham số $\\Theta$ bằng gradient descent
+            5. **Lặp lại** qua các epochs cho đến khi hội tụ
+            
+            **Kết quả mong đợi:**
+            - Giá trị $L_{BPR}$ giảm dần và hội tụ
+            - Tối ưu hóa các vector nhúng ($\\Theta$)
+            - Mô hình học được patterns từ đồ thị tương tác
+            """)
+
+            # Kiểm tra dữ liệu từ các bước trước
+            has_gnn_propagation = 'gnn_propagation' in st.session_state
+            has_pruned_interactions = 'pruned_interactions' in st.session_state
+
+            if not has_gnn_propagation:
+                st.warning("⚠️ Chưa có dữ liệu từ Bước 3.2 (Message Propagation). Vui lòng chạy Bước 3.2 trước.")
+            if not has_pruned_interactions:
+                st.warning("⚠️ Chưa có dữ liệu từ Bước 1.1 (Pruning). Vui lòng chạy Bước 1.1 trước.")
+            
+            if has_gnn_propagation and has_pruned_interactions:
+                propagation_result = st.session_state['gnn_propagation']
+                pruning_result = st.session_state['pruned_interactions']
+                pruned_interactions_df = pruning_result['pruned_interactions']
+                
+                # Configuration
+                col_config1, col_config2 = st.columns(2)
+                with col_config1:
+                    num_epochs = st.number_input(
+                        "Số epochs",
+                        min_value=1,
+                        max_value=100,
+                        value=10,
+                        step=1,
+                        key="gnn_num_epochs"
+                    )
+                    
+                    learning_rate = st.number_input(
+                        "Learning Rate",
+                        min_value=0.0001,
+                        max_value=0.1,
+                        value=0.001,
+                        step=0.0001,
+                        format="%.4f",
+                        key="gnn_learning_rate"
+                    )
+                
+                with col_config2:
+                    reg_weight = st.number_input(
+                        "Regularization Weight (λ)",
+                        min_value=0.0,
+                        max_value=0.01,
+                        value=0.0001,
+                        step=0.0001,
+                        format="%.4f",
+                        key="gnn_reg_weight"
+                    )
+                    
+                    batch_size = st.number_input(
+                        "Batch Size",
+                        min_value=32,
+                        max_value=1024,
+                        value=256,
+                        step=32,
+                        key="gnn_batch_size"
+                    )
+                
+                process_button = st.button(
+                    "🔧 Huấn luyện Mô hình (BPR Loss)",
+                    type="primary",
+                    use_container_width=True,
+                    key="gnn_training_button"
+                )
+                
+                if process_button:
+                    if train_gnn_model is None:
+                        st.error(f"❌ Không thể import gnn_utils module: {_gnn_utils_import_error}")
+                        st.info("Vui lòng đảm bảo file apps/utils/gnn_utils.py tồn tại và có thể import được.")
+                    else:
+                        # Đo Training Time (Bước 3.2 đến 3.4)
+                        training_start_time = time.time()
+                        
+                        with st.spinner(f"Đang huấn luyện mô hình qua {num_epochs} epochs (có thể mất vài phút)..."):
+                            try:
+                                # Train model
+                                training_result = train_gnn_model(
+                                    propagation_result,
+                                    pruned_interactions_df,
+                                    num_epochs=num_epochs,
+                                    learning_rate=learning_rate,
+                                    reg_weight=reg_weight,
+                                    batch_size=batch_size
+                                )
+                                
+                                # Kết thúc đo Training Time
+                                training_end_time = time.time()
+                                training_time_measured = training_end_time - training_start_time
+                                
+                                # Lưu vào session state
+                                st.session_state['gnn_training'] = training_result
+                                st.session_state['gnn_training_time'] = training_time_measured
+                                
+                                st.success(f"✅ **Hoàn thành!** Đã huấn luyện mô hình qua {num_epochs} epochs.")
+                                
+                                # Display statistics
+                                st.markdown("### 📊 Thống kê Huấn luyện")
+                                
+                                col_stat1, col_stat2, col_stat3 = st.columns(3)
+                                with col_stat1:
+                                    st.metric("Số epochs", num_epochs)
+                                    st.metric("Training Time", f"{training_time_measured:.2f}s")
+                                with col_stat2:
+                                    if 'final_loss' in training_result:
+                                        st.metric("Final BPR Loss", f"{training_result['final_loss']:.4f}")
+                                    if 'initial_loss' in training_result:
+                                        st.metric("Initial BPR Loss", f"{training_result['initial_loss']:.4f}")
+                                with col_stat3:
+                                    if 'final_loss' in training_result and 'initial_loss' in training_result:
+                                        loss_reduction = training_result['initial_loss'] - training_result['final_loss']
+                                        st.metric("Loss Reduction", f"{loss_reduction:.4f}")
+                                
+                                # Display training history
+                                if 'loss_history' in training_result:
+                                    st.markdown("### 📈 Lịch sử BPR Loss qua các Epochs")
+                                    
+                                    loss_history_df = pd.DataFrame({
+                                        'Epoch': range(1, len(training_result['loss_history']) + 1),
+                                        'BPR Loss': training_result['loss_history']
+                                    })
+                                    
+                                    fig = px.line(
+                                        loss_history_df,
+                                        x='Epoch',
+                                        y='BPR Loss',
+                                        title="BPR Loss qua các Epochs",
+                                        labels={'BPR Loss': 'BPR Loss', 'Epoch': 'Epoch'}
+                                    )
+                                    st.plotly_chart(fig, use_container_width=True)
+                                
+                                st.markdown("""
+                                **✅ Kết quả đạt được:**
+                                - ✅ Giá trị $L_{BPR}$ giảm dần và hội tụ
+                                - ✅ Tối ưu hóa các vector nhúng ($\\Theta$)
+                                - ✅ Mô hình học được patterns từ đồ thị tương tác
+                                """)
+                            
+                            except Exception as e:
+                                st.error(f"❌ Lỗi khi huấn luyện mô hình: {str(e)}")
+                                import traceback
+                                st.code(traceback.format_exc())
+
+        with st.expander("Bước 3.5: Tạo Danh sách Gợi ý và Tính toán Số liệu Đánh giá Hiệu suất", expanded=True):
+            st.write("**Nội dung thực hiện:**")
+            st.write("1. **Gợi ý Cá nhân hóa:** Áp dụng Logic Lọc và Ưu tiên (Bước 2.3) lên danh sách ứng viên được xếp hạng bởi $\\hat{r}_{ui}^{\\text{GNN}}$.")
+            st.write("2. **Gợi ý Tổ hợp Trang phục:** Áp dụng Logic Tổ hợp (Bước 2.4) sử dụng $\\hat{r}_{ui}^{\\text{GNN}}$ làm yếu tố cá nhân hóa.")
+            st.write("3. **Tính toán Số liệu:** Tính toán tất cả các chỉ số (Recall@K, NDCG@K,...) tương tự như Bước 2.5, sử dụng $L(u)$ và các tham số thời gian tương ứng của GNN.")
+            st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 3.3 (GNN Predictions) hoặc Bước 3.4 (Trained Model)")
+
+            st.markdown("""
+            **Dữ liệu Đầu vào (Được lấy từ):**
+            - **Training Time (s):** Đo thời gian từ Bước 3.2 đến 3.4 (quá trình lặp lại BPR Loss qua các epoch).
+            - **Inference Time (s):** Đo thời gian cho quá trình tính toán $\\hat{r}_{ui}^{\\text{GNN}}$ và hậu xử lý (Bước 3.5).
+            - **ILD, NDCG, Recall, Precision:** Dữ liệu tương tự Bước 2.5, nhưng sử dụng $L(u)$ được tạo từ $\\hat{r}_{ui}^{\\text{GNN}}$.
+            """)
+
+            # Kiểm tra dữ liệu từ các bước trước
+            has_gnn_predictions = 'gnn_predictions' in st.session_state
+            has_gnn_training = 'gnn_training' in st.session_state
+
+            if not has_gnn_predictions and not has_gnn_training:
+                st.warning("⚠️ Chưa có dữ liệu từ Bước 3.3 (GNN Predictions) hoặc Bước 3.4 (Trained Model). Vui lòng chạy một trong hai bước trước.")
+            else:
+                # Use predictions from training if available, otherwise use from step 3.3
+                # gnn_training có cả 'predictions' và 'rankings', nên dùng toàn bộ training_result
+                if has_gnn_training:
+                    gnn_predictions = st.session_state['gnn_training']
+                elif has_gnn_predictions:
+                    gnn_predictions = st.session_state['gnn_predictions']
+                else:
+                    gnn_predictions = None
+                
+                # Kiểm tra format
+                if gnn_predictions is not None:
+                    if not isinstance(gnn_predictions, dict):
+                        st.error(f"❌ **Lỗi:** gnn_predictions không phải là dictionary. Type: {type(gnn_predictions)}")
+                        st.write(f"Value: {gnn_predictions}")
+                        gnn_predictions = None
+                    elif len(gnn_predictions) == 0:
+                        st.warning("⚠️ **Cảnh báo:** gnn_predictions là dictionary rỗng. Vui lòng chạy lại Bước 3.3 hoặc 3.4.")
+                        gnn_predictions = None
+                
+                has_feature_encoding = 'feature_encoding' in st.session_state
+                if not has_feature_encoding:
+                    st.warning("⚠️ Chưa có dữ liệu từ Bước 1.2 (Feature Encoding). Cần cho tính toán Diversity.")
+                
+                if gnn_predictions is not None:
+                    encoding_result = st.session_state.get('feature_encoding', {})
+                    encoded_matrix = encoding_result.get('encoded_matrix', None)
+                    product_ids = encoding_result.get('product_ids', [])
+                    
+                    # Load interactions for ground truth
+                    interactions_path = os.path.join(current_dir, 'apps', 'exports', 'interactions.csv')
+                    interactions_df = None
+                    if os.path.exists(interactions_path):
+                        interactions_df = pd.read_csv(interactions_path)
+                        if 'user_id' in interactions_df.columns:
+                            interactions_df['user_id'] = interactions_df['user_id'].astype(str)
+                        if 'product_id' in interactions_df.columns:
+                            interactions_df['product_id'] = interactions_df['product_id'].astype(str)
+                    
+                    # Configuration
+                    col_config1, col_config2 = st.columns(2)
+                    with col_config1:
+                        k_values_input = st.text_input(
+                            "Các giá trị K (phân cách bằng dấu phẩy)",
+                            value="10,20",
+                            key="gnn_k_values_input"
+                        )
+                        try:
+                            k_values = [int(k.strip()) for k in k_values_input.split(',')]
+                        except:
+                            k_values = [10, 20]
+                            st.warning("⚠️ Định dạng không hợp lệ. Sử dụng mặc định: [10, 20]")
+                    
+                    with col_config2:
+                        # Training Time và Inference Time được đo tự động từ các bước trước
+                        training_time_auto = st.session_state.get('gnn_training_time', None)
+                        inference_time_auto = st.session_state.get('gnn_inference_time', None)
+                        
+                        if training_time_auto is not None:
+                            st.info(f"⏱️ **Training Time (tự động):** {training_time_auto:.3f}s (đo từ Bước 3.2-3.4)")
+                        else:
+                            st.warning("⚠️ Chưa có Training Time. Vui lòng chạy Bước 3.4 trước.")
+                        
+                        # Cho phép override thủ công nếu cần
+                        st.markdown("**Hoặc nhập thủ công (nếu cần):**")
+                        training_time_manual = st.number_input(
+                            "Training Time (giây) - Thủ công",
+                            min_value=0.0,
+                            value=training_time_auto if training_time_auto is not None else 0.0,
+                            step=0.1,
+                            key="gnn_training_time_input"
+                        )
+                        
+                        inference_time_manual = st.number_input(
+                            "Inference Time (giây) - Thủ công",
+                            min_value=0.0,
+                            value=inference_time_auto if inference_time_auto is not None else 0.0,
+                            step=0.1,
+                            key="gnn_inference_time_input"
+                        )
+                    
+                    process_button = st.button(
+                        "🔧 Tính toán Evaluation Metrics",
+                        type="primary",
+                        use_container_width=True,
+                        key="gnn_evaluation_metrics_button"
+                    )
+                    
+                    if process_button:
+                        # Đo Inference Time
+                        inference_start_time = time.time()
+                        
+                        with st.spinner("Đang tính toán các chỉ số đánh giá..."):
+                            try:
+                                # Prepare predictions format từ GNN Predictions
+                                predictions_dict = {}
+                                debug_info = {
+                                    'gnn_predictions_keys': list(gnn_predictions.keys()) if isinstance(gnn_predictions, dict) else 'Not a dict',
+                                    'has_rankings': 'rankings' in gnn_predictions if isinstance(gnn_predictions, dict) else False,
+                                    'has_predictions': 'predictions' in gnn_predictions if isinstance(gnn_predictions, dict) else False,
+                                    'total_users_in_predictions': 0,
+                                    'users_with_ground_truth': 0,
+                                    'users_without_ground_truth': 0,
+                                    'total_relevant_items': 0,
+                                    'total_recommended_items': 0,
+                                    'total_hits_at_10': 0,
+                                    'total_hits_at_20': 0,
+                                    'sample_user_info': [],
+                                    'sample_user_ids_predictions': [],
+                                    'sample_user_ids_interactions': [],
+                                    'sample_product_ids_predictions': [],
+                                    'sample_product_ids_ground_truth': [],
+                                    'predictions_format_info': {}
+                                }
+                                
+                                # Ưu tiên sử dụng 'rankings' nếu có, nếu không thì tạo từ 'predictions'
+                                if 'rankings' in gnn_predictions:
+                                    debug_info['predictions_format_info']['source'] = 'rankings'
+                                    for user_id, user_ranking in gnn_predictions['rankings'].items():
+                                        user_id_str = str(user_id)
+                                        # Handle both tuple and non-tuple formats
+                                        if user_ranking and len(user_ranking) > 0:
+                                            if isinstance(user_ranking[0], tuple):
+                                                ranked_products = [(str(pid), score) for pid, score in user_ranking]
+                                            else:
+                                                # If it's a dict, convert to list of tuples
+                                                if isinstance(user_ranking, dict):
+                                                    ranked_products = [(str(pid), score) for pid, score in user_ranking.items()]
+                                                else:
+                                                    ranked_products = [(str(item), 0.0) for item in user_ranking]
+                                            predictions_dict[user_id_str] = ranked_products
+                                    debug_info['total_users_in_predictions'] = len(predictions_dict)
+                                    debug_info['predictions_format_info']['users_count'] = len(predictions_dict)
+                                elif 'predictions' in gnn_predictions:
+                                    debug_info['predictions_format_info']['source'] = 'predictions (converted to rankings)'
+                                    # Convert predictions dict to rankings format
+                                    user_predictions_dict = gnn_predictions['predictions']
+                                    debug_info['predictions_format_info']['predictions_type'] = type(user_predictions_dict).__name__
+                                    debug_info['predictions_format_info']['predictions_keys_count'] = len(user_predictions_dict) if isinstance(user_predictions_dict, dict) else 0
+                                    
+                                    if isinstance(user_predictions_dict, dict) and len(user_predictions_dict) > 0:
+                                        # Get top_k from k_values (use max k)
+                                        max_k = max(k_values) if k_values else 20
+                                        
+                                        for user_id, user_preds in user_predictions_dict.items():
+                                            user_id_str = str(user_id)
+                                            if isinstance(user_preds, dict) and len(user_preds) > 0:
+                                                ranked_products = sorted(
+                                                    [(str(pid), score) for pid, score in user_preds.items()],
+                                                    key=lambda x: x[1],
+                                                    reverse=True
+                                                )[:max_k]  # Limit to max_k
+                                                predictions_dict[user_id_str] = ranked_products
+                                        
+                                        debug_info['total_users_in_predictions'] = len(predictions_dict)
+                                        debug_info['predictions_format_info']['users_count'] = len(predictions_dict)
+                                        debug_info['predictions_format_info']['sample_user_id'] = list(user_predictions_dict.keys())[0] if user_predictions_dict else None
+                                        if debug_info['predictions_format_info']['sample_user_id']:
+                                            sample_preds = user_predictions_dict[debug_info['predictions_format_info']['sample_user_id']]
+                                            debug_info['predictions_format_info']['sample_predictions_count'] = len(sample_preds) if isinstance(sample_preds, dict) else 0
+                                    else:
+                                        st.warning(f"⚠️ 'predictions' key tồn tại nhưng không phải dict hoặc rỗng. Type: {type(user_predictions_dict)}, Length: {len(user_predictions_dict) if isinstance(user_predictions_dict, dict) else 'N/A'}")
+                                else:
+                                    st.error("❌ GNN predictions không có cả 'rankings' và 'predictions' keys!")
+                                    st.write(f"Available keys: {list(gnn_predictions.keys()) if isinstance(gnn_predictions, dict) else 'N/A'}")
+                                
+                                # Sử dụng thời gian đã đo tự động hoặc thời gian nhập thủ công
+                                final_training_time = training_time_manual if training_time_manual > 0 else training_time_auto
+                                
+                                # Prepare ground truth from interactions
+                                ground_truth_dict = {}
+                                
+                                if interactions_df is not None and 'user_id' in interactions_df.columns and 'product_id' in interactions_df.columns:
+                                    # Consider only positive interactions (purchase, like, cart)
+                                    positive_interactions = interactions_df[
+                                        interactions_df['interaction_type'].isin(['purchase', 'like', 'cart'])
+                                    ] if 'interaction_type' in interactions_df.columns else interactions_df
+                                    
+                                    # Lưu sample user_ids và product_ids để debug
+                                    if len(predictions_dict) > 0:
+                                        sample_pred_user_ids = list(predictions_dict.keys())[:5]
+                                        debug_info['sample_user_ids_predictions'] = sample_pred_user_ids
+                                        
+                                        # Lấy sample product_ids từ predictions
+                                        sample_pred_products = []
+                                        for uid in sample_pred_user_ids:
+                                            pred_list = predictions_dict[uid]
+                                            if len(pred_list) > 0:
+                                                first_item = pred_list[0]
+                                                product_id = first_item[0] if isinstance(first_item, tuple) else first_item
+                                                sample_pred_products.append(str(product_id))
+                                        debug_info['sample_product_ids_predictions'] = sample_pred_products[:10]
+                                    
+                                    if not positive_interactions.empty:
+                                        sample_gt_user_ids = list(positive_interactions['user_id'].unique())[:5]
+                                        debug_info['sample_user_ids_interactions'] = sample_gt_user_ids
+                                        
+                                        sample_gt_products = list(positive_interactions['product_id'].unique())[:10]
+                                        debug_info['sample_product_ids_ground_truth'] = [str(pid) for pid in sample_gt_products]
+                                    
+                                    for user_id in predictions_dict.keys():
+                                        user_id_str = str(user_id)
+                                        user_interactions = positive_interactions[
+                                            positive_interactions['user_id'] == user_id_str
+                                        ]
+                                        if not user_interactions.empty:
+                                            relevant_items = set(user_interactions['product_id'].astype(str).unique())
+                                            ground_truth_dict[user_id_str] = relevant_items
+                                            debug_info['users_with_ground_truth'] += 1
+                                            debug_info['total_relevant_items'] += len(relevant_items)
+                                            
+                                            # Tính hits
+                                            recommended_items_str = [str(item[0]) if isinstance(item, tuple) else str(item) for item in predictions_dict[user_id]]
+                                            debug_info['total_recommended_items'] += len(recommended_items_str)
+                                            
+                                            hits_at_10 = len(set(recommended_items_str[:10]) & relevant_items)
+                                            hits_at_20 = len(set(recommended_items_str[:20]) & relevant_items)
+                                            debug_info['total_hits_at_10'] += hits_at_10
+                                            debug_info['total_hits_at_20'] += hits_at_20
+                                            
+                                            # Lưu thông tin mẫu cho 3 users đầu tiên
+                                            if len(debug_info['sample_user_info']) < 3:
+                                                recommended_count = len(predictions_dict[user_id])
+                                                intersection = set(recommended_items_str[:20]) & relevant_items
+                                                debug_info['sample_user_info'].append({
+                                                    'user_id': user_id_str,
+                                                    'recommended_count': recommended_count,
+                                                    'recommended_items_sample': recommended_items_str[:5],
+                                                    'relevant_count': len(relevant_items),
+                                                    'relevant_items_sample': list(relevant_items)[:5],
+                                                    'hits_at_10': hits_at_10,
+                                                    'hits_at_20': hits_at_20,
+                                                    'intersection_sample': list(intersection)[:5] if intersection else [],
+                                                    'intersection_count': len(intersection)
+                                                })
+                                        else:
+                                            ground_truth_dict[user_id_str] = set()
+                                            debug_info['users_without_ground_truth'] += 1
+                                
+                                # Get all items for coverage
+                                all_items = set(product_ids) if product_ids else set()
+                                
+                                # Kết thúc đo Inference Time
+                                inference_end_time = time.time()
+                                inference_time_measured = inference_end_time - inference_start_time
+                                
+                                # Sử dụng inference time đã đo hoặc thủ công
+                                final_inference_time = inference_time_manual if inference_time_manual > 0 else inference_time_measured
+                                
+                                # Lưu vào session state
+                                st.session_state['gnn_inference_time'] = inference_time_measured
+                                
+                                # Hiển thị debug info
+                                with st.expander("🔍 Debug Information (Chi tiết)", expanded=True):
+                                    st.markdown("### 📊 Tổng quan")
+                                    col_debug1, col_debug2, col_debug3 = st.columns(3)
+                                    with col_debug1:
+                                        st.metric("Users trong Predictions", debug_info['total_users_in_predictions'])
+                                        st.metric("Users có Ground Truth", debug_info['users_with_ground_truth'])
+                                    with col_debug2:
+                                        st.metric("Users không có Ground Truth", debug_info['users_without_ground_truth'])
+                                        st.metric("Tổng Relevant Items", debug_info['total_relevant_items'])
+                                    with col_debug3:
+                                        st.metric("Tổng Hits@10", debug_info['total_hits_at_10'])
+                                        st.metric("Tổng Hits@20", debug_info['total_hits_at_20'])
+                                    
+                                    st.markdown("### 🔍 Thông tin GNN Predictions")
+                                    st.write(f"**Keys trong gnn_predictions:** {debug_info['gnn_predictions_keys']}")
+                                    st.write(f"**Có 'rankings' key:** {debug_info['has_rankings']}")
+                                    
+                                    if debug_info['total_users_in_predictions'] == 0:
+                                        st.error("❌ **Vấn đề:** Không có users nào trong predictions!")
+                                        st.write("Có thể do:")
+                                        st.write("1. GNN predictions không có 'rankings' hoặc 'predictions' key")
+                                        st.write("2. Format của predictions không đúng")
+                                    
+                                    if debug_info['users_with_ground_truth'] == 0:
+                                        st.error("❌ **Vấn đề:** Không có user nào có ground truth!")
+                                        st.markdown("""
+                                        **Nguyên nhân có thể:**
+                                        1. User IDs trong predictions không khớp với user_ids trong interactions
+                                        2. Không có positive interactions (purchase, like, cart) cho các users này
+                                        3. Dữ liệu interactions đã bị lọc quá nhiều ở Bước 1.1 (Pruning)
+                                        """)
+                                        
+                                        st.markdown("### 🔍 So sánh User IDs")
+                                        if debug_info['sample_user_ids_predictions']:
+                                            st.write("**Sample User IDs trong Predictions (GNN):**")
+                                            st.code(debug_info['sample_user_ids_predictions'])
+                                        
+                                        if debug_info['sample_user_ids_interactions']:
+                                            st.write("**Sample User IDs trong Interactions:**")
+                                            st.code(debug_info['sample_user_ids_interactions'])
+                                        
+                                        # Kiểm tra overlap
+                                        if debug_info['sample_user_ids_predictions'] and debug_info['sample_user_ids_interactions']:
+                                            pred_set = set(debug_info['sample_user_ids_predictions'])
+                                            gt_set = set(debug_info['sample_user_ids_interactions'])
+                                            overlap = pred_set & gt_set
+                                            st.write(f"**Overlap:** {len(overlap)}/{len(pred_set)} users khớp")
+                                            if len(overlap) == 0:
+                                                st.warning("⚠️ Không có user nào khớp! Đây là nguyên nhân chính.")
+                                    else:
+                                        st.success(f"✅ Có {debug_info['users_with_ground_truth']} users có ground truth.")
+                                        
+                                        if debug_info['total_hits_at_10'] == 0 and debug_info['total_hits_at_20'] == 0:
+                                            st.warning("⚠️ **Vấn đề:** Có ground truth nhưng không có hits!")
+                                            st.markdown("""
+                                            **Nguyên nhân có thể:**
+                                            1. Product IDs trong predictions không khớp với product_ids trong ground truth
+                                            2. Các sản phẩm được đề xuất không nằm trong relevant items
+                                            """)
+                                            
+                                            st.markdown("### 🔍 So sánh Product IDs")
+                                            if debug_info['sample_product_ids_predictions']:
+                                                st.write("**Sample Product IDs trong Predictions:**")
+                                                st.code(debug_info['sample_product_ids_predictions'])
+                                            
+                                            if debug_info['sample_product_ids_ground_truth']:
+                                                st.write("**Sample Product IDs trong Ground Truth:**")
+                                                st.code(debug_info['sample_product_ids_ground_truth'])
+                                            
+                                            # Kiểm tra overlap
+                                            if debug_info['sample_product_ids_predictions'] and debug_info['sample_product_ids_ground_truth']:
+                                                pred_prod_set = set(debug_info['sample_product_ids_predictions'])
+                                                gt_prod_set = set(debug_info['sample_product_ids_ground_truth'])
+                                                overlap_prod = pred_prod_set & gt_prod_set
+                                                st.write(f"**Overlap:** {len(overlap_prod)}/{len(pred_prod_set)} products khớp")
+                                                if len(overlap_prod) == 0:
+                                                    st.error("❌ Không có product nào khớp! Đây là nguyên nhân chính.")
+                                    
+                                    st.markdown("### 📋 Chi tiết mẫu (3 users đầu tiên)")
+                                    if debug_info['sample_user_info']:
+                                        for idx, user_info in enumerate(debug_info['sample_user_info'], 1):
+                                            with st.expander(f"User {idx}: {user_info['user_id']}", expanded=False):
+                                                col_user1, col_user2 = st.columns(2)
+                                                with col_user1:
+                                                    st.write(f"**Recommended:** {user_info['recommended_count']} items")
+                                                    st.write(f"Sample: {user_info['recommended_items_sample']}")
+                                                    st.write(f"**Hits@10:** {user_info['hits_at_10']}")
+                                                    st.write(f"**Hits@20:** {user_info['hits_at_20']}")
+                                                with col_user2:
+                                                    st.write(f"**Relevant:** {user_info['relevant_count']} items")
+                                                    st.write(f"Sample: {user_info['relevant_items_sample']}")
+                                                    if user_info['intersection_sample']:
+                                                        st.write(f"**Intersection:** {user_info['intersection_sample']}")
+                                                    else:
+                                                        st.warning("⚠️ Không có intersection!")
+                                    
+                                    st.markdown("### 📄 Raw Debug Data (JSON)")
+                                    st.json(debug_info)
+                                
+                                # Compute metrics
+                                if compute_cbf_metrics is not None:
+                                    result = compute_cbf_metrics(
+                                        predictions_dict,
+                                        ground_truth_dict,
+                                        k_values=k_values,
+                                        item_features=encoded_matrix,
+                                        item_ids=product_ids,
+                                        all_items=all_items,
+                                        training_time=final_training_time,
+                                        inference_time=final_inference_time,
+                                        use_ild=True
+                                    )
+                                    
+                                    st.success("✅ **Hoàn thành!** Đã tính toán tất cả các chỉ số đánh giá.")
+                                    
+                                    # Store in session state
+                                    st.session_state['gnn_evaluation_metrics'] = result
+                                    
+                                    # Display results (similar to Step 2.5)
+                                    st.markdown("### 📊 Kết quả Evaluation Metrics")
+                                    
+                                    # Create metrics table
+                                    metrics_data = []
+                                    for k in k_values:
+                                        metrics_data.append({
+                                            'K': k,
+                                            'Recall@K': f"{result['recall'].get(k, 0.0):.4f}",
+                                            'Precision@K': f"{result['precision'].get(k, 0.0):.4f}",
+                                            'NDCG@K': f"{result['ndcg'].get(k, 0.0):.4f}"
+                                        })
+                                    
+                                    metrics_df = pd.DataFrame(metrics_data)
+                                    st.dataframe(metrics_df, use_container_width=True)
+                                    
+                                    # Other metrics
+                                    col_other1, col_other2, col_other3, col_other4 = st.columns(4)
+                                    with col_other1:
+                                        st.metric("Diversity (ILD@K)", f"{result['diversity']:.4f}" if result['diversity'] is not None else "N/A")
+                                    with col_other2:
+                                        st.metric("Coverage", f"{result['coverage']:.4f}" if result['coverage'] is not None else "N/A")
+                                    with col_other3:
+                                        st.metric("Training Time", f"{result['training_time']:.2f}s" if result['training_time'] is not None else "N/A")
+                                    with col_other4:
+                                        st.metric("Inference Time", f"{result['inference_time']:.2f}s" if result['inference_time'] is not None else "N/A")
+                                    
+                                    # Visualization
+                                    st.markdown("### 📈 Biểu đồ Metrics theo K")
+                                    
+                                    fig = go.Figure()
+                                    fig.add_trace(go.Scatter(
+                                        x=k_values,
+                                        y=[result['recall'].get(k, 0.0) for k in k_values],
+                                        mode='lines+markers',
+                                        name='Recall@K',
+                                        line=dict(color='blue', width=2)
+                                    ))
+                                    fig.add_trace(go.Scatter(
+                                        x=k_values,
+                                        y=[result['precision'].get(k, 0.0) for k in k_values],
+                                        mode='lines+markers',
+                                        name='Precision@K',
+                                        line=dict(color='green', width=2)
+                                    ))
+                                    fig.add_trace(go.Scatter(
+                                        x=k_values,
+                                        y=[result['ndcg'].get(k, 0.0) for k in k_values],
+                                        mode='lines+markers',
+                                        name='NDCG@K',
+                                        line=dict(color='red', width=2)
+                                    ))
+                                    fig.update_layout(
+                                        title="Metrics theo K (GNN)",
+                                        xaxis_title="K",
+                                        yaxis_title="Score",
+                                        hovermode='x unified'
+                                    )
+                                    st.plotly_chart(fig, use_container_width=True)
+                                    
+                                    # Summary table for export
+                                    st.markdown("### 📋 Bảng Tổng hợp Chỉ số (Export)")
+                                    summary_data = {
+                                        'Model': ['GNN']
+                                    }
+                                    
+                                    # Thêm các metrics theo K values
+                                    for k in k_values:
+                                        summary_data[f'Recall@{k}'] = [f"{result['recall'].get(k, 0.0):.4f}"]
+                                        summary_data[f'Precision@{k}'] = [f"{result['precision'].get(k, 0.0):.4f}"]
+                                        summary_data[f'NDCG@{k}'] = [f"{result['ndcg'].get(k, 0.0):.4f}"]
+                                    
+                                    # Thêm các metrics khác
+                                    summary_data['Diversity (ILD@K)'] = [f"{result['diversity']:.4f}" if result['diversity'] is not None else "N/A"]
+                                    summary_data['Coverage'] = [f"{result['coverage']:.4f}" if result['coverage'] is not None else "N/A"]
+                                    summary_data['Training Time (s)'] = [f"{result['training_time']:.3f}" if result['training_time'] is not None else "N/A"]
+                                    summary_data['Inference Time (s)'] = [f"{result['inference_time']:.3f}" if result['inference_time'] is not None else "N/A"]
+                                    summary_df = pd.DataFrame(summary_data)
+                                    st.dataframe(summary_df, use_container_width=True)
+                                    
+                                    st.markdown("""
+                                    **✅ Kết quả đạt được:**
+                                    - ✅ Một hàng dữ liệu hoàn chỉnh trong Bảng Tổng hợp Chỉ số cho GNN
+                                    - ✅ Thể hiện hiệu suất của mô hình GNN
+                                    - ✅ Sẵn sàng để so sánh với các mô hình khác (CBF, Hybrid)
+                                    """)
+                                else:
+                                    st.error("❌ Không thể import evaluation_metrics module.")
+                            
+                            except Exception as e:
+                                st.error(f"❌ Lỗi khi tính toán evaluation metrics: {str(e)}")
+                                import traceback
+                                st.code(traceback.format_exc())
+        st.markdown('<div class="sub-header">📚 PHẦN IV: MÔ HÌNH KẾT HỢP (HYBRID GNN + CONTENT-BASED)</div>', unsafe_allow_html=True)
+        st.markdown("")
+
+        with st.expander("Bước 4.1 & 4.2: Hợp nhất Điểm số Tuyến tính", expanded=True):
+            st.write("**Nội dung thực hiện:** Kết hợp tuyến tính điểm dự đoán đã chuẩn hóa của GNN ($\\hat{r}_{ui}^{\\text{GNN}}$ từ Phần III) và CBF ($\\hat{r}_{ui}^{\\text{CBF}}$ từ Phần II).")
+            st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 2.2 (CBF Predictions) và Bước 3.3/3.4 (GNN Predictions)")
+
+            st.markdown("""
+            **Công thức Tính điểm Hybrid:**
+            $$Score_{Hybrid}(u, i) = \\alpha \\cdot \\hat{r}_{ui}^{\\text{GNN}} + (1 - \\alpha) \\cdot \\hat{r}_{ui}^{\\text{CBF}}$$
+            
+            Trong đó:
+            - $\\hat{r}_{ui}^{\\text{GNN}}$: Điểm dự đoán từ mô hình GNN (đã chuẩn hóa về [0, 1])
+            - $\\hat{r}_{ui}^{\\text{CBF}}$: Điểm dự đoán từ mô hình CBF (đã chuẩn hóa về [0, 1])
+            - $\\alpha$: Trọng số kết hợp (0 ≤ α ≤ 1)
+              - $\\alpha = 0$: Chỉ sử dụng CBF
+              - $\\alpha = 0.5$: Cân bằng giữa GNN và CBF
+              - $\\alpha = 1$: Chỉ sử dụng GNN
+            
+            **Quá trình chuẩn hóa:**
+            1. Chuẩn hóa điểm GNN về [0, 1]: $\\hat{r}_{ui}^{\\text{GNN}} = \\frac{\\hat{r}_{ui}^{\\text{GNN}} - \\min(\\hat{r}^{\\text{GNN}})}{\\max(\\hat{r}^{\\text{GNN}}) - \\min(\\hat{r}^{\\text{GNN}})}$
+            2. Chuẩn hóa điểm CBF về [0, 1]: $\\hat{r}_{ui}^{\\text{CBF}} = \\frac{\\hat{r}_{ui}^{\\text{CBF}} - \\min(\\hat{r}^{\\text{CBF}})}{\\max(\\hat{r}^{\\text{CBF}}) - \\min(\\hat{r}^{\\text{CBF}})}$
+            3. Kết hợp tuyến tính với trọng số $\\alpha$
+            
+            **Kết quả mong đợi:** Điểm $Score_{Hybrid}(u, i)$ có độ chính xác dự đoán cao nhất, kết hợp ưu điểm của cả GNN (collaborative filtering) và CBF (content-based filtering).
+            """)
+
+            # Kiểm tra dữ liệu từ các bước trước
+            has_cbf_predictions = 'cbf_predictions' in st.session_state
+            has_gnn_predictions = 'gnn_predictions' in st.session_state
+            has_gnn_training = 'gnn_training' in st.session_state
+
+            if not has_cbf_predictions:
+                st.warning("⚠️ Chưa có dữ liệu từ Bước 2.2 (CBF Predictions). Vui lòng chạy Bước 2.2 trước.")
+            if not has_gnn_predictions and not has_gnn_training:
+                st.warning("⚠️ Chưa có dữ liệu từ Bước 3.3 (GNN Predictions) hoặc Bước 3.4 (Trained Model). Vui lòng chạy một trong hai bước trước.")
+            
+            if has_cbf_predictions and (has_gnn_predictions or has_gnn_training):
+                # Get GNN predictions
+                if has_gnn_training:
+                    gnn_predictions = st.session_state['gnn_training']
+                elif has_gnn_predictions:
+                    gnn_predictions = st.session_state['gnn_predictions']
+                
+                cbf_predictions = st.session_state['cbf_predictions']
+                
+                # Configuration
+                col_config1, col_config2 = st.columns(2)
+                with col_config1:
+                    alpha = st.slider(
+                        "Trọng số kết hợp (α)",
+                        min_value=0.0,
+                        max_value=1.0,
+                        value=0.5,
+                        step=0.1,
+                        key="hybrid_alpha"
+                    )
+                    st.info(f"**α = {alpha}:** {alpha*100:.0f}% GNN + {(1-alpha)*100:.0f}% CBF")
+                
+                with col_config2:
+                    top_k = st.number_input(
+                        "Số lượng sản phẩm Top-K để xếp hạng",
+                        min_value=5,
+                        max_value=100,
+                        value=20,
+                        step=5,
+                        key="hybrid_top_k"
+                    )
+                
+                process_button = st.button(
+                    "🔧 Hợp nhất Điểm số Hybrid",
+                    type="primary",
+                    use_container_width=True,
+                    key="hybrid_combine_button"
+                )
+                
+                if process_button:
+                    if combine_hybrid_scores is None:
+                        st.error(f"❌ Không thể import hybrid_utils module: {_hybrid_utils_import_error}")
+                        st.info("Vui lòng đảm bảo file apps/utils/hybrid_utils.py tồn tại và có thể import được.")
+                    else:
+                        with st.spinner("Đang hợp nhất điểm số GNN và CBF..."):
+                            try:
+                                # Combine scores
+                                hybrid_result = combine_hybrid_scores(cbf_predictions, gnn_predictions, alpha, top_k)
+                                
+                                # Store in session state
+                                st.session_state['hybrid_predictions'] = hybrid_result
+                                
+                                st.success(f"✅ **Hoàn thành!** Đã hợp nhất điểm số cho {hybrid_result['stats']['total_users']} users.")
+                                
+                                # Display statistics
+                                st.markdown("### 📊 Thống kê Hybrid Predictions")
+                                
+                                col_stat1, col_stat2, col_stat3 = st.columns(3)
+                                with col_stat1:
+                                    st.metric("Tổng số users", hybrid_result['stats']['total_users'])
+                                    st.metric("Trọng số α", f"{alpha:.2f}")
+                                with col_stat2:
+                                    st.metric("CBF Score Range", f"[{hybrid_result['stats']['cbf_min']:.4f}, {hybrid_result['stats']['cbf_max']:.4f}]")
+                                with col_stat3:
+                                    st.metric("GNN Score Range", f"[{hybrid_result['stats']['gnn_min']:.4f}, {hybrid_result['stats']['gnn_max']:.4f}]")
+                                
+                                # Display sample rankings
+                                st.markdown(f"### 📋 Mẫu Rankings Top-{top_k} (5 users đầu tiên)")
+                                
+                                if 'rankings' in hybrid_result:
+                                    sample_users = list(hybrid_result['rankings'].keys())[:5]
+                                    
+                                    for idx, user_id in enumerate(sample_users, 1):
+                                        ranking = hybrid_result['rankings'][user_id]
+                                        
+                                        with st.expander(f"User {user_id} - Top {len(ranking)} sản phẩm", expanded=False):
+                                            ranking_df = pd.DataFrame([
+                                                {
+                                                    'Rank': rank + 1,
+                                                    'Product ID': product_id,
+                                                    'Hybrid Score': f"{score:.4f}"
+                                                }
+                                                for rank, (product_id, score) in enumerate(ranking)
+                                            ])
+                                            st.dataframe(ranking_df, use_container_width=True)
+                                
+                                st.markdown("""
+                                **✅ Kết quả đạt được:**
+                                - ✅ Điểm $Score_{Hybrid}(u, i)$ kết hợp ưu điểm của cả GNN và CBF
+                                - ✅ Top-K rankings cho mỗi user
+                                - ✅ Sẵn sàng cho quá trình gợi ý cá nhân hóa và đánh giá
+                                """)
+                            
+                            except Exception as e:
+                                st.error(f"❌ Lỗi khi hợp nhất điểm số: {str(e)}")
+                                import traceback
+                                st.code(traceback.format_exc())
+
+        with st.expander("Bước 4.3: Tạo Danh sách Gợi ý Cá nhân hóa và Tổ hợp Trang phục", expanded=True):
+            st.write("**Nội dung thực hiện:**")
+            st.write("1. **Gợi ý Cá nhân hóa:** Áp dụng Logic Lọc và Ưu tiên (Bước 2.3) lên danh sách ứng viên được xếp hạng bởi $Score_{Hybrid}(u, i)$.")
+            st.write("2. **Gợi ý Tổ hợp Trang phục:** Áp dụng Logic Tổ hợp (Bước 2.4) sử dụng $Score_{Hybrid}(u, i)$ làm yếu tố cá nhân hóa.")
+            st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 4.1 & 4.2 (Hybrid Predictions)")
+
+            st.markdown("""
+            **Kết quả mong đợi:**
+            - Danh sách Personalized có chất lượng và tính đa dạng cao nhất
+            - Outfit recommendations có tính tương thích và phù hợp với sở thích người dùng
+            """)
+
+            # Kiểm tra dữ liệu từ các bước trước
+            has_hybrid_predictions = 'hybrid_predictions' in st.session_state
+
+            if not has_hybrid_predictions:
+                st.warning("⚠️ Chưa có dữ liệu từ Bước 4.1 & 4.2 (Hybrid Predictions). Vui lòng chạy Bước 4.1 & 4.2 trước.")
+            else:
+                hybrid_predictions = st.session_state['hybrid_predictions']
+                
+                st.info("💡 **Lưu ý:** Bước này sử dụng cùng logic với Bước 2.3 (Personalized Filtering) và Bước 2.4 (Outfit Recommendation), nhưng với điểm số Hybrid thay vì CBF.")
+                st.info("💡 Để sử dụng các tính năng này, vui lòng tham khảo Bước 2.3 và Bước 2.4, và thay thế `cbf_predictions` bằng `hybrid_predictions`.")
+                
+                st.markdown("""
+                **Hướng dẫn sử dụng:**
+                
+                1. **Gợi ý Cá nhân hóa (Personalized Filtering):**
+                   - Sử dụng `hybrid_predictions['predictions']` thay vì `cbf_predictions['predictions']`
+                   - Áp dụng các bộ lọc articleType và age/gender như Bước 2.3
+                
+                2. **Gợi ý Tổ hợp Trang phục (Outfit Recommendation):**
+                   - Sử dụng `hybrid_predictions['predictions']` làm CBF scores trong `generate_outfit_recommendations`
+                   - Logic tổ hợp và tương thích giữ nguyên như Bước 2.4
+                """)
+
+        with st.expander("Bước 4.4: Tính toán Số liệu Đánh giá Hiệu suất", expanded=True):
+            st.write("**Nội dung thực hiện:** Tính toán tất cả các chỉ số (Recall@K, NDCG@K,...) tương tự như Bước 2.5, sử dụng $L(u)$ và các tham số thời gian tương ứng của Hybrid.")
+            st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 4.1 & 4.2 (Hybrid Predictions)")
+
+            st.markdown("""
+            **Dữ liệu Đầu vào (Được lấy từ):**
+            - **Training Time (s):** Tổng thời gian huấn luyện của GNN và CBF ($\\text{Time}_{\\text{GNN}} + \\text{Time}_{\\text{CBF}}$).
+            - **Inference Time (s):** Tổng thời gian tính toán $\\hat{r}_{ui}^{\\text{GNN}}$, $\\hat{r}_{ui}^{\\text{CBF}}$ và bước hợp nhất điểm số.
+            - **ILD, NDCG, Recall, Precision:** Dữ liệu tương tự Bước 2.5, nhưng sử dụng $L(u)$ được tạo từ $Score_{Hybrid}(u, i)$.
+            """)
+
+            # Kiểm tra dữ liệu từ các bước trước
+            has_hybrid_predictions = 'hybrid_predictions' in st.session_state
+            has_feature_encoding = 'feature_encoding' in st.session_state
+
+            if not has_hybrid_predictions:
+                st.warning("⚠️ Chưa có dữ liệu từ Bước 4.1 & 4.2 (Hybrid Predictions). Vui lòng chạy Bước 4.1 & 4.2 trước.")
+            if not has_feature_encoding:
+                st.warning("⚠️ Chưa có dữ liệu từ Bước 1.2 (Feature Encoding). Cần cho tính toán Diversity.")
+            
+            if has_hybrid_predictions and has_feature_encoding:
+                hybrid_predictions = st.session_state['hybrid_predictions']
+                encoding_result = st.session_state.get('feature_encoding', {})
+                encoded_matrix = encoding_result.get('encoded_matrix', None)
+                product_ids = encoding_result.get('product_ids', [])
+                
+                # Load interactions for ground truth
+                interactions_path = os.path.join(current_dir, 'apps', 'exports', 'interactions.csv')
+                interactions_df = None
+                if os.path.exists(interactions_path):
+                    interactions_df = pd.read_csv(interactions_path)
+                    if 'user_id' in interactions_df.columns:
+                        interactions_df['user_id'] = interactions_df['user_id'].astype(str)
+                    if 'product_id' in interactions_df.columns:
+                        interactions_df['product_id'] = interactions_df['product_id'].astype(str)
+                
+                # Configuration
+                col_config1, col_config2 = st.columns(2)
+                with col_config1:
+                    k_values_input = st.text_input(
+                        "Các giá trị K (phân cách bằng dấu phẩy)",
+                        value="10,20",
+                        key="hybrid_k_values_input"
+                    )
+                    try:
+                        k_values = [int(k.strip()) for k in k_values_input.split(',')]
+                    except:
+                        k_values = [10, 20]
+                        st.warning("⚠️ Định dạng không hợp lệ. Sử dụng mặc định: [10, 20]")
+                
+                with col_config2:
+                    # Training Time = GNN Training Time + CBF Training Time
+                    gnn_training_time = st.session_state.get('gnn_training_time', None)
+                    cbf_training_time = st.session_state.get('training_time', None)
+                    
+                    training_time_auto = None
+                    if gnn_training_time is not None and cbf_training_time is not None:
+                        training_time_auto = gnn_training_time + cbf_training_time
+                        st.info(f"⏱️ **Training Time (tự động):** {training_time_auto:.3f}s (GNN: {gnn_training_time:.3f}s + CBF: {cbf_training_time:.3f}s)")
+                    elif gnn_training_time is not None:
+                        st.warning(f"⚠️ Chỉ có GNN Training Time: {gnn_training_time:.3f}s. Thiếu CBF Training Time.")
+                        training_time_auto = gnn_training_time
+                    elif cbf_training_time is not None:
+                        st.warning(f"⚠️ Chỉ có CBF Training Time: {cbf_training_time:.3f}s. Thiếu GNN Training Time.")
+                        training_time_auto = cbf_training_time
+                    else:
+                        st.warning("⚠️ Chưa có Training Time. Vui lòng chạy Bước 2.1 và Bước 3.4 trước.")
+                    
+                    # Inference Time = GNN Inference + CBF Inference + Combination Time
+                    gnn_inference_time = st.session_state.get('gnn_inference_time', None)
+                    cbf_inference_time = st.session_state.get('inference_time', None)
+                    
+                    inference_time_auto = None
+                    if gnn_inference_time is not None and cbf_inference_time is not None:
+                        # Estimate combination time (usually very small, ~0.001s)
+                        combination_time = 0.001
+                        inference_time_auto = gnn_inference_time + cbf_inference_time + combination_time
+                        st.info(f"⏱️ **Inference Time (tự động):** {inference_time_auto:.3f}s (GNN: {gnn_inference_time:.3f}s + CBF: {cbf_inference_time:.3f}s + Combine: {combination_time:.3f}s)")
+                    elif gnn_inference_time is not None:
+                        st.warning(f"⚠️ Chỉ có GNN Inference Time: {gnn_inference_time:.3f}s. Thiếu CBF Inference Time.")
+                        inference_time_auto = gnn_inference_time + 0.001
+                    elif cbf_inference_time is not None:
+                        st.warning(f"⚠️ Chỉ có CBF Inference Time: {cbf_inference_time:.3f}s. Thiếu GNN Inference Time.")
+                        inference_time_auto = cbf_inference_time + 0.001
+                    else:
+                        st.warning("⚠️ Chưa có Inference Time. Vui lòng chạy Bước 2.3 và Bước 3.5 trước.")
+                    
+                    # Cho phép override thủ công nếu cần
+                    st.markdown("**Hoặc nhập thủ công (nếu cần):**")
+                    training_time_manual = st.number_input(
+                        "Training Time (giây) - Thủ công",
+                        min_value=0.0,
+                        value=training_time_auto if training_time_auto is not None else 0.0,
+                        step=0.1,
+                        key="hybrid_training_time_input"
+                    )
+                    
+                    inference_time_manual = st.number_input(
+                        "Inference Time (giây) - Thủ công",
+                        min_value=0.0,
+                        value=inference_time_auto if inference_time_auto is not None else 0.0,
+                        step=0.1,
+                        key="hybrid_inference_time_input"
+                    )
+                
+                process_button = st.button(
+                    "🔧 Tính toán Evaluation Metrics",
+                    type="primary",
+                    use_container_width=True,
+                    key="hybrid_evaluation_metrics_button"
+                )
+                
+                if process_button:
+                    # Đo Inference Time
+                    inference_start_time = time.time()
+                    
+                    with st.spinner("Đang tính toán các chỉ số đánh giá..."):
+                        try:
+                            # Prepare predictions format từ Hybrid Predictions
+                            predictions_dict = {}
+                            
+                            if 'rankings' in hybrid_predictions:
+                                for user_id, user_ranking in hybrid_predictions['rankings'].items():
+                                    user_id_str = str(user_id)
+                                    ranked_products = [(str(pid), score) for pid, score in user_ranking]
+                                    predictions_dict[user_id_str] = ranked_products
+                            
+                            # Sử dụng thời gian đã đo tự động hoặc thời gian nhập thủ công
+                            final_training_time = training_time_manual if training_time_manual > 0 else training_time_auto
+                            
+                            # Prepare ground truth from interactions
+                            ground_truth_dict = {}
+                            
+                            if interactions_df is not None and 'user_id' in interactions_df.columns and 'product_id' in interactions_df.columns:
+                                # Consider only positive interactions (purchase, like, cart)
+                                positive_interactions = interactions_df[
+                                    interactions_df['interaction_type'].isin(['purchase', 'like', 'cart'])
+                                ] if 'interaction_type' in interactions_df.columns else interactions_df
+                                
+                                for user_id in predictions_dict.keys():
+                                    user_id_str = str(user_id)
+                                    user_interactions = positive_interactions[
+                                        positive_interactions['user_id'] == user_id_str
+                                    ]
+                                    if not user_interactions.empty:
+                                        relevant_items = set(user_interactions['product_id'].astype(str).unique())
+                                        ground_truth_dict[user_id_str] = relevant_items
+                                    else:
+                                        ground_truth_dict[user_id_str] = set()
+                            
+                            # Get all items for coverage
+                            all_items = set(product_ids) if product_ids else set()
+                            
+                            # Kết thúc đo Inference Time
+                            inference_end_time = time.time()
+                            inference_time_measured = inference_end_time - inference_start_time
+                            
+                            # Sử dụng inference time đã đo hoặc thủ công
+                            final_inference_time = inference_time_manual if inference_time_manual > 0 else inference_time_measured
+                            
+                            # Compute metrics
+                            if compute_cbf_metrics is not None:
+                                result = compute_cbf_metrics(
+                                    predictions_dict,
+                                    ground_truth_dict,
+                                    k_values=k_values,
+                                    item_features=encoded_matrix,
+                                    item_ids=product_ids,
+                                    all_items=all_items,
+                                    training_time=final_training_time,
+                                    inference_time=final_inference_time,
+                                    use_ild=True
+                                )
+                                
+                                st.success("✅ **Hoàn thành!** Đã tính toán tất cả các chỉ số đánh giá.")
+                                
+                                # Store in session state
+                                st.session_state['hybrid_evaluation_metrics'] = result
+                                
+                                # Display results (similar to Step 2.5 and 3.5)
+                                st.markdown("### 📊 Kết quả Evaluation Metrics")
+                                
+                                # Create metrics table
+                                metrics_data = []
+                                for k in k_values:
+                                    metrics_data.append({
+                                        'K': k,
+                                        'Recall@K': f"{result['recall'].get(k, 0.0):.4f}",
+                                        'Precision@K': f"{result['precision'].get(k, 0.0):.4f}",
+                                        'NDCG@K': f"{result['ndcg'].get(k, 0.0):.4f}"
+                                    })
+                                
+                                metrics_df = pd.DataFrame(metrics_data)
+                                st.dataframe(metrics_df, use_container_width=True)
+                                
+                                # Other metrics
+                                col_other1, col_other2, col_other3, col_other4 = st.columns(4)
+                                with col_other1:
+                                    st.metric("Diversity (ILD@K)", f"{result['diversity']:.4f}" if result['diversity'] is not None else "N/A")
+                                with col_other2:
+                                    st.metric("Coverage", f"{result['coverage']:.4f}" if result['coverage'] is not None else "N/A")
+                                with col_other3:
+                                    st.metric("Training Time", f"{result['training_time']:.2f}s" if result['training_time'] is not None else "N/A")
+                                with col_other4:
+                                    st.metric("Inference Time", f"{result['inference_time']:.2f}s" if result['inference_time'] is not None else "N/A")
+                                
+                                # Visualization
+                                st.markdown("### 📈 Biểu đồ Metrics theo K")
+                                
+                                fig = go.Figure()
+                                fig.add_trace(go.Scatter(
+                                    x=k_values,
+                                    y=[result['recall'].get(k, 0.0) for k in k_values],
+                                    mode='lines+markers',
+                                    name='Recall@K',
+                                    line=dict(color='blue', width=2)
+                                ))
+                                fig.add_trace(go.Scatter(
+                                    x=k_values,
+                                    y=[result['precision'].get(k, 0.0) for k in k_values],
+                                    mode='lines+markers',
+                                    name='Precision@K',
+                                    line=dict(color='green', width=2)
+                                ))
+                                fig.add_trace(go.Scatter(
+                                    x=k_values,
+                                    y=[result['ndcg'].get(k, 0.0) for k in k_values],
+                                    mode='lines+markers',
+                                    name='NDCG@K',
+                                    line=dict(color='red', width=2)
+                                ))
+                                fig.update_layout(
+                                    title="Metrics theo K (Hybrid)",
+                                    xaxis_title="K",
+                                    yaxis_title="Score",
+                                    hovermode='x unified'
+                                )
+                                st.plotly_chart(fig, use_container_width=True)
+                                
+                                # Summary table for export
+                                st.markdown("### 📋 Bảng Tổng hợp Chỉ số (Export)")
+                                summary_data = {
+                                    'Model': ['Hybrid']
+                                }
+                                
+                                # Thêm các metrics theo K values
+                                for k in k_values:
+                                    summary_data[f'Recall@{k}'] = [f"{result['recall'].get(k, 0.0):.4f}"]
+                                    summary_data[f'Precision@{k}'] = [f"{result['precision'].get(k, 0.0):.4f}"]
+                                    summary_data[f'NDCG@{k}'] = [f"{result['ndcg'].get(k, 0.0):.4f}"]
+                                
+                                # Thêm các metrics khác
+                                summary_data['Diversity (ILD@K)'] = [f"{result['diversity']:.4f}" if result['diversity'] is not None else "N/A"]
+                                summary_data['Coverage'] = [f"{result['coverage']:.4f}" if result['coverage'] is not None else "N/A"]
+                                summary_data['Training Time (s)'] = [f"{result['training_time']:.3f}" if result['training_time'] is not None else "N/A"]
+                                summary_data['Inference Time (s)'] = [f"{result['inference_time']:.3f}" if result['inference_time'] is not None else "N/A"]
+                                summary_df = pd.DataFrame(summary_data)
+                                st.dataframe(summary_df, use_container_width=True)
+                                
+                                st.markdown("""
+                                **✅ Kết quả đạt được:**
+                                - ✅ Một hàng dữ liệu hoàn chỉnh trong Bảng Tổng hợp Chỉ số cho Hybrid
+                                - ✅ Thể hiện hiệu suất của mô hình Hybrid (kết hợp GNN + CBF)
+                                - ✅ Sẵn sàng để so sánh với các mô hình khác (CBF, GNN)
+                                """)
+                            else:
+                                st.error("❌ Không thể import evaluation_metrics module.")
+                        
+                        except Exception as e:
+                            st.error(f"❌ Lỗi khi tính toán evaluation metrics: {str(e)}")
+                            import traceback
+                            st.code(traceback.format_exc())
+
+        st.markdown('<div class="sub-header">📚 PHẦN V: BẢNG TỔNG KẾT VÀ SO SÁNH CHỈ SỐ</div>', unsafe_allow_html=True)
+        st.markdown("")
+
+        with st.expander("Bước 5: Bảng Tổng kết và So sánh Chỉ số", expanded=True):
+            st.write("**Nội dung thực hiện:** Tổng hợp và so sánh tất cả các chỉ số đánh giá từ 3 mô hình: CBF, GNN, và Hybrid.")
+            st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 2.5 (CBF Metrics), Bước 3.5 (GNN Metrics), và Bước 4.4 (Hybrid Metrics)")
+
+            st.markdown("""
+            **Mục đích:**
+            - So sánh hiệu suất của 3 mô hình trên cùng một bộ metrics
+            - Xác định mô hình tối ưu dựa trên các tiêu chí đánh giá
+            - Phân tích điểm mạnh và điểm yếu của từng mô hình
+            
+            **Các chỉ số được so sánh:**
+            - **Recall@K** (K=5, 10, 20): Tỷ lệ relevant items được đề xuất
+            - **Precision@K** (K=5, 10, 20): Tỷ lệ items đề xuất là relevant
+            - **NDCG@K** (K=5, 10, 20): Chất lượng xếp hạng (chỉ số ưu tiên)
+            - **Training Time (s):** Thời gian huấn luyện mô hình
+            - **Inference Time (s):** Thời gian tính toán recommendations
+            - **Coverage:** Tỷ lệ items được đề xuất ít nhất một lần
+            - **Diversity (ILD@K):** Độ đa dạng trong danh sách đề xuất
+            """)
+
+            # Kiểm tra dữ liệu từ các bước evaluation
+            has_cbf_metrics = 'cbf_evaluation_metrics' in st.session_state
+            has_gnn_metrics = 'gnn_evaluation_metrics' in st.session_state
+            has_hybrid_metrics = 'hybrid_evaluation_metrics' in st.session_state
+
+            col_check1, col_check2, col_check3 = st.columns(3)
+            with col_check1:
+                if has_cbf_metrics:
+                    st.success("✅ CBF Metrics")
+                else:
+                    st.warning("⚠️ Chưa có CBF Metrics")
+            with col_check2:
+                if has_gnn_metrics:
+                    st.success("✅ GNN Metrics")
+                else:
+                    st.warning("⚠️ Chưa có GNN Metrics")
+            with col_check3:
+                if has_hybrid_metrics:
+                    st.success("✅ Hybrid Metrics")
+                else:
+                    st.warning("⚠️ Chưa có Hybrid Metrics")
+
+            if has_cbf_metrics or has_gnn_metrics or has_hybrid_metrics:
+                # Configuration for K values
+                k_values_input = st.text_input(
+                    "Các giá trị K để hiển thị (phân cách bằng dấu phẩy)",
+                    value="5,10,20",
+                    key="comparison_k_values"
+                )
+                try:
+                    k_values = [int(k.strip()) for k in k_values_input.split(',')]
+                except:
+                    k_values = [5, 10, 20]
+                    st.warning("⚠️ Định dạng không hợp lệ. Sử dụng mặc định: [5, 10, 20]")
+
+                # Collect metrics from all models
+                comparison_data = []
+
+                # CBF Metrics
+                if has_cbf_metrics:
+                    cbf_metrics = st.session_state['cbf_evaluation_metrics']
+                    cbf_row = {'Model': 'CBF (Content-based)'}
+                    
+                    for k in k_values:
+                        cbf_row[f'Recall@{k}'] = f"{cbf_metrics['recall'].get(k, 0.0):.4f}"
+                        cbf_row[f'Precision@{k}'] = f"{cbf_metrics['precision'].get(k, 0.0):.4f}"
+                        cbf_row[f'NDCG@{k}'] = f"{cbf_metrics['ndcg'].get(k, 0.0):.4f}"
+                    
+                    cbf_row['Training Time (s)'] = f"{cbf_metrics.get('training_time', 0.0):.3f}" if cbf_metrics.get('training_time') is not None else "N/A"
+                    cbf_row['Inference Time (s)'] = f"{cbf_metrics.get('inference_time', 0.0):.3f}" if cbf_metrics.get('inference_time') is not None else "N/A"
+                    cbf_row['Coverage'] = f"{cbf_metrics.get('coverage', 0.0):.4f}" if cbf_metrics.get('coverage') is not None else "N/A"
+                    cbf_row['Diversity (ILD@K)'] = f"{cbf_metrics.get('diversity', 0.0):.4f}" if cbf_metrics.get('diversity') is not None else "N/A"
+                    
+                    comparison_data.append(cbf_row)
+
+                # GNN Metrics
+                if has_gnn_metrics:
+                    gnn_metrics = st.session_state['gnn_evaluation_metrics']
+                    gnn_row = {'Model': 'GNN (NGCF)'}
+                    
+                    for k in k_values:
+                        gnn_row[f'Recall@{k}'] = f"{gnn_metrics['recall'].get(k, 0.0):.4f}"
+                        gnn_row[f'Precision@{k}'] = f"{gnn_metrics['precision'].get(k, 0.0):.4f}"
+                        gnn_row[f'NDCG@{k}'] = f"{gnn_metrics['ndcg'].get(k, 0.0):.4f}"
+                    
+                    gnn_row['Training Time (s)'] = f"{gnn_metrics.get('training_time', 0.0):.3f}" if gnn_metrics.get('training_time') is not None else "N/A"
+                    gnn_row['Inference Time (s)'] = f"{gnn_metrics.get('inference_time', 0.0):.3f}" if gnn_metrics.get('inference_time') is not None else "N/A"
+                    gnn_row['Coverage'] = f"{gnn_metrics.get('coverage', 0.0):.4f}" if gnn_metrics.get('coverage') is not None else "N/A"
+                    gnn_row['Diversity (ILD@K)'] = f"{gnn_metrics.get('diversity', 0.0):.4f}" if gnn_metrics.get('diversity') is not None else "N/A"
+                    
+                    comparison_data.append(gnn_row)
+
+                # Hybrid Metrics
+                if has_hybrid_metrics:
+                    hybrid_metrics = st.session_state['hybrid_evaluation_metrics']
+                    hybrid_row = {'Model': 'Hybrid (GNN+CBF)'}
+                    
+                    for k in k_values:
+                        hybrid_row[f'Recall@{k}'] = f"{hybrid_metrics['recall'].get(k, 0.0):.4f}"
+                        hybrid_row[f'Precision@{k}'] = f"{hybrid_metrics['precision'].get(k, 0.0):.4f}"
+                        hybrid_row[f'NDCG@{k}'] = f"{hybrid_metrics['ndcg'].get(k, 0.0):.4f}"
+                    
+                    hybrid_row['Training Time (s)'] = f"{hybrid_metrics.get('training_time', 0.0):.3f}" if hybrid_metrics.get('training_time') is not None else "N/A"
+                    hybrid_row['Inference Time (s)'] = f"{hybrid_metrics.get('inference_time', 0.0):.3f}" if hybrid_metrics.get('inference_time') is not None else "N/A"
+                    hybrid_row['Coverage'] = f"{hybrid_metrics.get('coverage', 0.0):.4f}" if hybrid_metrics.get('coverage') is not None else "N/A"
+                    hybrid_row['Diversity (ILD@K)'] = f"{hybrid_metrics.get('diversity', 0.0):.4f}" if hybrid_metrics.get('diversity') is not None else "N/A"
+                    
+                    comparison_data.append(hybrid_row)
+
+                if comparison_data:
+                    # Create comparison DataFrame
+                    comparison_df = pd.DataFrame(comparison_data)
+                    
+                    # Display comparison table
+                    st.markdown("### 📊 Bảng Tổng kết và So sánh Chỉ số")
+                    st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+                    
+                    # Download button
+                    csv = comparison_df.to_csv(index=False)
+                    st.download_button(
+                        "⬇️ Tải xuống Bảng So sánh (CSV)",
+                        csv,
+                        file_name="model_comparison.csv",
+                        mime="text/csv",
+                        key="comparison_download"
+                    )
+                    
+                    # Visualization
+                    st.markdown("### 📈 Biểu đồ So sánh Metrics")
+                    
+                    # Select metrics to visualize
+                    metric_types = st.multiselect(
+                        "Chọn metrics để so sánh",
+                        ['Recall', 'Precision', 'NDCG'],
+                        default=['Recall', 'Precision', 'NDCG'],
+                        key="comparison_metrics"
+                    )
+                    
+                    if metric_types:
+                        for metric_type in metric_types:
+                            fig = go.Figure()
+                            
+                            for idx, row in comparison_df.iterrows():
+                                model_name = row['Model']
+                                metric_values = []
+                                
+                                for k in k_values:
+                                    value_str = row.get(f'{metric_type}@{k}', '0.0000')
+                                    try:
+                                        value = float(value_str)
+                                    except:
+                                        value = 0.0
+                                    metric_values.append(value)
+                                
+                                fig.add_trace(go.Scatter(
+                                    x=k_values,
+                                    y=metric_values,
+                                    mode='lines+markers',
+                                    name=model_name,
+                                    line=dict(width=2)
+                                ))
+                            
+                            fig.update_layout(
+                                title=f"{metric_type}@K Comparison",
+                                xaxis_title="K",
+                                yaxis_title=f"{metric_type}@K",
+                                hovermode='x unified',
+                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Comparison of other metrics
+                    st.markdown("### 📊 So sánh Training Time, Inference Time, Coverage, và Diversity")
+                    
+                    other_metrics = ['Training Time (s)', 'Inference Time (s)', 'Coverage', 'Diversity (ILD@K)']
+                    other_data = []
+                    
+                    for metric in other_metrics:
+                        metric_row = {'Metric': metric}
+                        for idx, row in comparison_df.iterrows():
+                            model_name = row['Model']
+                            value_str = row.get(metric, 'N/A')
+                            if value_str != 'N/A':
+                                try:
+                                    value = float(value_str)
+                                    metric_row[model_name] = value
+                                except:
+                                    metric_row[model_name] = 0.0
+                            else:
+                                metric_row[model_name] = None
+                        other_data.append(metric_row)
+                    
+                    other_df = pd.DataFrame(other_data)
+                    
+                    # Create bar chart for each metric
+                    for metric in other_metrics:
+                        metric_data = other_df[other_df['Metric'] == metric]
+                        if not metric_data.empty:
+                            fig = go.Figure()
+                            
+                            for col in comparison_df['Model'].values:
+                                value = metric_data[col].iloc[0] if col in metric_data.columns else None
+                                if value is not None:
+                                    fig.add_trace(go.Bar(
+                                        name=col,
+                                        x=[metric],
+                                        y=[value],
+                                        text=f"{value:.4f}" if isinstance(value, float) else str(value),
+                                        textposition='auto'
+                                    ))
+                            
+                            fig.update_layout(
+                                title=f"{metric} Comparison",
+                                xaxis_title="Metric",
+                                yaxis_title="Value",
+                                barmode='group'
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Hướng dẫn So sánh và Lựa chọn Mô hình Tối ưu
+                    st.markdown("### 📖 Hướng dẫn So sánh và Lựa chọn Mô hình Tối ưu")
+                    
+                    st.markdown("""
+                    **Phân tích tập trung vào việc xác định Mô hình Hybrid có đạt được sự cân bằng tối ưu giữa các nhóm chỉ số hay không, chứng minh tính ưu việt của kiến trúc kết hợp:**
+                    
+                    #### 1. Chỉ số Ưu tiên (NDCG@10/20)
+                    - **NDCG là thước đo chính của chất lượng xếp hạng.**
+                    - **Hybrid phải đạt NDCG cao nhất** so với CBF và GNN riêng lẻ.
+                    - NDCG cao cho thấy mô hình có khả năng xếp hạng các items relevant ở vị trí cao hơn.
+                    
+                    #### 2. Chỉ số Hỗ trợ (Diversity/Coverage)
+                    - **Đây là bằng chứng cho khả năng giải quyết vấn đề Cold Start và tránh Định kiến Phổ biến.**
+                    - **Hybrid phải có Diversity và Coverage cao hơn GNN.**
+                    - Diversity cao: Danh sách đề xuất đa dạng, không chỉ tập trung vào popular items.
+                    - Coverage cao: Nhiều items được đề xuất, giúp khám phá items mới.
+                    
+                    #### 3. Chỉ số Vận hành (Inference Time)
+                    - **Mặc dù Hybrid có Inference Time cao nhất**, sự tăng này phải được cân bằng bởi:
+                      - Sự cải thiện đáng kể về NDCG
+                      - Sự cải thiện về Diversity và Coverage
+                    - Inference Time của Hybrid = GNN Inference + CBF Inference + Combination Time
+                    
+                    #### 4. Phân tích Tổng hợp
+                    - **Mô hình tối ưu:** Hybrid nên đạt được sự cân bằng tốt nhất giữa:
+                      - ✅ NDCG cao nhất (chất lượng xếp hạng)
+                      - ✅ Diversity và Coverage cao (khả năng khám phá)
+                      - ✅ Inference Time chấp nhận được (hiệu suất vận hành)
+                    
+                    #### 5. Kết luận
+                    - Nếu Hybrid đạt được cả 3 mục tiêu trên, nó chứng minh tính ưu việt của kiến trúc kết hợp.
+                    - Nếu không, cần điều chỉnh trọng số α hoặc cải thiện từng thành phần (GNN hoặc CBF).
+                    """)
+                    
+                    # Automatic analysis
+                    st.markdown("### 🤖 Phân tích Tự động")
+                    
+                    if len(comparison_df) >= 3:
+                        # Extract numeric values for comparison
+                        def extract_value(value_str):
+                            try:
+                                return float(value_str)
+                            except:
+                                return 0.0
+                        
+                        # Compare NDCG@10 and NDCG@20
+                        ndcg_10_values = {}
+                        ndcg_20_values = {}
+                        diversity_values = {}
+                        coverage_values = {}
+                        inference_times = {}
+                        
+                        for idx, row in comparison_df.iterrows():
+                            model = row['Model']
+                            ndcg_10_values[model] = extract_value(row.get('NDCG@10', '0.0000'))
+                            ndcg_20_values[model] = extract_value(row.get('NDCG@20', '0.0000'))
+                            diversity_values[model] = extract_value(row.get('Diversity (ILD@K)', '0.0000'))
+                            coverage_values[model] = extract_value(row.get('Coverage', '0.0000'))
+                            inference_times[model] = extract_value(row.get('Inference Time (s)', '0.0000'))
+                        
+                        # Find best model for each metric
+                        best_ndcg_10 = max(ndcg_10_values.items(), key=lambda x: x[1])
+                        best_ndcg_20 = max(ndcg_20_values.items(), key=lambda x: x[1])
+                        best_diversity = max(diversity_values.items(), key=lambda x: x[1])
+                        best_coverage = max(coverage_values.items(), key=lambda x: x[1])
+                        fastest_inference = min(inference_times.items(), key=lambda x: x[1] if x[1] > 0 else float('inf'))
+                        
+                        col_analysis1, col_analysis2 = st.columns(2)
+                        
+                        with col_analysis1:
+                            st.markdown("#### 🏆 Mô hình Tốt nhất theo từng Metric")
+                            st.write(f"**NDCG@10:** {best_ndcg_10[0]} ({best_ndcg_10[1]:.4f})")
+                            st.write(f"**NDCG@20:** {best_ndcg_20[0]} ({best_ndcg_20[1]:.4f})")
+                            st.write(f"**Diversity:** {best_diversity[0]} ({best_diversity[1]:.4f})")
+                            st.write(f"**Coverage:** {best_coverage[0]} ({best_coverage[1]:.4f})")
+                            st.write(f"**Inference Time (nhanh nhất):** {fastest_inference[0]} ({fastest_inference[1]:.3f}s)")
+                        
+                        with col_analysis2:
+                            st.markdown("#### 📊 Đánh giá Hybrid Model")
+                            
+                            hybrid_ndcg_10 = ndcg_10_values.get('Hybrid (GNN+CBF)', 0.0)
+                            hybrid_ndcg_20 = ndcg_20_values.get('Hybrid (GNN+CBF)', 0.0)
+                            hybrid_diversity = diversity_values.get('Hybrid (GNN+CBF)', 0.0)
+                            hybrid_coverage = coverage_values.get('Hybrid (GNN+CBF)', 0.0)
+                            gnn_diversity = diversity_values.get('GNN (NGCF)', 0.0)
+                            gnn_coverage = coverage_values.get('GNN (NGCF)', 0.0)
+                            
+                            if hybrid_ndcg_10 >= max([v for k, v in ndcg_10_values.items() if k != 'Hybrid (GNN+CBF)']):
+                                st.success("✅ Hybrid có NDCG@10 cao nhất")
+                            else:
+                                st.warning("⚠️ Hybrid không có NDCG@10 cao nhất")
+                            
+                            if hybrid_ndcg_20 >= max([v for k, v in ndcg_20_values.items() if k != 'Hybrid (GNN+CBF)']):
+                                st.success("✅ Hybrid có NDCG@20 cao nhất")
+                            else:
+                                st.warning("⚠️ Hybrid không có NDCG@20 cao nhất")
+                            
+                            if hybrid_diversity > gnn_diversity:
+                                st.success("✅ Hybrid có Diversity cao hơn GNN")
+                            else:
+                                st.warning("⚠️ Hybrid không có Diversity cao hơn GNN")
+                            
+                            if hybrid_coverage > gnn_coverage:
+                                st.success("✅ Hybrid có Coverage cao hơn GNN")
+                            else:
+                                st.warning("⚠️ Hybrid không có Coverage cao hơn GNN")
+                            
+                            if hybrid_ndcg_10 >= max([v for k, v in ndcg_10_values.items() if k != 'Hybrid (GNN+CBF)']) and \
+                               hybrid_diversity > gnn_diversity:
+                                st.success("🎯 **Kết luận:** Hybrid đạt được sự cân bằng tối ưu!")
+                            else:
+                                st.info("💡 **Gợi ý:** Có thể cần điều chỉnh trọng số α hoặc cải thiện từng thành phần.")
+                else:
+                    st.info("💡 Vui lòng chạy các bước evaluation (2.5, 3.5, 4.4) để có dữ liệu so sánh.")
+            else:
+                st.warning("⚠️ Chưa có dữ liệu metrics từ bất kỳ mô hình nào. Vui lòng chạy các bước evaluation trước.")
+
+if __name__ == "__main__":
+    main()

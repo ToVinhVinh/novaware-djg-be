@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 class RecommendationError(RuntimeError):
+    pass
 
 class ModelNotTrainedError(RecommendationError):
 
