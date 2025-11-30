@@ -1,5 +1,3 @@
-"""ViewSets for order management."""
-
 from __future__ import annotations
 
 from django.utils import timezone
@@ -11,10 +9,9 @@ from apps.utils import api_success
 from .models import Order
 from .serializers import OrderSerializer
 
-
 class OrderViewSet(viewsets.ModelViewSet):
     serializer_class = OrderSerializer
-     
+
     filterset_fields = ["is_paid", "is_processing", "is_outfit_purchase"]
     search_fields = ["id", "user__email"]
     ordering_fields = ["created_at", "total_price"]

@@ -1,5 +1,3 @@
-"""Run a quick end-to-end demo: train one model, recommend with all three, write results."""
-
 from __future__ import annotations
 
 from dataclasses import asdict
@@ -18,7 +16,6 @@ from apps.recommendations.hybrid.models import engine as hybrid_engine, recommen
 from apps.recommendations.common.exceptions import ModelNotTrainedError
 from apps.recommendations.common.filters import CandidateFilter
 from apps.users.models import User, UserInteraction
-
 
 class Command(BaseCommand):
     help = "Train one selected recommendation model, run recommendations for a demo user and product, and log results to a .txt file."
@@ -59,7 +56,6 @@ class Command(BaseCommand):
         self.stdout.write(self.style.NOTICE(f"Demo user: {user.email} (id={user.id})"))
         self.stdout.write(self.style.NOTICE(f"Current product: {product.name} (id={product.id})"))
 
-        # Train one model as requested
         self.stdout.write(self.style.WARNING(f"Training model: {model_to_train} ..."))
         if model_to_train == "cbf":
             cbf_engine.train(force_retrain=True)
@@ -68,7 +64,6 @@ class Command(BaseCommand):
         elif model_to_train == "hybrid":
             hybrid_engine.train(force_retrain=True)
 
-        # Build request params
         request_params = {
             "user_id": str(user.id),
             "current_product_id": str(product.id),
@@ -76,7 +71,6 @@ class Command(BaseCommand):
             "top_k_outfit": top_k_outfit,
         }
 
-        # Collect results for all 3 models; handle untrained gracefully
         results: dict[str, Any] = {}
         for name, fn in {
             "gnn": recommend_gnn,
@@ -94,10 +88,9 @@ class Command(BaseCommand):
                 results[name] = {"status": "ok", "payload": payload}
             except ModelNotTrainedError as exc:
                 results[name] = {"status": "error", "detail": str(exc)}
-            except Exception as exc:  # pragma: no cover - logging unexpected errors
+            except Exception as exc:
                 results[name] = {"status": "error", "detail": f"{type(exc).__name__}: {exc}"}
 
-        # Write to file
         out_path = Path(settings.BASE_DIR) / outfile
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with out_path.open("w", encoding="utf-8") as f:
@@ -127,7 +120,6 @@ class Command(BaseCommand):
         return None
 
     def _ensure_demo_data(self) -> tuple[User, Product]:
-        """Create or retrieve a demo user, categories, a few products, and interactions."""
         cat_tops, _ = Category.objects.get_or_create(name="Tops")
         cat_bottoms, _ = Category.objects.get_or_create(name="Bottoms")
         cat_shoes, _ = Category.objects.get_or_create(name="Shoes")
@@ -136,7 +128,7 @@ class Command(BaseCommand):
         user, _ = User.objects.get_or_create(
             email="demo_user@example.com",
             defaults={
-                "password": "demo123!@#",  # not used for auth in this script
+                "password": "demo123!@
                 "gender": User.Gender.FEMALE,
                 "age": 25,
                 "username": "demo_user",
@@ -209,7 +201,6 @@ class Command(BaseCommand):
             category=cat_accessories,
         )
 
-        # Interactions to form a minimal history
         if not UserInteraction.objects.filter(user=user, product=history_top).exists():
             UserInteraction.objects.create(
                 user=user,
@@ -217,7 +208,6 @@ class Command(BaseCommand):
                 interaction_type=UserInteraction.InteractionType.PURCHASE,
             )
 
-        # Touch CandidateFilter once to ensure pipeline can run without errors
         CandidateFilter.build_context(
             user_id=user.id,
             current_product_id=current.id,
@@ -226,5 +216,4 @@ class Command(BaseCommand):
         )
 
         return user, current
-
 

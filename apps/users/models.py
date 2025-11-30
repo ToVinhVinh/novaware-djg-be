@@ -1,5 +1,3 @@
-"""User models converted from Mongoose to Django ORM."""
-
 from __future__ import annotations
 
 from django.contrib.auth.models import AbstractUser
@@ -8,7 +6,6 @@ from django.db import models
 from django.utils import timezone
 
 from .managers import UserManager
-
 
 class User(AbstractUser):
     class Gender(models.TextChoices):
@@ -43,7 +40,6 @@ class User(AbstractUser):
     user_embedding = models.JSONField(blank=True, default=list)
     content_profile = models.JSONField(blank=True, default=dict)
 
-    # Add related_name to avoid conflicts with default auth.User
     groups = models.ManyToManyField(
         'auth.Group',
         verbose_name='groups',
@@ -52,7 +48,7 @@ class User(AbstractUser):
             'The groups this user belongs to. A user will get all permissions '
             'granted to each of their groups.'
         ),
-        related_name="user_custom_set",  # Unique name
+        related_name="user_custom_set",
         related_query_name="user",
     )
     user_permissions = models.ManyToManyField(
@@ -60,7 +56,7 @@ class User(AbstractUser):
         verbose_name='user permissions',
         blank=True,
         help_text='Specific permissions for this user.',
-        related_name="user_custom_permissions_set",  # Unique name
+        related_name="user_custom_permissions_set",
         related_query_name="user",
     )
 
@@ -109,7 +105,6 @@ class User(AbstractUser):
             "unhashed_reset_password_token",
         ])
 
-
 class UserInteraction(models.Model):
     class InteractionType(models.TextChoices):
         VIEW = "view", "View"
@@ -134,7 +129,6 @@ class UserInteraction(models.Model):
         verbose_name_plural = "User Interactions"
         ordering = ["-timestamp"]
 
-
 class OutfitHistory(models.Model):
     class InteractionType(models.TextChoices):
         VIEW = "view", "View"
@@ -150,7 +144,6 @@ class OutfitHistory(models.Model):
     class Meta:
         db_table = "outfit_history"
         ordering = ["-timestamp"]
-
 
 class PasswordResetAudit(models.Model):
     user = models.ForeignKey(User, related_name="password_reset_audits", on_delete=models.CASCADE)

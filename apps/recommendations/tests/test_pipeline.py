@@ -1,5 +1,3 @@
-"""Unit tests validating recommendation constraints and outfit behaviour."""
-
 from __future__ import annotations
 
 from decimal import Decimal
@@ -11,9 +9,7 @@ from apps.recommendations.common.filters import CandidateFilter
 from apps.recommendations.common.outfit import OutfitBuilder
 from apps.users.models import User, UserInteraction
 
-
 class RecommendationPipelineTests(TestCase):
-    """Ensure critical business rules are enforced in the recommendation flow."""
 
     @classmethod
     def setUpTestData(cls):
@@ -174,5 +170,4 @@ class RecommendationPipelineTests(TestCase):
         outfit_shoe, _ = OutfitBuilder.build(context_shoe, scores_shoe, top_k=2)
 
         self.assertSetEqual(set(outfit_shoe.keys()), {"tops", "bottoms", "accessories"})
-
 

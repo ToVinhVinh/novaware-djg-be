@@ -1,5 +1,3 @@
-"""Mongo-native content-based recommendation engine (CBF)."""
-
 from __future__ import annotations
 
 from typing import Any
@@ -8,7 +6,6 @@ from bson import ObjectId
 
 from apps.recommendations.gnn import mongo_engine as gnn_mongo
 
-
 def recommend_cbf_mongo(
     *,
     user_id: str | ObjectId,
@@ -16,7 +13,7 @@ def recommend_cbf_mongo(
     top_k_personal: int = 5,
     top_k_outfit: int = 4,
 ) -> dict[str, Any]:
-    context = gnn_mongo._build_context(  # type: ignore[attr-defined]
+    context = gnn_mongo._build_context(
         user_id=user_id,
         current_product_id=current_product_id,
         top_k_personal=top_k_personal,
@@ -31,10 +28,10 @@ def recommend_cbf_mongo(
         cid = str(candidate.id)
         if not cid:
             continue
-        style_score = sum(context.style_weights.get(token, 0.0) for token in gnn_mongo._style_tokens(candidate))  # type: ignore[attr-defined]
+        style_score = sum(context.style_weights.get(token, 0.0) for token in gnn_mongo._style_tokens(candidate))
         color_score = sum(
             context.color_weights.get(color, 0.0)
-            for color in gnn_mongo._product_color_tokens(candidate, context.color_cache)  # type: ignore[attr-defined]
+            for color in gnn_mongo._product_color_tokens(candidate, context.color_cache)
         )
         brand_score = 0.0
         if getattr(candidate, "brand_id", None):
@@ -64,9 +61,9 @@ def recommend_cbf_mongo(
 
     def as_item(candidate, score: float) -> dict[str, Any]:
         cid = str(candidate.id)
-        style_tokens = list(gnn_mongo._style_tokens(candidate))  # type: ignore[attr-defined]
-        product_colors = gnn_mongo._product_color_tokens(candidate, context.color_cache)  # type: ignore[attr-defined]
-        reason = gnn_mongo._compose_reason(  # type: ignore[attr-defined]
+        style_tokens = list(gnn_mongo._style_tokens(candidate))
+        product_colors = gnn_mongo._product_color_tokens(candidate, context.color_cache)
+        reason = gnn_mongo._compose_reason(
             context=context,
             product=candidate,
             cand_id=cid,
@@ -81,12 +78,11 @@ def recommend_cbf_mongo(
         return {
             "score": round(float(score), 4),
             "reason": reason,
-            "product": gnn_mongo._as_product_object(candidate, color_cache=context.color_cache),  # type: ignore[attr-defined]
+            "product": gnn_mongo._as_product_object(candidate, color_cache=context.color_cache),
         }
 
     personalized = [as_item(candidate, score) for candidate, score in top_personal]
 
-    # Outfit selection mirrors GNN logic but using sorted scores
     def category_key_for_user(cat: str) -> str | None:
         cat = (cat or "").lower()
         if cat not in {"accessories", "bottoms", "dresses", "shoes", "tops"}:
@@ -103,21 +99,18 @@ def recommend_cbf_mongo(
         required_categories.insert(2, "dresses")
 
     outfit: dict[str, dict[str, Any] | None] = {k: None for k in required_categories}
-    
-    # Always include the current product in its category
+
     current_product = context.current_product
     current_category = getattr(current_product, "category_type", None)
     if current_category and current_category.lower() in [cat.lower() for cat in required_categories]:
         current_category_lower = current_category.lower()
-        # Find the exact key in required_categories (case-insensitive match)
         matching_key = next((cat for cat in required_categories if cat.lower() == current_category_lower), None)
         if matching_key:
             current_id = str(current_product.id)
-            # Calculate score for current product
-            style_score = sum(context.style_weights.get(token, 0.0) for token in gnn_mongo._style_tokens(current_product))  # type: ignore[attr-defined]
+            style_score = sum(context.style_weights.get(token, 0.0) for token in gnn_mongo._style_tokens(current_product))
             color_score = sum(
                 context.color_weights.get(color, 0.0)
-                for color in gnn_mongo._product_color_tokens(current_product, context.color_cache)  # type: ignore[attr-defined]
+                for color in gnn_mongo._product_color_tokens(current_product, context.color_cache)
             )
             brand_score = 0.0
             if getattr(current_product, "brand_id", None):
@@ -134,7 +127,7 @@ def recommend_cbf_mongo(
             popularity = 0.1 * frequency.get(current_id, 0.0)
             current_score = style_score + color_score + brand_score + alignment + popularity
             outfit[matching_key] = as_item(current_product, current_score)
-    
+
     from collections import defaultdict as _defaultdict
 
     by_category: dict[str, list[tuple[Any, float]]] = _defaultdict(list)
@@ -145,7 +138,6 @@ def recommend_cbf_mongo(
         by_category[key].append((candidate, score))
 
     for key in required_categories:
-        # Skip if current product is already in this category
         if outfit.get(key) is not None:
             continue
         entries = by_category.get(key, [])
@@ -153,7 +145,7 @@ def recommend_cbf_mongo(
             candidate, score = sorted(entries, key=lambda tup: tup[1], reverse=True)[0]
             outfit[key] = as_item(candidate, score)
             continue
-        query = gnn_mongo.MongoProduct.objects(category_type=key)  # type: ignore[attr-defined]
+        query = gnn_mongo.MongoProduct.objects(category_type=key)
         if context.excluded_product_ids:
             query = query.filter(__raw__={"_id": {"$nin": list(context.excluded_product_ids)}})
         fallback_candidates = list(query.limit(100))
@@ -169,13 +161,11 @@ def recommend_cbf_mongo(
     for key in required_categories:
         if outfit.get(key) is not None:
             continue
-        # Try to find a product matching the category from scored candidates
         product_found = False
         for candidate, score in scores_sorted:
             cid = str(candidate.id)
             if cid in used_ids:
                 continue
-            # Only use products that match the category
             candidate_category = getattr(candidate, "category_type", None)
             if candidate_category and candidate_category.lower() == key.lower():
                 item = as_item(candidate, score)
@@ -184,13 +174,11 @@ def recommend_cbf_mongo(
                 used_ids.add(cid)
                 product_found = True
                 break
-        
-        # If still no product found, try querying MongoDB for products with correct category
+
         if not product_found:
-            query = gnn_mongo.MongoProduct.objects(category_type=key)  # type: ignore[attr-defined]
+            query = gnn_mongo.MongoProduct.objects(category_type=key)
             if context.excluded_product_ids:
                 query = query.filter(__raw__={"_id": {"$nin": list(context.excluded_product_ids)}})
-            # Also exclude already used products
             if used_ids:
                 used_str_ids = [str(uid) for uid in used_ids if uid]
                 valid_used_ids = [ObjectId(uid) for uid in used_str_ids if ObjectId.is_valid(uid)]
@@ -211,5 +199,4 @@ def recommend_cbf_mongo(
         "outfit": outfit,
         "outfit_complete_score": completeness,
     }
-
 

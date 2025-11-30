@@ -3,13 +3,11 @@
 .python-version
 local_settings.py
 
-# Python caches and compiled files
 __pycache__/
 *.py[cod]
 *$py.class
 *.pyd
 
-# Distribution / packaging
 build/
 develop-eggs/
 dist/
@@ -22,13 +20,11 @@ sdist/
 wheels/
 media/
 
-# Virtual environments
 venv/
 .venv/
 env/
 .envrc
 
-# Testing and coverage
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -36,12 +32,10 @@ env/
 coverage.xml
 htmlcov/
 
-# IDE and tooling
 .vscode/
 .idea/
 .vs/
 
-# Logs and temp files
 *.log
 *.tmp
 *.bak
@@ -49,14 +43,11 @@ htmlcov/
 *.swo
 *.orig
 
-# OS artifacts
 .DS_Store
 Thumbs.db
 
-# Frontend / Node
 node_modules/
 
-# Large data files and artifacts
 *.pkl
 *.sqlite3
 artifacts/

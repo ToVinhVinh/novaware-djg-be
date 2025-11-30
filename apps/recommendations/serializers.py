@@ -1,11 +1,8 @@
-"""Serializer for recommendation system."""
-
 from __future__ import annotations
 
 from rest_framework import serializers
 
 from .models import Outfit, RecommendationLog, RecommendationRequest, RecommendationResult
-
 
 class OutfitSerializer(serializers.ModelSerializer):
     class Meta:
@@ -22,18 +19,15 @@ class OutfitSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
-
 class RecommendationLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = RecommendationLog
         fields = ["id", "message", "created_at"]
 
-
 class RecommendationResultSerializer(serializers.ModelSerializer):
     class Meta:
         model = RecommendationResult
         fields = ["id", "request", "products", "metadata", "created_at"]
-
 
 class RecommendationRequestSerializer(serializers.ModelSerializer):
     result = RecommendationResultSerializer(read_only=True)

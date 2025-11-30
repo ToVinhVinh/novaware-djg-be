@@ -1,11 +1,7 @@
-"""Serializable schema objects for recommendation responses."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, List
-
-
 
 try:
     from bson import ObjectId
@@ -17,26 +13,21 @@ except Exception:
     MongoProduct = None
     ProductVariant = None
 
-# Cache for MongoDB availability check
 _mongo_checked = False
 _mongo_actually_available = None
 
-
-
-
 def _check_mongo_available() -> bool:
-    """Check if MongoDB is actually available (lazy check)."""
     global _mongo_checked, _mongo_actually_available
     if _mongo_checked:
         return _mongo_actually_available
-    
+
     if not MONGO_AVAILABLE or not MongoProduct:
         _mongo_checked = True
         _mongo_actually_available = False
         return False
-    
+
     try:
-        _ = MongoProduct.objects.first()  # Test query
+        _ = MongoProduct.objects.first()
         _mongo_checked = True
         _mongo_actually_available = True
         return True
@@ -45,13 +36,10 @@ def _check_mongo_available() -> bool:
         _mongo_actually_available = False
         return False
 
-
 def _get_mongo_product_id(product: Product) -> str | None:
-    """Try to get MongoDB ObjectId for a Django Product."""
     if not _check_mongo_available() or not MongoProduct:
         return None
-    
-    # Try to find by slug first (most reliable)
+
     slug = getattr(product, "slug", None)
     if slug:
         try:
@@ -60,18 +48,15 @@ def _get_mongo_product_id(product: Product) -> str | None:
                 return str(mongo_product.id)
         except Exception:
             pass
-    
+
     return None
 
-
 def _get_mongo_product_data(product: Product) -> dict[str, Any] | None:
-    """Get MongoDB product data if available."""
     if not _check_mongo_available() or not MongoProduct:
         return None
-    
+
     mongo_product = None
-    
-    # Try to find by slug first (most reliable)
+
     slug = getattr(product, "slug", None)
     if slug:
         try:
@@ -86,8 +71,7 @@ def _get_mongo_product_data(product: Product) -> dict[str, Any] | None:
                 }
         except Exception:
             pass
-    
-    # Try by name and price combination for better matching
+
     product_name = _get_product_name(product)
     price = _get_product_price(product)
     if product_name and price is not None:
@@ -105,8 +89,7 @@ def _get_mongo_product_data(product: Product) -> dict[str, Any] | None:
                     }
         except Exception:
             pass
-    
-    # Try by name only (last resort)
+
     if product_name:
         try:
             mongo_product = MongoProduct.objects(name=product_name).first()
@@ -120,8 +103,7 @@ def _get_mongo_product_data(product: Product) -> dict[str, Any] | None:
                 }
         except Exception:
             pass
-    
-    # Final attempt: Try to find by category_type, gender, age_group, and similar price
+
     product_category = _get_category_type(product)
     product_gender = getattr(product, "gender", None)
     product_age_group = _get_age_group(product)
@@ -132,7 +114,6 @@ def _get_mongo_product_data(product: Product) -> dict[str, Any] | None:
                 gender=product_gender,
                 age_group=product_age_group,
             )
-            # Find the closest price match
             best_match = None
             min_price_diff = float('inf')
             for mp in mongo_products:
@@ -141,7 +122,7 @@ def _get_mongo_product_data(product: Product) -> dict[str, Any] | None:
                     if price_diff < min_price_diff:
                         min_price_diff = price_diff
                         best_match = mp
-            if best_match and min_price_diff < 1000:  # Reasonable price difference
+            if best_match and min_price_diff < 1000:
                 return {
                     "id": str(best_match.id),
                     "name": best_match.name,
@@ -151,14 +132,12 @@ def _get_mongo_product_data(product: Product) -> dict[str, Any] | None:
                 }
         except Exception:
             pass
-    
+
     return None
 
-
 def _serialize_product(product: MongoProduct, original_mongo_id: str | None = None) -> dict[str, Any]:
-    """Serialize a MongoProduct object to a dictionary for the API response."""
     product_id = getattr(product, "id", None)
-    
+
     variants = []
     if ProductVariant is not None:
         try:
@@ -173,7 +152,7 @@ def _serialize_product(product: MongoProduct, original_mongo_id: str | None = No
                 })
         except Exception:
             variants = []
-    
+
     return {
         "id": int(product_id) if product_id is not None else None,
         "gender": getattr(product, "gender", None),
@@ -185,28 +164,25 @@ def _serialize_product(product: MongoProduct, original_mongo_id: str | None = No
         "year": getattr(product, "year", None),
         "usage": getattr(product, "usage", None),
         "productDisplayName": getattr(product, "productDisplayName", getattr(product, "name", None)),
-        
-        # Always return the product's own images, even if the list is empty.
+
         "images": list(getattr(product, "images", [])) or [],
-        
+
         "rating": float(getattr(product, "rating", 0.0)) if getattr(product, "rating", None) is not None else None,
         "sale": float(getattr(product, "sale", 0.0)) if getattr(product, "sale", None) is not None else None,
-        
-        # Default empty lists for fields not currently in the model.
+
         "reviews": [],
         "variants": variants,
-        
+
         "created_at": getattr(product, "created_at", None).isoformat() if getattr(product, "created_at", None) else None,
         "updated_at": getattr(product, "updated_at", None).isoformat() if getattr(product, "updated_at", None) else None,
     }
-
 
 @dataclass(slots=True)
 class PersonalizedRecommendation:
     product: MongoProduct
     score: float
     reason: str
-    context: Any = None  # Optional context for MongoDB ID mapping
+    context: Any = None
 
     def as_dict(self) -> dict[str, Any]:
         mongo_id = None
@@ -217,15 +193,14 @@ class PersonalizedRecommendation:
             "reason": self.reason,
             "product": _serialize_product(self.product, original_mongo_id=mongo_id),
         }
-
 
 @dataclass(slots=True)
 class OutfitRecommendation:
     category: str
-    product: MongoProduct  # Changed to MongoProduct for consistency
+    product: MongoProduct
     score: float
     reason: str = ""
-    context: Any = None  # Optional context for MongoDB ID mapping
+    context: Any = None
 
     def as_dict(self) -> dict[str, Any]:
         mongo_id = None
@@ -237,18 +212,16 @@ class OutfitRecommendation:
             "product": _serialize_product(self.product, original_mongo_id=mongo_id),
         }
 
-
 @dataclass(slots=True)
 class RecommendationPayload:
     personalized: List[PersonalizedRecommendation]
-    outfit: Dict[str, Any]  # Changed to handle new outfit structure
+    outfit: Dict[str, Any]
     outfit_complete_score: float
 
     def as_dict(self) -> dict[str, Any]:
         outfit_dict = {}
         for category, entry in self.outfit.items():
             if isinstance(entry, dict) and "items" in entry:
-                # New outfit structure with multiple outfits
                 outfit_items = {}
                 for item_key, outfit_rec in entry["items"].items():
                     if hasattr(outfit_rec, 'as_dict'):
@@ -257,13 +230,10 @@ class RecommendationPayload:
                         outfit_items[item_key] = outfit_rec
                 outfit_dict[category] = outfit_items
             elif isinstance(entry, list):
-                # Take the first item if it's a list (for backward compatibility)
                 outfit_dict[category] = entry[0].as_dict() if entry else {}
             elif hasattr(entry, 'as_dict'):
-                # Single OutfitRecommendation object
                 outfit_dict[category] = entry.as_dict()
             else:
-                # Raw dict or other structure
                 outfit_dict[category] = entry
         return {
             "personalized": [item.as_dict() for item in self.personalized],

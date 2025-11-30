@@ -1,5 +1,3 @@
-"""URL patterns for GNN recommendation endpoints."""
-
 from __future__ import annotations
 
 from django.urls import path

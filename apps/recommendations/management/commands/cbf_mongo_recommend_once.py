@@ -41,4 +41,3 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"Wrote result to: {out_path}"))
         return None
 
-

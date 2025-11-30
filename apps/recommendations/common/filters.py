@@ -1,5 +1,3 @@
-"""Candidate filtering utilities for recommendation engines."""
-
 from __future__ import annotations
 
 import logging
@@ -9,14 +7,13 @@ from typing import Any, Iterable, Sequence
 from bson import ObjectId
 from django.core.exceptions import ValidationError
 try:
-    # Optional: available only when MongoDB connection is configured
-    from apps.users.mongo_models import User as MongoUser  # type: ignore
-    from apps.products.mongo_models import Product as MongoProduct  # type: ignore
-    from apps.products.mongo_models import Category as MongoCategory  # type: ignore
-except Exception:  # pragma: no cover - optional dependency at runtime
-    MongoUser = None  # type: ignore
-    MongoProduct = None  # type: ignore
-    MongoCategory = None  # type: ignore
+    from apps.users.mongo_models import User as MongoUser
+    from apps.products.mongo_models import Product as MongoProduct
+    from apps.products.mongo_models import Category as MongoCategory
+except Exception:
+    MongoUser = None
+    MongoProduct = None
+    MongoCategory = None
 
 from .constants import INTERACTION_WEIGHTS, MAX_STYLE_TAGS
 from .gender_utils import gender_filter_values, normalize_gender
@@ -24,9 +21,7 @@ from .context import RecommendationContext
 
 logger = logging.getLogger(__name__)
 
-
 class CandidateFilter:
-    """Build candidate pools that satisfy strict business constraints."""
 
     _product_field_names_cache: set[str] | None = None
 
@@ -50,7 +45,7 @@ class CandidateFilter:
         interactions = cls._load_interactions(user)
         history_products = [getattr(interaction, 'product', None) for interaction in interactions if getattr(interaction, 'product_id', None)]
         history_products = [p for p in history_products if p is not None]
-        
+
         current_product_id = getattr(current_product, 'id', None)
         excluded_ids = {current_product_id} if current_product_id else set()
         for product in history_products:
@@ -66,7 +61,6 @@ class CandidateFilter:
         )
 
         if not candidate_products:
-            # Relaxed fallback: allow same gender but drop age restriction only if nothing matches.
             fallback_products = cls._fallback_candidates(
                 gender=resolved_gender,
                 article_type=current_article_type,
@@ -74,9 +68,7 @@ class CandidateFilter:
             )
             candidate_products = fallback_products
 
-        # Build MongoDB ID mapping for all candidate products (one-time batch operation)
         product_id_to_mongo_id = cls._build_mongo_mapping(candidate_products, product_id_to_mongo_id)
-        # Also map current product and history products
         product_id_to_mongo_id = cls._build_mongo_mapping([current_product], product_id_to_mongo_id)
         product_id_to_mongo_id = cls._build_mongo_mapping(history_products, product_id_to_mongo_id)
 
@@ -117,11 +109,9 @@ class CandidateFilter:
 
     @classmethod
     def _resolve_user(cls, user_id: str | int):
-        """Resolve user from MongoDB only."""
         if MongoUser is None:
             raise ValidationError({"user_id": "MongoDB not configured"})
-        
-        # Try as integer ID first
+
         if isinstance(user_id, int) or (isinstance(user_id, str) and user_id.isdigit()):
             try:
                 mongo_user = MongoUser.objects(id=int(user_id)).first()
@@ -129,8 +119,7 @@ class CandidateFilter:
                     return mongo_user
             except Exception:
                 pass
-        
-        # Try as ObjectId
+
         if cls._looks_like_object_id(user_id):
             try:
                 mongo_user = MongoUser.objects(id=ObjectId(str(user_id))).first()
@@ -138,56 +127,48 @@ class CandidateFilter:
                     return mongo_user
             except Exception:
                 pass
-        
+
         raise ValidationError({"user_id": "User not found"})
 
     @classmethod
     def _resolve_product_with_mapping(cls, product_id: str | int, owner_user) -> tuple:
-        """Resolve product from MongoDB only."""
         if MongoProduct is None:
             raise ValidationError({"current_product_id": "MongoDB not configured"})
-        
+
         mongo_product, original_mongo_id = cls._fetch_mongo_product(product_id)
         if mongo_product:
             product_id_to_mongo_id = {}
             if original_mongo_id:
-                # Use a simple numeric key for mapping (can be the mongo ID itself)
                 product_id_to_mongo_id[hash(original_mongo_id) % (10 ** 8)] = original_mongo_id
             return mongo_product, product_id_to_mongo_id
-        
+
         raise ValidationError({"current_product_id": "Product not found"})
-    
+
     @classmethod
     def _resolve_product(cls, product_id: str | int, owner_user):
-        """Backward compatibility wrapper."""
         product, _ = cls._resolve_product_with_mapping(product_id, owner_user)
         return product
 
     @staticmethod
     def _build_mongo_mapping(products: list, existing_mapping: dict[int, str]) -> dict[int, str]:
-        """Build MongoDB ObjectId mapping for a list of Mongo products."""
         if not products or not MongoProduct:
             return existing_mapping
-        
+
         mapping = existing_mapping.copy()
-        
+
         try:
             for product in products:
                 product_id = getattr(product, 'id', None)
                 if product_id:
-                    # Create a numeric hash key for the mapping
                     key = hash(str(product_id)) % (10 ** 8)
                     mapping[key] = str(product_id)
         except Exception:
             pass
-        
+
         return mapping
 
     @staticmethod
     def _load_interactions(user) -> list:
-        """Load user interactions from MongoDB."""
-        # TODO: Implement MongoDB-based interaction loading
-        # For now, return empty list to avoid SQL queries
         return []
 
     @classmethod
@@ -199,74 +180,68 @@ class CandidateFilter:
         article_type: str | None = None,
         excluded_ids: set[int],
     ) -> list:
-        """Build candidate pool with strict gender, age, and articleType filtering from MongoDB."""
         if MongoProduct is None:
             return []
-        
+
         allowed_genders = cls._allowed_genders(gender)
         gender_filters = cls._gender_query_values(allowed_genders)
         allowed_gender_lower = {g.lower() for g in allowed_genders if g}
         normalized_age_group = (age_group or "").strip().lower()
         normalized_article_type = (article_type or "").strip()
-        
+
         try:
             query_filters: dict[str, Any] = {}
             if gender_filters:
                 query_filters['gender__in'] = gender_filters
             if normalized_age_group and cls._product_has_field("age_group"):
                 query_filters['age_group__iexact'] = normalized_age_group
-            # Add articleType filtering for personalized recommendations
             if normalized_article_type and cls._product_has_field("articleType"):
                 query_filters['articleType__iexact'] = normalized_article_type
-            
+
             products = list(MongoProduct.objects(**query_filters))
-            
+
             filtered_products = []
             for product in products:
                 product_id = getattr(product, 'id', None)
                 if not product_id or product_id in excluded_ids:
                     continue
-                
+
                 product_gender = (getattr(product, "gender", "") or "").strip().lower()
                 product_age = (getattr(product, "age_group", "") or "").strip().lower()
                 product_article = (getattr(product, "articleType", "") or "").strip()
-                
+
                 if product_gender and product_gender not in allowed_gender_lower:
                     continue
                 if normalized_age_group and product_age and product_age != normalized_age_group:
                     continue
-                # Ensure articleType matches for personalized recommendations
                 if normalized_article_type and product_article and product_article != normalized_article_type:
                     continue
-                
+
                 filtered_products.append(product)
-            
+
             return cls._deduplicate(filtered_products)
         except Exception:
             return []
 
     @classmethod
     def _fallback_candidates(cls, *, gender: str, article_type: str | None = None, excluded_ids: set[int]) -> list:
-        """Fallback candidate pool with relaxed age but strict gender and articleType filtering from MongoDB."""
         if MongoProduct is None:
             return []
-        
+
         allowed_genders = cls._allowed_genders(gender)
         gender_filters = cls._gender_query_values(allowed_genders)
         allowed_gender_lower = {g.lower() for g in allowed_genders if g}
         normalized_article_type = (article_type or "").strip()
-        
+
         try:
             query_filters: dict[str, Any] = {}
             if gender_filters:
                 query_filters['gender__in'] = gender_filters
-            # Keep articleType filtering even in fallback for personalized recommendations
             if normalized_article_type and cls._product_has_field("articleType"):
                 query_filters['articleType__iexact'] = normalized_article_type
-            
+
             products = list(MongoProduct.objects(**query_filters))
-            
-            # Filter out excluded IDs and check gender and articleType
+
             filtered_products = []
             for product in products:
                 product_id = getattr(product, 'id', None)
@@ -274,34 +249,30 @@ class CandidateFilter:
                     continue
                 product_gender = (getattr(product, "gender", "") or "").strip().lower()
                 product_article = (getattr(product, "articleType", "") or "").strip()
-                
+
                 if product_gender and product_gender not in allowed_gender_lower:
                     continue
-                # Ensure articleType matches even in fallback for personalized recommendations
                 if normalized_article_type and product_article and product_article != normalized_article_type:
                     continue
-                
+
                 filtered_products.append(product)
-            
+
             return cls._deduplicate(filtered_products)
         except Exception:
             return []
 
     @classmethod
     def _product_field_names(cls) -> set[str]:
-        """Get MongoDB product field names."""
         if cls._product_field_names_cache is None and MongoProduct:
-            # Get field names from MongoEngine document
             cls._product_field_names_cache = set(MongoProduct._fields.keys()) if hasattr(MongoProduct, '_fields') else set()
         return cls._product_field_names_cache or set()
 
     @classmethod
     def _product_has_field(cls, field_name: str) -> bool:
         return field_name in cls._product_field_names()
-    
+
     @staticmethod
     def _gender_query_values(values: Iterable[str]) -> list[str]:
-        """Build a case-insensitive gender filter list for Mongo queries."""
         seen: set[str] = set()
         normalized: list[str] = []
         for value in values:
@@ -352,11 +323,8 @@ class CandidateFilter:
                 pass
         return None, None
 
-
-
     @staticmethod
     def _deduplicate(products: Sequence) -> list:
-        """Deduplicate products by ID."""
         seen: set = set()
         unique_products: list = []
         for product in products:
@@ -374,16 +342,14 @@ class CandidateFilter:
 
     @staticmethod
     def _resolve_gender(user, current_product) -> str:
-        # Always prioritize user's gender over product gender
         user_gender = normalize_gender(getattr(user, "gender", ""))
         if user_gender in ("male", "female", "unisex"):
             return user_gender
-        
-        # If user gender is not specified, use product gender as fallback
+
         product_gender = normalize_gender(getattr(current_product, "gender", ""))
         if product_gender in ("male", "female", "unisex"):
             return product_gender
-        
+
         return "unisex"
 
     @staticmethod
@@ -429,15 +395,13 @@ class CandidateFilter:
         most_common = counter.most_common(MAX_STYLE_TAGS)
         return Counter(dict(most_common))
 
-
 def _collect_style_tokens(product) -> list[str]:
     tokens: list[str] = []
     if isinstance(getattr(product, "style_tags", None), list):
         tokens.extend(token.lower() for token in product.style_tags if token)
     if isinstance(getattr(product, "outfit_tags", None), list):
         tokens.extend(token.lower() for token in product.outfit_tags if token)
-    
-    # Use new Product fields
+
     if getattr(product, "articleType", None):
         tokens.append(product.articleType.lower())
     if getattr(product, "subCategory", None):
@@ -450,9 +414,8 @@ def _collect_style_tokens(product) -> list[str]:
         tokens.append(product.usage.lower())
     if getattr(product, "season", None):
         tokens.append(product.season.lower())
-    
-    return tokens
 
+    return tokens
 
 def _extract_user_preference_styles(user) -> list[str]:
     preferences = getattr(user, "preferences", {}) or {}

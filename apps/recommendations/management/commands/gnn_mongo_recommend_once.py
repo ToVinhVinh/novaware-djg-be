@@ -9,7 +9,6 @@ from django.core.management.base import BaseCommand, CommandParser
 
 from apps.recommendations.gnn.mongo_engine import recommend_gnn_mongo
 
-
 class Command(BaseCommand):
     help = "Run a single Mongo-native GNN recommendation with ObjectId inputs."
 
@@ -41,5 +40,4 @@ class Command(BaseCommand):
         out_path.write_text(text, encoding="utf-8")
         self.stdout.write(self.style.SUCCESS(f"Wrote result to: {out_path}"))
         return None
-
 

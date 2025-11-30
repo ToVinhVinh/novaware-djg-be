@@ -1,5 +1,3 @@
-"""Mongo-native Hybrid recommendation engine blending graph and content signals."""
-
 from __future__ import annotations
 
 from typing import Any
@@ -8,23 +6,18 @@ from bson import ObjectId
 
 from apps.recommendations.gnn import mongo_engine as gnn_mongo
 
-# Re-export for clarity
 MongoRecommendationContext = gnn_mongo.MongoRecommendationContext
 
-
 def _build_context(*, user_id: str | ObjectId, current_product_id: str | ObjectId, top_k_personal: int, top_k_outfit: int) -> MongoRecommendationContext:
-    return gnn_mongo._build_context(  # type: ignore[attr-defined]
+    return gnn_mongo._build_context(
         user_id=user_id,
         current_product_id=current_product_id,
         top_k_personal=top_k_personal,
         top_k_outfit=top_k_outfit,
     )
 
-
 def train_hybrid_mongo() -> dict[str, Any]:
-    """Reuse the GNN artifact builder (co-occurrence + popularity)."""
     return gnn_mongo.train_gnn_mongo()
-
 
 def _graph_score(
     *,
@@ -41,17 +34,15 @@ def _graph_score(
     score += current_neighbors.get(cid, 0.0) * 1.2
     return score
 
-
 def _content_score(context: MongoRecommendationContext, candidate, *, frequency: dict[str, float]) -> float:
     cid = str(candidate.id)
-    style_tokens = gnn_mongo._style_tokens(candidate)  # type: ignore[attr-defined]
+    style_tokens = gnn_mongo._style_tokens(candidate)
     style_score = sum(context.style_weights.get(token, 0.0) for token in style_tokens)
-    color_tokens = gnn_mongo._product_color_tokens(candidate, context.color_cache)  # type: ignore[attr-defined]
+    color_tokens = gnn_mongo._product_color_tokens(candidate, context.color_cache)
     color_score = sum(context.color_weights.get(color, 0.0) for color in color_tokens)
     brand_score = 0.0
     if getattr(candidate, "brand_id", None):
         brand_score = context.brand_weights.get(str(candidate.brand_id), 0.0) * 0.5
-    # Age / gender alignment
     alignment = 0.0
     user_gender = (getattr(context.user, "gender", "") or "").lower()
     candidate_gender = (getattr(candidate, "gender", "") or "").lower()
@@ -63,7 +54,6 @@ def _content_score(context: MongoRecommendationContext, candidate, *, frequency:
         alignment += 0.5
     popularity = 0.1 * frequency.get(cid, 0.0)
     return style_score + color_score + brand_score + alignment + popularity
-
 
 def recommend_hybrid_mongo(
     *,
@@ -102,7 +92,6 @@ def recommend_hybrid_mongo(
         blended = alpha * g_score + (1 - alpha) * c_score
         scores.append((candidate, blended, g_score, c_score))
 
-    # Fallback using content score if no blended scores generated
     if not scores:
         for candidate in context.candidate_products:
             cid = str(candidate.id)
@@ -116,9 +105,9 @@ def recommend_hybrid_mongo(
 
     def as_item(candidate, blended_score: float, g_score: float, c_score: float) -> dict[str, Any]:
         cid = str(candidate.id)
-        style_tokens = list(gnn_mongo._style_tokens(candidate))  # type: ignore[attr-defined]
-        product_colors = gnn_mongo._product_color_tokens(candidate, context.color_cache)  # type: ignore[attr-defined]
-        reason = gnn_mongo._compose_reason(  # type: ignore[attr-defined]
+        style_tokens = list(gnn_mongo._style_tokens(candidate))
+        product_colors = gnn_mongo._product_color_tokens(candidate, context.color_cache)
+        reason = gnn_mongo._compose_reason(
             context=context,
             product=candidate,
             cand_id=cid,
@@ -133,12 +122,11 @@ def recommend_hybrid_mongo(
         return {
             "score": round(float(blended_score), 4),
             "reason": reason,
-            "product": gnn_mongo._as_product_object(candidate, color_cache=context.color_cache),  # type: ignore[attr-defined]
+            "product": gnn_mongo._as_product_object(candidate, color_cache=context.color_cache),
         }
 
     personalized = [as_item(c, s, g, c_score) for c, s, g, c_score in top_personal]
 
-    # Outfit construction
     def category_key_for_user(cat: str) -> str | None:
         cat = (cat or "").lower()
         if cat not in {"accessories", "bottoms", "dresses", "shoes", "tops"}:
@@ -156,20 +144,17 @@ def recommend_hybrid_mongo(
 
     outfit: dict[str, dict[str, Any] | None] = {k: None for k in required_categories}
     score_map = {str(candidate.id): blended for candidate, blended, _, _ in scores_sorted}
-    
-    # Always include the current product in its category
+
     current_product = context.current_product
     current_category = getattr(current_product, "category_type", None)
     if current_category and current_category.lower() in [cat.lower() for cat in required_categories]:
         current_category_lower = current_category.lower()
-        # Find the exact key in required_categories (case-insensitive match)
         matching_key = next((cat for cat in required_categories if cat.lower() == current_category_lower), None)
         if matching_key:
             current_id = str(current_product.id)
             current_blended = score_map.get(current_id, _content_score(context, current_product, frequency=frequency))
             current_g_score = 0.0
             current_c_score = current_blended
-            # Try to get graph score if available
             current_neighbors = graph.get(current_id, {})
             for hid in history_ids:
                 current_g_score += current_neighbors.get(hid, 0.0)
@@ -177,25 +162,22 @@ def recommend_hybrid_mongo(
             current_blended = alpha * current_g_score + (1 - alpha) * current_c_score
             outfit[matching_key] = as_item(current_product, current_blended, current_g_score, current_c_score)
 
-    from collections import defaultdict as _defaultdict  # local import to avoid repetition
+    from collections import defaultdict as _defaultdict
 
     by_category: dict[str, list[Any]] = _defaultdict(list)
     for candidate, blended, g_score, c_score in scores_sorted:
         candidate_category = getattr(candidate, "category_type", None)
         if not candidate_category:
             continue
-        # Normalize category for comparison
         candidate_category_normalized = str(candidate_category).lower().strip()
         key = category_key_for_user(candidate_category_normalized)
         if not key:
             continue
-        # Double-check: ensure the normalized category matches the key
         if candidate_category_normalized != key.lower():
             continue
         by_category[key].append((candidate, blended, g_score, c_score))
 
     for key in required_categories:
-        # Skip if current product is already in this category
         if outfit.get(key) is not None:
             continue
         entries = by_category.get(key, [])
@@ -203,8 +185,7 @@ def recommend_hybrid_mongo(
             candidate, blended, g_score, c_score = sorted(entries, key=lambda tup: tup[1], reverse=True)[0]
             outfit[key] = as_item(candidate, blended, g_score, c_score)
             continue
-        # fallback within category via popularity
-        query = gnn_mongo.MongoProduct.objects(category_type=key)  # type: ignore[attr-defined]
+        query = gnn_mongo.MongoProduct.objects(category_type=key)
         if context.excluded_product_ids:
             query = query.filter(__raw__={"_id": {"$nin": list(context.excluded_product_ids)}})
         fallback_candidates = list(query.limit(100))
@@ -224,13 +205,11 @@ def recommend_hybrid_mongo(
     for key in required_categories:
         if outfit.get(key) is not None:
             continue
-        # Try to find a product matching the category from scored candidates
         product_found = False
         for candidate, blended, g_score, c_score in scores_sorted:
             cid = str(candidate.id)
             if cid in used_ids:
                 continue
-            # Only use products that match the category (strict case-insensitive comparison)
             candidate_category = getattr(candidate, "category_type", None)
             if not candidate_category:
                 continue
@@ -243,24 +222,19 @@ def recommend_hybrid_mongo(
                 used_ids.add(cid)
                 product_found = True
                 break
-        
-        # If still no product found, try querying MongoDB for products with correct category
+
         if not product_found:
-            # Use case-insensitive query - MongoDB doesn't support case-insensitive directly in this ORM
-            # So we'll need to query and filter in Python
-            query = gnn_mongo.MongoProduct.objects  # type: ignore[attr-defined]
+            query = gnn_mongo.MongoProduct.objects
             if context.excluded_product_ids:
                 excluded_str_ids = [str(eid) for eid in context.excluded_product_ids]
                 query = query.filter(__raw__={"_id": {"$nin": [ObjectId(eid) for eid in excluded_str_ids if ObjectId.is_valid(eid)]}})
-            # Also exclude already used products
             if used_ids:
                 used_str_ids = [str(uid) for uid in used_ids if uid]
                 valid_used_ids = [ObjectId(uid) for uid in used_str_ids if ObjectId.is_valid(uid)]
                 if valid_used_ids:
                     query = query.filter(__raw__={"_id": {"$nin": valid_used_ids}})
-            # Filter by category case-insensitively
             key_normalized = str(key).lower().strip()
-            for candidate in query.limit(500):  # Limit to avoid loading too many
+            for candidate in query.limit(500):
                 candidate_category = getattr(candidate, "category_type", None)
                 if candidate_category and str(candidate_category).lower().strip() == key_normalized:
                     fallback_id = str(candidate.id)
@@ -277,5 +251,4 @@ def recommend_hybrid_mongo(
         "outfit": outfit,
         "outfit_complete_score": completeness,
     }
-
 

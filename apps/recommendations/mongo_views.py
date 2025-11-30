@@ -1,5 +1,3 @@
-"""ViewSets for recommendation system using MongoEngine."""
-
 from __future__ import annotations
 
 from bson import ObjectId
@@ -21,18 +19,14 @@ from .mongo_serializers import (
 )
 from .mongo_services import RecommendationService
 
-
 class OutfitViewSet(viewsets.ViewSet):
-    """ViewSet for Outfit."""
-    
+
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
-    
+
     def list(self, request):
-        """List all outfits."""
         outfits = Outfit.objects.all().order_by("-created_at")
-        
-        # Search
+
         search = request.query_params.get("search")
         if search:
             outfits = outfits.filter(
@@ -42,15 +36,13 @@ class OutfitViewSet(viewsets.ViewSet):
                     {"season": {"$regex": search, "$options": "i"}},
                 ]}
             )
-        
-        # Ordering
+
         ordering = request.query_params.get("ordering", "-created_at")
         if ordering.startswith("-"):
             outfits = outfits.order_by(f"-{ordering[1:]}")
         else:
             outfits = outfits.order_by(ordering)
-        
-        # Pagination
+
         page, page_size = get_pagination_params(request)
         outfit_list, total_count, total_pages, current_page, page_size = paginate_queryset(
             outfits, page, page_size
@@ -66,9 +58,8 @@ class OutfitViewSet(viewsets.ViewSet):
                 "count": total_count,
             },
         )
-    
+
     def retrieve(self, request, pk=None):
-        """Get outfit by id."""
         try:
             outfit = Outfit.objects.get(id=ObjectId(pk))
         except (Outfit.DoesNotExist, Exception):
@@ -84,9 +75,8 @@ class OutfitViewSet(viewsets.ViewSet):
                 "outfit": serializer.data,
             },
         )
-    
+
     def create(self, request):
-        """Create new outfit."""
         request_serializer = OutfitSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
         outfit = request_serializer.create(request_serializer.validated_data)
@@ -98,9 +88,8 @@ class OutfitViewSet(viewsets.ViewSet):
             },
             status_code=status.HTTP_201_CREATED,
         )
-    
+
     def update(self, request, pk=None):
-        """Update outfit."""
         try:
             outfit = Outfit.objects.get(id=ObjectId(pk))
         except (Outfit.DoesNotExist, Exception):
@@ -119,9 +108,8 @@ class OutfitViewSet(viewsets.ViewSet):
                 "outfit": response_serializer.data,
             },
         )
-    
+
     def destroy(self, request, pk=None):
-        """Delete outfit."""
         try:
             outfit = Outfit.objects.get(id=ObjectId(pk))
             outfit.delete()
@@ -136,18 +124,14 @@ class OutfitViewSet(viewsets.ViewSet):
                 status_code=status.HTTP_404_NOT_FOUND,
             )
 
-
 class RecommendationRequestViewSet(viewsets.ViewSet):
-    """ViewSet for RecommendationRequest."""
-    
+
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
-    
+
     def list(self, request):
-        """List recommendation requests."""
         queryset = RecommendationRequest.objects.all().order_by("-created_at")
-        
-        # Pagination
+
         page, page_size = get_pagination_params(request)
         requests, total_count, total_pages, current_page, page_size = paginate_queryset(
             queryset, page, page_size
@@ -163,9 +147,8 @@ class RecommendationRequestViewSet(viewsets.ViewSet):
                 "count": total_count,
             },
         )
-    
+
     def retrieve(self, request, pk=None):
-        """Get recommendation request by id."""
         try:
             request_obj = RecommendationRequest.objects.get(id=ObjectId(pk))
         except (RecommendationRequest.DoesNotExist, Exception):
@@ -174,7 +157,7 @@ class RecommendationRequestViewSet(viewsets.ViewSet):
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
-        
+
         serializer = RecommendationRequestSerializer(request_obj)
         return api_success(
             "Recommendation request retrieved successfully",
@@ -182,14 +165,12 @@ class RecommendationRequestViewSet(viewsets.ViewSet):
                 "request": serializer.data,
             },
         )
-    
+
     def create(self, request):
-        """Create new recommendation request."""
         request_serializer = RecommendationRequestSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
-        
+
         validated_data = request_serializer.validated_data.copy()
-        # Get user_id from request data or use authenticated user if available
         if not validated_data.get("user_id"):
             if request.user and hasattr(request.user, 'id') and request.user.is_authenticated:
                 validated_data["user_id"] = str(request.user.id)
@@ -199,7 +180,7 @@ class RecommendationRequestViewSet(viewsets.ViewSet):
                     data=None,
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
-        
+
         request_obj = request_serializer.create(validated_data)
         RecommendationService.enqueue_recommendation(request_obj)
         response_serializer = RecommendationRequestSerializer(request_obj)
@@ -210,9 +191,8 @@ class RecommendationRequestViewSet(viewsets.ViewSet):
             },
             status_code=status.HTTP_201_CREATED,
         )
-    
+
     def update(self, request, pk=None):
-        """Update recommendation request."""
         try:
             request_obj = RecommendationRequest.objects.get(id=ObjectId(pk))
         except (RecommendationRequest.DoesNotExist, Exception):
@@ -221,7 +201,7 @@ class RecommendationRequestViewSet(viewsets.ViewSet):
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
-        
+
         request_serializer = RecommendationRequestSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
         request_obj = request_serializer.update(request_obj, request_serializer.validated_data)
@@ -232,9 +212,8 @@ class RecommendationRequestViewSet(viewsets.ViewSet):
                 "request": response_serializer.data,
             },
         )
-    
+
     def destroy(self, request, pk=None):
-        """Delete recommendation request."""
         try:
             request_obj = RecommendationRequest.objects.get(id=ObjectId(pk))
         except (RecommendationRequest.DoesNotExist, Exception):
@@ -243,16 +222,15 @@ class RecommendationRequestViewSet(viewsets.ViewSet):
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
-        
+
         request_obj.delete()
         return api_success(
             "Recommendation request deleted successfully",
             data=None,
         )
-    
+
     @action(detail=True, methods=["post"], permission_classes=[permissions.AllowAny], authentication_classes=[])
     def refresh(self, request, pk=None):
-        """Refresh recommendation request."""
         try:
             request_obj = RecommendationRequest.objects.get(id=ObjectId(pk))
         except (RecommendationRequest.DoesNotExist, Exception):
@@ -261,7 +239,7 @@ class RecommendationRequestViewSet(viewsets.ViewSet):
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
-        
+
         RecommendationService.enqueue_recommendation(request_obj)
         response_serializer = RecommendationRequestSerializer(request_obj)
         return api_success(
@@ -272,18 +250,14 @@ class RecommendationRequestViewSet(viewsets.ViewSet):
             status_code=status.HTTP_202_ACCEPTED,
         )
 
-
 class RecommendationResultViewSet(viewsets.ViewSet):
-    """ViewSet for RecommendationResult (read-only)."""
-    
+
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
-    
+
     def list(self, request):
-        """List recommendation results."""
         queryset = RecommendationResult.objects.all().order_by("-created_at")
-        
-        # Pagination
+
         page, page_size = get_pagination_params(request)
         results, total_count, total_pages, current_page, page_size = paginate_queryset(
             queryset, page, page_size
@@ -299,9 +273,8 @@ class RecommendationResultViewSet(viewsets.ViewSet):
                 "count": total_count,
             },
         )
-    
+
     def retrieve(self, request, pk=None):
-        """Get recommendation result by id."""
         try:
             result = RecommendationResult.objects.get(id=ObjectId(pk))
         except (RecommendationResult.DoesNotExist, Exception):
@@ -310,7 +283,7 @@ class RecommendationResultViewSet(viewsets.ViewSet):
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
-        
+
         serializer = RecommendationResultSerializer(result)
         return api_success(
             "Recommendation result retrieved successfully",

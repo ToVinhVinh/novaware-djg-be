@@ -1,5 +1,3 @@
-"""Shared DRF serializers for recommendation endpoints."""
-
 from __future__ import annotations
 
 from rest_framework import serializers

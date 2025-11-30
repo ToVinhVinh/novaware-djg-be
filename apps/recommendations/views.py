@@ -1,5 +1,3 @@
-"""ViewSets for recommendation system."""
-
 from __future__ import annotations
 
 from rest_framework import permissions, status, viewsets
@@ -15,18 +13,15 @@ from .serializers import (
 )
 from .services import RecommendationService
 
-
 class OutfitViewSet(viewsets.ModelViewSet):
     queryset = Outfit.objects.prefetch_related("products")
     serializer_class = OutfitSerializer
-     
+
     search_fields = ["name", "style", "season"]
     ordering_fields = ["created_at", "compatibility_score"]
 
-
 class RecommendationRequestViewSet(viewsets.ModelViewSet):
     serializer_class = RecommendationRequestSerializer
-     
 
     def get_queryset(self):
         qs = RecommendationRequest.objects.select_related("user").prefetch_related("result__products", "logs")
@@ -50,11 +45,9 @@ class RecommendationRequestViewSet(viewsets.ModelViewSet):
             status_code=status.HTTP_202_ACCEPTED,
         )
 
-
 class RecommendationResultViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = RecommendationResult.objects.prefetch_related("products")
     serializer_class = RecommendationResultSerializer
-     
 
     def get_queryset(self):
         qs = super().get_queryset()

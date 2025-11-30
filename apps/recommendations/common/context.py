@@ -1,5 +1,3 @@
-"""Context dataclass for recommendation pipelines."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -11,16 +9,14 @@ from django.utils import timezone
 from apps.products.mongo_models import Product as MongoProduct
 from apps.users.mongo_models import User as MongoUser
 
-
 @dataclass(slots=True)
 class RecommendationContext:
-    """Runtime context shared across recommendation engines."""
 
     user: MongoUser
     current_product: MongoProduct
     top_k_personal: int
     top_k_outfit: int
-    interactions: list = field(default_factory=list)  # Using generic list for now
+    interactions: list = field(default_factory=list)
     history_products: list[MongoProduct] = field(default_factory=list)
     candidate_products: list[MongoProduct] = field(default_factory=list)
     excluded_product_ids: set[int] = field(default_factory=set)
@@ -30,7 +26,6 @@ class RecommendationContext:
     resolved_age_group: str = "adult"
     request_params: dict[str, Any] = field(default_factory=dict)
     prepared_at: datetime = field(default_factory=timezone.now)
-    # Mapping from Django product ID to MongoDB ObjectId
     product_id_to_mongo_id: dict[int, str] = field(default_factory=dict)
 
     def iter_history_ids(self) -> Iterable[int]:

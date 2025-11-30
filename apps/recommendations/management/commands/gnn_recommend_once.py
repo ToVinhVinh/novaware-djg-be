@@ -9,7 +9,6 @@ from django.core.management.base import BaseCommand, CommandParser
 
 from apps.recommendations.gnn.models import recommend_gnn
 
-
 class Command(BaseCommand):
     help = "Run a single GNN recommendation for given user_id and current_product_id (accepts SQL int or Mongo ObjectId)."
 
@@ -46,7 +45,6 @@ class Command(BaseCommand):
             request_params=request_params,
         )
 
-        # Print to console and write to file
         text = json.dumps(payload, ensure_ascii=False, indent=2)
         self.stdout.write(text)
 
@@ -54,5 +52,4 @@ class Command(BaseCommand):
         out_path.write_text(text, encoding="utf-8")
         self.stdout.write(self.style.SUCCESS(f"Wrote result to: {out_path}"))
         return None
-
 

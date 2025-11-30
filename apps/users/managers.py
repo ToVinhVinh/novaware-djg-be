@@ -1,9 +1,6 @@
-"""Custom manager for model User."""
-
 from __future__ import annotations
 
 from django.contrib.auth.base_user import BaseUserManager
-
 
 class UserManager(BaseUserManager):
     use_in_migrations = True

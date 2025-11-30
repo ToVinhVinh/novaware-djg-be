@@ -1,11 +1,8 @@
-"""Model đơn hàng được migrate từ MongoDB."""
-
 from __future__ import annotations
 
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
-
 
 class Order(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="orders", on_delete=models.CASCADE)
@@ -29,13 +26,12 @@ class Order(models.Model):
         ordering = ["-created_at"]
 
     def __str__(self) -> str:
-        return f"Order #{self.id} - {self.user.email}"
+        return f"Order
 
     def mark_paid(self, timestamp: timezone.datetime | None = None):
         self.is_paid = True
         self.paid_at = timestamp or timezone.now()
         self.save(update_fields=["is_paid", "paid_at"])
-
 
 class OrderItem(models.Model):
     order = models.ForeignKey(Order, related_name="items", on_delete=models.CASCADE)
@@ -49,7 +45,6 @@ class OrderItem(models.Model):
 
     class Meta:
         db_table = "order_items"
-
 
 class ShippingAddress(models.Model):
     order = models.OneToOneField(Order, related_name="shipping_address", on_delete=models.CASCADE)

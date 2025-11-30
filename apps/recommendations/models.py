@@ -1,10 +1,7 @@
-"""Model for recommendation system and outfit."""
-
 from __future__ import annotations
 
 from django.conf import settings
 from django.db import models
-
 
 class Outfit(models.Model):
     STYLE_CHOICES = (
@@ -29,7 +26,6 @@ class Outfit(models.Model):
     def __str__(self) -> str:
         return self.name
 
-
 class RecommendationRequest(models.Model):
     ALGORITHM_CHOICES = (
         ("cf", "GNN (LightGCN) - Collaborative Filtering"),
@@ -47,7 +43,6 @@ class RecommendationRequest(models.Model):
         db_table = "recommendation_requests"
         ordering = ["-created_at"]
 
-
 class RecommendationResult(models.Model):
     request = models.OneToOneField(RecommendationRequest, on_delete=models.CASCADE, related_name="result")
     products = models.ManyToManyField("products.Product", related_name="recommendation_results")
@@ -56,7 +51,6 @@ class RecommendationResult(models.Model):
 
     class Meta:
         db_table = "recommendation_results"
-
 
 class RecommendationLog(models.Model):
     request = models.ForeignKey(RecommendationRequest, on_delete=models.CASCADE, related_name="logs")

@@ -1,5 +1,3 @@
-"""Artifact storage helpers for recommendation models."""
-
 from __future__ import annotations
 
 import pickle
@@ -10,9 +8,7 @@ from django.conf import settings
 
 from .exceptions import ModelNotTrainedError
 
-
 class ArtifactStorage:
-    """Persistence layer for model artifacts stored on disk."""
 
     def __init__(self, model_name: str, filename: str = "artifacts.pkl") -> None:
         self.model_name = model_name

@@ -1,5 +1,3 @@
-"""Các route xác thực tùy chỉnh."""
-
 from django.urls import re_path
 from rest_framework_simplejwt.views import TokenRefreshView
 
@@ -9,7 +7,6 @@ from .auth_views_mongo import (
     PasswordResetRequestView,
     RegisterView,
 )
-
 
 urlpatterns = [
     re_path(r"^register/?$", RegisterView.as_view(), name="auth-register"),

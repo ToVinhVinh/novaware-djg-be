@@ -1,5 +1,3 @@
-"""Các API xác thực sử dụng MongoEngine."""
-
 from __future__ import annotations
 
 import secrets
@@ -20,13 +18,11 @@ from .mongo_serializers import (
     UserSerializer,
 )
 
-
 class MongoEngineTokenObtainPairView(APIView):
-    """View để lấy JWT token với MongoEngine User."""
-    
+
     permission_classes = [permissions.AllowAny]
     authentication_classes: list = []
-    
+
     def post(self, request, *args, **kwargs):
         serializer = MongoEngineTokenObtainPairSerializer()
         try:
@@ -49,23 +45,20 @@ class MongoEngineTokenObtainPairView(APIView):
                 status_code=status.HTTP_401_UNAUTHORIZED,
             )
 
-
 class RegisterView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request, *args, **kwargs):
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
-        # Tạo user mới với MongoEngine
+
         validated_data = serializer.validated_data.copy()
         password = validated_data.pop("password")
-        
-        # Tạo name từ first_name và last_name
+
         first_name = validated_data.get("first_name", "")
         last_name = validated_data.get("last_name", "")
         name = f"{first_name} {last_name}".strip() or validated_data.get("email", "").split("@")[0]
-        
+
         user = User(
             name=name,
             email=validated_data["email"],
@@ -79,7 +72,7 @@ class RegisterView(APIView):
         )
         user.set_password(password)
         user.save()
-        
+
         output = UserSerializer(user)
         return api_success(
             "Đăng ký tài khoản thành công.",
@@ -88,7 +81,6 @@ class RegisterView(APIView):
             },
             status_code=status.HTTP_201_CREATED,
         )
-
 
 class PasswordResetRequestView(APIView):
     permission_classes = [permissions.AllowAny]
@@ -109,12 +101,10 @@ class PasswordResetRequestView(APIView):
             ip_address=request.META.get("REMOTE_ADDR"),
             user_agent=request.META.get("HTTP_USER_AGENT", ""),
         )
-        # TODO: gửi email reset bằng Celery + utils.send_email
         return api_success(
             "Nếu email tồn tại, một liên kết đặt lại đã được gửi.",
             data=None,
         )
-
 
 class PasswordResetConfirmView(APIView):
     permission_classes = [permissions.AllowAny]
@@ -136,7 +126,6 @@ class PasswordResetConfirmView(APIView):
             "Mật khẩu đã được đặt lại.",
             data=None,
         )
-
 
 __all__ = [
     "RegisterView",

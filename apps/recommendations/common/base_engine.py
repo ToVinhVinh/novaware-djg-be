@@ -1,5 +1,3 @@
-"""Base class for recommendation engines."""
-
 from __future__ import annotations
 
 import logging
@@ -17,9 +15,7 @@ from .storage import ArtifactStorage
 
 logger = logging.getLogger(__name__)
 
-
 class BaseRecommendationEngine(ABC):
-    """Abstract base class that handles persistence and response assembly."""
 
     model_name: str = "base"
 
@@ -90,7 +86,6 @@ class BaseRecommendationEngine(ABC):
 
     @abstractmethod
     def _train_impl(self) -> dict[str, Any]:
-        """Subclasses should return artifact payload."""
 
     @abstractmethod
     def _score_candidates(
@@ -98,8 +93,6 @@ class BaseRecommendationEngine(ABC):
         context: RecommendationContext,
         artifacts: dict[str, Any],
     ) -> dict[int, float]:
-        """Return candidate scores keyed by product id."""
-
 
 def _extract_style_tokens(product: Product) -> list[str]:
     tokens: list[str] = []

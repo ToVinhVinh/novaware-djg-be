@@ -1,10 +1,7 @@
-"""Product models migrated from MongoDB."""
-
 from __future__ import annotations
 
 from django.conf import settings
 from django.db import models
-
 
 class Category(models.Model):
     name = models.CharField(max_length=255, unique=True)
@@ -20,7 +17,6 @@ class Category(models.Model):
     def __str__(self) -> str:
         return self.name
 
-
 class Color(models.Model):
     name = models.CharField(max_length=100, unique=True)
     hex_code = models.CharField(max_length=7)
@@ -31,7 +27,6 @@ class Color(models.Model):
 
     def __str__(self) -> str:
         return f"{self.name} ({self.hex_code})"
-
 
 class Size(models.Model):
     name = models.CharField(max_length=100, unique=True)
@@ -46,9 +41,7 @@ class Size(models.Model):
     def __str__(self) -> str:
         return self.code
 
-
 class Product(models.Model):
-    # New fields from CSV
     gender = models.CharField(max_length=50, blank=True, null=True, db_index=True)
     masterCategory = models.CharField(max_length=255, blank=True, null=True, db_column='master_category')
     subCategory = models.CharField(max_length=255, blank=True, null=True, db_column='sub_category')
@@ -58,13 +51,11 @@ class Product(models.Model):
     year = models.IntegerField(blank=True, null=True)
     usage = models.CharField(max_length=100, blank=True, null=True)
     productDisplayName = models.CharField(max_length=255, blank=True, null=True, db_column='product_display_name')
-    
-    # Retained fields
+
     images = models.JSONField(default=list, blank=True)
     rating = models.FloatField(default=0)
     sale = models.DecimalField(max_digits=5, decimal_places=2, default=0)
-    
-    # Timestamps
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -75,7 +66,6 @@ class Product(models.Model):
     def __str__(self) -> str:
         return self.productDisplayName or f"Product {self.id}"
 
-
 class ProductColor(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     color = models.ForeignKey(Color, on_delete=models.CASCADE)
@@ -84,11 +74,10 @@ class ProductColor(models.Model):
         db_table = "product_colors"
         unique_together = ("product", "color")
 
-
 class ProductVariant(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="variants")
-    color = models.CharField(max_length=7)  # Hex color code like "#000000"
-    size = models.CharField(max_length=10)  # Size code like "m", "s"
+    color = models.CharField(max_length=7)
+    size = models.CharField(max_length=10)
     price = models.DecimalField(max_digits=10, decimal_places=2)
     stock = models.PositiveIntegerField(default=0)
 
@@ -98,7 +87,6 @@ class ProductVariant(models.Model):
 
     def __str__(self) -> str:
         return f"{self.product.productDisplayName or self.product.id} - {self.color} / {self.size}"
-
 
 class ProductReview(models.Model):
     product = models.ForeignKey(Product, related_name="reviews", on_delete=models.CASCADE)
@@ -113,7 +101,6 @@ class ProductReview(models.Model):
         db_table = "product_reviews"
         ordering = ["-created_at"]
         unique_together = ("product", "user")
-
 
 class ContentSection(models.Model):
     type = models.CharField(max_length=100)

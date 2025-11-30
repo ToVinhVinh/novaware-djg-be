@@ -1,5 +1,3 @@
-"""ViewSets for product module."""
-
 from __future__ import annotations
 
 import random
@@ -21,7 +19,6 @@ from .serializers import (
     SizeSerializer,
 )
 
-
 class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
@@ -29,20 +26,17 @@ class CategoryViewSet(viewsets.ModelViewSet):
     search_fields = ["name"]
     ordering_fields = ["name", "created_at"]
 
-
 class ColorViewSet(viewsets.ModelViewSet):
     queryset = Color.objects.all()
     serializer_class = ColorSerializer
     permission_classes = [permissions.AllowAny]
     search_fields = ["name", "hex_code"]
 
-
 class SizeViewSet(viewsets.ModelViewSet):
     queryset = Size.objects.all()
     serializer_class = SizeSerializer
     permission_classes = [permissions.AllowAny]
     search_fields = ["name", "code"]
-
 
 class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.prefetch_related(
@@ -123,7 +117,6 @@ class ProductViewSet(viewsets.ModelViewSet):
                 "variants": serializer.data,
             },
         )
-
 
 class ContentSectionViewSet(viewsets.ModelViewSet):
     queryset = ContentSection.objects.all()

@@ -1,13 +1,7 @@
-"""
-Django management command để kiểm tra dữ liệu training
-Sử dụng: python manage.py check_training_data
-"""
-
 from django.core.management.base import BaseCommand
 from apps.users.models import UserInteraction as SqlInteraction
 from apps.users.models import User as SqlUser
 from apps.products.models import Product as SqlProduct
-
 
 class Command(BaseCommand):
     help = 'Kiểm tra dữ liệu training trong database (SQL và MongoDB)'
@@ -17,7 +11,6 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("KIỂM TRA DỮ LIỆU TRAINING"))
         self.stdout.write("=" * 60)
 
-        # Kiểm tra SQL Database
         self.stdout.write("\n📊 SQL DATABASE:")
         self.stdout.write("-" * 60)
 
@@ -37,7 +30,6 @@ class Command(BaseCommand):
                     f"Type: {interaction.interaction_type}"
                 )
 
-        # Kiểm tra MongoDB
         self.stdout.write("\n📊 MONGODB:")
         self.stdout.write("-" * 60)
 
@@ -62,7 +54,6 @@ class Command(BaseCommand):
                         f"Type: {interaction.interaction_type}"
                     )
 
-            # Kiểm tra chi tiết interactions
             if mongo_interactions.count() > 0:
                 self.stdout.write("\n📈 Interaction Statistics (MongoDB):")
                 interaction_types = {}
@@ -73,7 +64,6 @@ class Command(BaseCommand):
                 for itype, count in interaction_types.items():
                     self.stdout.write(f"  - {itype}: {count}")
 
-                # Kiểm tra unique users và products
                 unique_users = set()
                 unique_products = set()
                 for interaction in mongo_interactions:
@@ -91,7 +81,6 @@ class Command(BaseCommand):
             )
             self.stdout.write("   (MongoDB may not be configured or has no data)")
 
-        # Tổng kết
         self.stdout.write("\n" + "=" * 60)
         self.stdout.write("TỔNG KẾT:")
         self.stdout.write("=" * 60)

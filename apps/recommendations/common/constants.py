@@ -1,5 +1,3 @@
-"""Shared constants for recommendation engines."""
-
 from __future__ import annotations
 
 from datetime import timedelta

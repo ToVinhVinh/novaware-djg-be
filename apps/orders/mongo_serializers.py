@@ -1,12 +1,9 @@
-"""Serializers for MongoEngine Order models."""
-
 from __future__ import annotations
 
 from bson import ObjectId
 from rest_framework import serializers
 
 from .mongo_models import Order, OrderItem, ShippingAddress
-
 
 class OrderItemSerializer(serializers.Serializer):
     product_id = serializers.CharField()
@@ -16,9 +13,8 @@ class OrderItemSerializer(serializers.Serializer):
     color_selected = serializers.CharField()
     images = serializers.ListField(child=serializers.CharField())
     price_sale = serializers.DecimalField(max_digits=10, decimal_places=2)
-    
+
     def to_representation(self, instance):
-        """Convert embedded document to dict."""
         return {
             "product_id": str(instance.product_id),
             "name": instance.name,
@@ -28,14 +24,12 @@ class OrderItemSerializer(serializers.Serializer):
             "images": instance.images,
             "price_sale": float(instance.price_sale),
         }
-    
+
     def to_internal_value(self, data):
-        """Convert dict to embedded document."""
         validated = super().to_internal_value(data)
         validated["product_id"] = ObjectId(validated["product_id"])
         validated["price_sale"] = validated["price_sale"]
         return validated
-
 
 class ShippingAddressSerializer(serializers.Serializer):
     address = serializers.CharField()
@@ -43,9 +37,8 @@ class ShippingAddressSerializer(serializers.Serializer):
     postal_code = serializers.CharField()
     country = serializers.CharField()
     recipient_phone_number = serializers.CharField()
-    
+
     def to_representation(self, instance):
-        """Convert embedded document to dict."""
         if instance is None:
             return None
         return {
@@ -55,11 +48,9 @@ class ShippingAddressSerializer(serializers.Serializer):
             "country": instance.country,
             "recipient_phone_number": instance.recipient_phone_number,
         }
-    
-    def to_internal_value(self, data):
-        """Convert dict to embedded document."""
-        return super().to_internal_value(data)
 
+    def to_internal_value(self, data):
+        return super().to_internal_value(data)
 
 class OrderSerializer(serializers.Serializer):
     id = serializers.SerializerMethodField()
@@ -80,12 +71,11 @@ class OrderSerializer(serializers.Serializer):
     updated_at = serializers.DateTimeField(read_only=True)
     items = OrderItemSerializer(many=True)
     shipping_address = ShippingAddressSerializer()
-    
+
     def get_id(self, obj):
         return str(obj.id)
-    
+
     def to_representation(self, instance):
-        """Convert MongoEngine document to dict."""
         data = {
             "id": str(instance.id),
             "user_id": str(instance.user_id),
@@ -107,24 +97,21 @@ class OrderSerializer(serializers.Serializer):
             "shipping_address": ShippingAddressSerializer(instance.shipping_address).to_representation(instance.shipping_address) if instance.shipping_address else None,
         }
         return data
-    
+
     def create(self, validated_data):
-        """Create new order."""
         items_data = validated_data.pop("items")
         shipping_data = validated_data.pop("shipping_address")
-        
-        # Convert user_id to ObjectId
+
         if "user_id" in validated_data:
             validated_data["user_id"] = ObjectId(validated_data["user_id"])
-        
-        # Create embedded documents
+
         order_items = []
         for item_data in items_data:
             item_data["product_id"] = ObjectId(item_data["product_id"])
             order_items.append(OrderItem(**item_data))
-        
+
         shipping_address = ShippingAddress(**shipping_data) if shipping_data else None
-        
+
         order = Order(
             items=order_items,
             shipping_address=shipping_address,
@@ -132,25 +119,24 @@ class OrderSerializer(serializers.Serializer):
         )
         order.save()
         return order
-    
+
     def update(self, instance, validated_data):
-        """Update order."""
         items_data = validated_data.pop("items", None)
         shipping_data = validated_data.pop("shipping_address", None)
-        
+
         for key, value in validated_data.items():
             setattr(instance, key, value)
-        
+
         if shipping_data:
             instance.shipping_address = ShippingAddress(**shipping_data)
-        
+
         if items_data is not None:
             order_items = []
             for item_data in items_data:
                 item_data["product_id"] = ObjectId(item_data["product_id"])
                 order_items.append(OrderItem(**item_data))
             instance.items = order_items
-        
+
         instance.save()
         return instance
 

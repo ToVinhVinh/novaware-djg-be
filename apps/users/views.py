@@ -1,5 +1,3 @@
-"""ViewSets and user endpoints."""
-
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
@@ -29,16 +27,14 @@ from .serializers import (
 
 User = get_user_model()
 
-
 class IsAdminOrSelf(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
         return request.user.is_staff or obj == request.user
 
-
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
-     
+
     search_fields = ["email", "username"]
     ordering_fields = ["email", "date_joined"]
 
@@ -193,10 +189,8 @@ class UserViewSet(viewsets.ModelViewSet):
             },
         )
 
-
 class UserInteractionViewSet(viewsets.ModelViewSet):
     serializer_class = UserInteractionSerializer
-     
 
     def get_queryset(self):
         qs = UserInteraction.objects.select_related("user", "product")
@@ -207,10 +201,8 @@ class UserInteractionViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
-
 class OutfitHistoryViewSet(viewsets.ModelViewSet):
     serializer_class = OutfitHistorySerializer
-     
 
     def get_queryset(self):
         qs = OutfitHistory.objects.select_related("user").prefetch_related("products")

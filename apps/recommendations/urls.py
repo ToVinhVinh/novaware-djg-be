@@ -1,5 +1,3 @@
-"""Router for recommendation system."""
-
 from rest_framework import routers
 
 from .mongo_views import (
@@ -7,7 +5,6 @@ from .mongo_views import (
     RecommendationRequestViewSet,
     RecommendationResultViewSet,
 )
-
 
 router = routers.DefaultRouter(trailing_slash=False)
 router.register(r"outfits", OutfitViewSet, basename="outfit")

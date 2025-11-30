@@ -1,5 +1,3 @@
-"""Serializer for users."""
-
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
@@ -13,7 +11,6 @@ from apps.products.serializers import ProductSerializer
 from .models import OutfitHistory, UserInteraction
 
 User = get_user_model()
-
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -32,7 +29,6 @@ class UserSerializer(serializers.ModelSerializer):
             "preferences",
         ]
         read_only_fields = ["is_staff"]
-
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
@@ -55,7 +51,6 @@ class RegisterSerializer(serializers.ModelSerializer):
         validate_password(value)
         return value
 
-
 class UserDetailSerializer(UserSerializer):
     favorites = ProductSerializer(many=True, read_only=True)
 
@@ -66,7 +61,6 @@ class UserDetailSerializer(UserSerializer):
             "content_profile",
         ]
 
-
 class PasswordChangeSerializer(serializers.Serializer):
     old_password = serializers.CharField(write_only=True)
     new_password = serializers.CharField(write_only=True)
@@ -75,10 +69,8 @@ class PasswordChangeSerializer(serializers.Serializer):
         validate_password(value)
         return value
 
-
 class PasswordResetRequestSerializer(serializers.Serializer):
     email = serializers.EmailField()
-
 
 class PasswordResetConfirmSerializer(serializers.Serializer):
     token = serializers.CharField()
@@ -88,33 +80,27 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
         validate_password(value)
         return value
 
-
 class UserInteractionSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserInteraction
         fields = ["id", "product", "interaction_type", "rating", "timestamp"]
-
 
 class OutfitHistorySerializer(serializers.ModelSerializer):
     class Meta:
         model = OutfitHistory
         fields = ["id", "outfit_id", "products", "interaction_type", "timestamp"]
 
-
 class PurchaseHistorySummarySerializer(serializers.Serializer):
     has_purchase_history = serializers.BooleanField()
     order_count = serializers.IntegerField()
-
 
 class GenderSummarySerializer(serializers.Serializer):
     has_gender = serializers.BooleanField()
     gender = serializers.CharField(allow_null=True)
 
-
 class StylePreferenceSummarySerializer(serializers.Serializer):
     has_style_preference = serializers.BooleanField()
     style = serializers.CharField(allow_null=True)
-
 
 class UserForTestingSerializer(serializers.ModelSerializer):
     order_count = serializers.SerializerMethodField()

@@ -1,14 +1,10 @@
-"""Admin registration for orders."""
-
 from django.contrib import admin
 
 from .models import Order, OrderItem, ShippingAddress
 
-
 class OrderItemInline(admin.TabularInline):
     model = OrderItem
     extra = 0
-
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
@@ -25,11 +21,9 @@ class OrderAdmin(admin.ModelAdmin):
     search_fields = ("user__email", "id")
     inlines = [OrderItemInline]
 
-
 @admin.register(ShippingAddress)
 class ShippingAddressAdmin(admin.ModelAdmin):
     list_display = ("order", "address", "city", "country", "recipient_phone_number")
-
 
 @admin.register(OrderItem)
 class OrderItemAdmin(admin.ModelAdmin):

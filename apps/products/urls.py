@@ -1,5 +1,3 @@
-"""Router for product module."""
-
 from rest_framework import routers
 
 from .mongo_views import (
@@ -9,7 +7,6 @@ from .mongo_views import (
     ProductViewSet,
     SizeViewSet,
 )
-
 
 router = routers.DefaultRouter(trailing_slash=False)
 router.register(r"products", ProductViewSet, basename="product")

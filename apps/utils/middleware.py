@@ -1,35 +1,25 @@
-"""Custom middleware for Novaware Django project."""
-
 from django.urls import resolve, Resolver404
 from django.utils.deprecation import MiddlewareMixin
 
-
 class NoAppendSlashForAPIMiddleware(MiddlewareMixin):
-    """
-    Middleware that allows API URLs to work with or without trailing slashes.
-    
-    This ensures that both /api/v1/products/ and /api/v1/products work correctly.
-    """
 
     def process_request(self, request):
-        """Handle both URLs with and without trailing slashes for API routes."""
-        # Only process API routes
         if not request.path.startswith('/api/'):
             return None
-        
+
         path = request.path
-        
+
         try:
             resolve(path)
-            return None  # Path resolves, continue normally
+            return None
         except Resolver404:
             pass
-        
+
         if path.endswith('/') and len(path) > 1:
             alternate_path = path.rstrip('/')
         else:
             alternate_path = path + '/'
-        
+
         try:
             resolve(alternate_path)
             request.path_info = alternate_path
@@ -37,11 +27,10 @@ class NoAppendSlashForAPIMiddleware(MiddlewareMixin):
             return None
         except Resolver404:
             pass
-        
+
         return None
 
     def process_response(self, request, response):
-        """Don't append slash for API routes - we handle it in process_request."""
         if request.path.startswith('/api/'):
             return response
         from django.middleware.common import CommonMiddleware

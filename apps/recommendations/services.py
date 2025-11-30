@@ -1,5 +1,3 @@
-"""Service layer for recommendation system using TensorFlow/PyTorch."""
-
 from __future__ import annotations
 
 import logging
@@ -19,13 +17,11 @@ from .models import RecommendationLog, RecommendationRequest, RecommendationResu
 logger = logging.getLogger(__name__)
 User = get_user_model()
 
-
 @dataclass
 class RecommendationContext:
     request: RecommendationRequest
     user_vector: np.ndarray
     product_matrix: np.ndarray
-
 
 class BaseRecommender:
     def train(self, context: RecommendationContext) -> None:
@@ -33,7 +29,6 @@ class BaseRecommender:
 
     def recommend(self, context: RecommendationContext, top_k: int = 10) -> list[int]:
         raise NotImplementedError
-
 
 class CFRecommender(BaseRecommender):
     def __init__(self) -> None:
@@ -45,7 +40,6 @@ class CFRecommender(BaseRecommender):
         output = tf.keras.layers.Dense(context.product_matrix.shape[1], activation="sigmoid")(dense)
         self.model = tf.keras.Model(inputs=user_input, outputs=output)
         self.model.compile(optimizer="adam", loss="mse")
-        # Placeholder training step - trong thực tế cần dữ liệu lịch sử tương tác
         dummy_target = np.random.rand(1, context.product_matrix.shape[1])
         self.model.fit(context.product_matrix[:1], dummy_target, epochs=1, verbose=0)
 
@@ -56,11 +50,10 @@ class CFRecommender(BaseRecommender):
         top_indices = predictions.argsort()[-top_k:][::-1]
         return top_indices.tolist()
 
-
 class RecommendationService:
     recommender_map = {
         "cf": CFRecommender,
-        "hybrid": CFRecommender,  # Placeholder, có thể thay bằng HybridRecommender
+        "hybrid": CFRecommender,
         "cb": CFRecommender,
         "gnn": CFRecommender,
     }
@@ -90,7 +83,6 @@ class RecommendationService:
         )
         selected_ids = [product_ids[i] for i in indices if i < len(product_ids)]
         return Product.objects.filter(id__in=selected_ids)
-
 
 @shared_task
 def run_recommendation_task(request_id: int) -> None:

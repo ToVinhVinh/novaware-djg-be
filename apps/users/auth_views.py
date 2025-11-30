@@ -1,5 +1,3 @@
-"""Các API liên quan đến xác thực."""
-
 from __future__ import annotations
 
 import secrets
@@ -21,7 +19,6 @@ from .models import PasswordResetAudit
 
 User = get_user_model()
 
-
 class RegisterView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -37,7 +34,6 @@ class RegisterView(APIView):
             },
             status_code=status.HTTP_201_CREATED,
         )
-
 
 class PasswordResetRequestView(APIView):
     permission_classes = [permissions.AllowAny]
@@ -58,12 +54,10 @@ class PasswordResetRequestView(APIView):
             ip_address=request.META.get("REMOTE_ADDR"),
             user_agent=request.META.get("HTTP_USER_AGENT", ""),
         )
-        # TODO: gửi email reset bằng Celery + utils.send_email
         return api_success(
             "Nếu email tồn tại, một liên kết đặt lại đã được gửi.",
             data=None,
         )
-
 
 class PasswordResetConfirmView(APIView):
     permission_classes = [permissions.AllowAny]
@@ -85,7 +79,6 @@ class PasswordResetConfirmView(APIView):
             "Mật khẩu đã được đặt lại.",
             data=None,
         )
-
 
 __all__ = [
     "RegisterView",

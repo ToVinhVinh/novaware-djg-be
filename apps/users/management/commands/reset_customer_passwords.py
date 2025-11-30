@@ -1,13 +1,6 @@
-"""
-Management command để cập nhật lại mật khẩu cho toàn bộ User không phải admin.
-
-Chạy bằng: python manage.py reset_customer_passwords
-"""
-
 from django.core.management.base import BaseCommand
 
 from apps.users.mongo_models import User
-
 
 class Command(BaseCommand):
     help = (

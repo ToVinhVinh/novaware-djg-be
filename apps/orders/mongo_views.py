@@ -1,5 +1,3 @@
-"""ViewSets for order management using MongoEngine."""
-
 from __future__ import annotations
 
 from bson import ObjectId
@@ -12,37 +10,31 @@ from apps.utils import api_error, api_success, get_pagination_params, paginate_q
 from .mongo_models import Order
 from .mongo_serializers import OrderSerializer
 
-
 class OrderViewSet(viewsets.ViewSet):
-    """ViewSet for Order."""
-    
+
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
-    
+
     def list(self, request):
-        """List orders with filtering."""
         queryset = Order.objects.all()
-        
-        # Filter by status
+
         if request.query_params.get("is_paid") == "true":
             queryset = queryset.filter(is_paid=True)
         elif request.query_params.get("is_paid") == "false":
             queryset = queryset.filter(is_paid=False)
-        
+
         if request.query_params.get("is_processing") == "true":
             queryset = queryset.filter(is_processing=True)
-        
+
         if request.query_params.get("is_outfit_purchase") == "true":
             queryset = queryset.filter(is_outfit_purchase=True)
-        
-        # Ordering
+
         ordering = request.query_params.get("ordering", "-created_at")
         if ordering.startswith("-"):
             queryset = queryset.order_by(f"-{ordering[1:]}")
         else:
             queryset = queryset.order_by(ordering)
-        
-        # Pagination
+
         page, page_size = get_pagination_params(request)
         orders, total_count, total_pages, current_page, page_size = paginate_queryset(
             queryset, page, page_size
@@ -58,9 +50,8 @@ class OrderViewSet(viewsets.ViewSet):
                 "count": total_count,
             },
         )
-    
+
     def retrieve(self, request, pk=None):
-        """Get order by id."""
         try:
             order = Order.objects.get(id=ObjectId(pk))
         except (Order.DoesNotExist, Exception):
@@ -69,7 +60,7 @@ class OrderViewSet(viewsets.ViewSet):
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
-        
+
         serializer = OrderSerializer(order)
         return api_success(
             "Order retrieved successfully",
@@ -77,14 +68,12 @@ class OrderViewSet(viewsets.ViewSet):
                 "order": serializer.data,
             },
         )
-    
+
     def create(self, request):
-        """Create new order."""
         request_serializer = OrderSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
-        
+
         validated_data = request_serializer.validated_data.copy()
-        # Get user_id from request data or use authenticated user if available
         if not validated_data.get("user_id"):
             if request.user and hasattr(request.user, 'id') and request.user.is_authenticated:
                 validated_data["user_id"] = str(request.user.id)
@@ -94,7 +83,7 @@ class OrderViewSet(viewsets.ViewSet):
                     data=None,
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
-        
+
         order = request_serializer.create(validated_data)
         response_serializer = OrderSerializer(order)
         return api_success(
@@ -104,9 +93,8 @@ class OrderViewSet(viewsets.ViewSet):
             },
             status_code=status.HTTP_201_CREATED,
         )
-    
+
     def update(self, request, pk=None):
-        """Update order."""
         try:
             order = Order.objects.get(id=ObjectId(pk))
         except (Order.DoesNotExist, Exception):
@@ -115,7 +103,7 @@ class OrderViewSet(viewsets.ViewSet):
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
-        
+
         request_serializer = OrderSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
         order = request_serializer.update(order, request_serializer.validated_data)
@@ -126,9 +114,8 @@ class OrderViewSet(viewsets.ViewSet):
                 "order": response_serializer.data,
             },
         )
-    
+
     def destroy(self, request, pk=None):
-        """Delete order."""
         try:
             order = Order.objects.get(id=ObjectId(pk))
         except (Order.DoesNotExist, Exception):
@@ -137,16 +124,15 @@ class OrderViewSet(viewsets.ViewSet):
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
-        
+
         order.delete()
         return api_success(
             "Order deleted successfully",
             data=None,
         )
-    
+
     @action(detail=True, methods=["post"])
     def mark_paid(self, request, pk=None):
-        """Mark order as paid."""
         try:
             order = Order.objects.get(id=ObjectId(pk))
         except (Order.DoesNotExist, Exception):
@@ -155,7 +141,7 @@ class OrderViewSet(viewsets.ViewSet):
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
-        
+
         order.mark_paid()
         updated_serializer = OrderSerializer(order)
         return api_success(
@@ -164,10 +150,9 @@ class OrderViewSet(viewsets.ViewSet):
                 "order": updated_serializer.data,
             },
         )
-    
+
     @action(detail=True, methods=["post"], permission_classes=[permissions.AllowAny], authentication_classes=[])
     def mark_delivered(self, request, pk=None):
-        """Mark order as delivered."""
         try:
             order = Order.objects.get(id=ObjectId(pk))
         except (Order.DoesNotExist, Exception):
@@ -176,7 +161,7 @@ class OrderViewSet(viewsets.ViewSet):
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
-        
+
         order.is_delivered = True
         order.delivered_at = datetime.utcnow()
         order.save()
@@ -187,10 +172,9 @@ class OrderViewSet(viewsets.ViewSet):
                 "order": updated_serializer.data,
             },
         )
-    
+
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
-        """Cancel order."""
         try:
             order = Order.objects.get(id=ObjectId(pk))
         except (Order.DoesNotExist, Exception):
@@ -199,7 +183,7 @@ class OrderViewSet(viewsets.ViewSet):
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
-        
+
         order.is_cancelled = True
         order.save()
         updated_serializer = OrderSerializer(order)
@@ -212,7 +196,6 @@ class OrderViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=["get"], url_path="my/orders", permission_classes=[permissions.AllowAny], authentication_classes=[])
     def my_orders(self, request):
-        """List of orders for the current user."""
         user_id = request.query_params.get("user_id")
         if not user_id:
             if request.user and hasattr(request.user, 'id') and request.user.is_authenticated:

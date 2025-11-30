@@ -1,5 +1,3 @@
-"""Serializer for product module."""
-
 from __future__ import annotations
 
 from rest_framework import serializers
@@ -14,18 +12,15 @@ from .models import (
     Size,
 )
 
-
 class ColorSerializer(serializers.ModelSerializer):
     class Meta:
         model = Color
         fields = ["id", "name", "hex_code"]
 
-
 class SizeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Size
         fields = ["id", "name", "code"]
-
 
 class ProductVariantSerializer(serializers.ModelSerializer):
     _id = serializers.CharField(source="id", read_only=True)
@@ -34,12 +29,10 @@ class ProductVariantSerializer(serializers.ModelSerializer):
         model = ProductVariant
         fields = ["_id", "stock", "color", "size", "price"]
 
-
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
         fields = ["id", "name"]
-
 
 class ProductReviewSerializer(serializers.ModelSerializer):
     _id = serializers.CharField(source="id", read_only=True)
@@ -51,7 +44,6 @@ class ProductReviewSerializer(serializers.ModelSerializer):
         model = ProductReview
         fields = ["_id", "name", "rating", "comment", "user", "createdAt", "updatedAt"]
         read_only_fields = ["user", "createdAt", "updatedAt"]
-
 
 class ProductSerializer(serializers.ModelSerializer):
     variants = ProductVariantSerializer(many=True, read_only=True)
@@ -77,7 +69,6 @@ class ProductSerializer(serializers.ModelSerializer):
             "variants",
         ]
         read_only_fields = ["id", "rating"]
-
 
 class ContentSectionSerializer(serializers.ModelSerializer):
     class Meta:

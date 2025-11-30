@@ -1,9 +1,6 @@
-"""Router for users."""
-
 from rest_framework import routers
 
 from .mongo_views import OutfitHistoryViewSet, UserInteractionViewSet, UserViewSet
-
 
 router = routers.DefaultRouter(trailing_slash=False)
 router.register(r"users", UserViewSet, basename="user")

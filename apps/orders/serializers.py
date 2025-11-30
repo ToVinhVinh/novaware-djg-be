@@ -1,11 +1,8 @@
-"""Serializer for orders."""
-
 from __future__ import annotations
 
 from rest_framework import serializers
 
 from .models import Order, OrderItem, ShippingAddress
-
 
 class OrderItemSerializer(serializers.ModelSerializer):
     class Meta:
@@ -21,12 +18,10 @@ class OrderItemSerializer(serializers.ModelSerializer):
             "price_sale",
         ]
 
-
 class ShippingAddressSerializer(serializers.ModelSerializer):
     class Meta:
         model = ShippingAddress
         fields = ["id", "address", "city", "postal_code", "country", "recipient_phone_number"]
-
 
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True)

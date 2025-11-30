@@ -1,5 +1,3 @@
-"""ViewSets and user endpoints using MongoEngine."""
-
 from __future__ import annotations
 
 from bson import ObjectId
@@ -25,25 +23,20 @@ from .mongo_serializers import (
     UserSerializer,
 )
 
-
 class IsAdminOrSelf(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
         if not request.user or not hasattr(request.user, 'id') or not request.user.is_authenticated:
             return False
         return request.user.is_staff or str(obj.id) == str(request.user.id)
 
-
 class UserViewSet(viewsets.ViewSet):
-    """ViewSet for User."""
-    
+
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
-    
+
     def list(self, request):
-        """List users."""
         users = User.objects.all()
-        
-        # Search
+
         search = request.query_params.get("search")
         if search:
             users = users.filter(
@@ -52,13 +45,12 @@ class UserViewSet(viewsets.ViewSet):
                     {"username": {"$regex": search, "$options": "i"}},
                 ]}
             )
-        
-        # Pagination
+
         page, page_size = get_pagination_params(request)
         user_list, total_count, total_pages, current_page, page_size = paginate_queryset(
             users, page, page_size
         )
-        
+
         serializer = UserSerializer(user_list, many=True)
         return api_success(
             "Users retrieved successfully",
@@ -70,9 +62,8 @@ class UserViewSet(viewsets.ViewSet):
                 "count": total_count,
             },
         )
-    
+
     def retrieve(self, request, pk=None):
-        """Get user by id."""
         try:
             user = User.objects.get(id=ObjectId(pk))
         except (User.DoesNotExist, Exception):
@@ -81,7 +72,7 @@ class UserViewSet(viewsets.ViewSet):
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
-        
+
         serializer = UserDetailSerializer(user)
         return api_success(
             "User retrieved successfully",
@@ -89,9 +80,8 @@ class UserViewSet(viewsets.ViewSet):
                 "user": serializer.data,
             },
         )
-    
+
     def update(self, request, pk=None):
-        """Update user."""
         try:
             user = User.objects.get(id=ObjectId(pk))
         except (User.DoesNotExist, Exception):
@@ -100,7 +90,7 @@ class UserViewSet(viewsets.ViewSet):
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
-        
+
         request_serializer = UserSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
         user = request_serializer.update(user, request_serializer.validated_data)
@@ -111,9 +101,8 @@ class UserViewSet(viewsets.ViewSet):
                 "user": response_serializer.data,
             },
         )
-    
+
     def destroy(self, request, pk=None):
-        """Delete user."""
         try:
             user = User.objects.get(id=ObjectId(pk))
             user.delete()
@@ -127,10 +116,9 @@ class UserViewSet(viewsets.ViewSet):
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
-    
+
     @action(detail=False, methods=["get"], permission_classes=[permissions.AllowAny], authentication_classes=[])
     def me(self, request):
-        """Get current user."""
         if not request.user or not hasattr(request.user, 'id') or not request.user.is_authenticated:
             return api_error(
                 "Login required.",
@@ -144,10 +132,9 @@ class UserViewSet(viewsets.ViewSet):
                 "user": serializer.data,
             },
         )
-    
+
     @action(detail=True, methods=["get", "post", "delete"], permission_classes=[permissions.AllowAny], authentication_classes=[])
     def favorites(self, request, pk=None):
-        """Manage user favorites."""
         try:
             user = User.objects.get(id=ObjectId(pk))
         except (User.DoesNotExist, Exception):
@@ -156,7 +143,7 @@ class UserViewSet(viewsets.ViewSet):
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
-        
+
         if request.method == "GET":
             page, page_size = get_pagination_params(request)
             favorite_products = Product.objects(id__in=user.favorites)
@@ -174,7 +161,7 @@ class UserViewSet(viewsets.ViewSet):
                     "count": total_count,
                 },
             )
-        
+
         product_id = request.data.get("product") or request.query_params.get("product")
         if not product_id:
             return api_error(
@@ -182,7 +169,7 @@ class UserViewSet(viewsets.ViewSet):
                 data=None,
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
-        
+
         try:
             product = Product.objects.get(id=ObjectId(product_id))
         except (Product.DoesNotExist, Exception):
@@ -191,9 +178,9 @@ class UserViewSet(viewsets.ViewSet):
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
-        
+
         product_id_obj = product.id
-        
+
         if request.method == "POST":
             if product_id_obj not in user.favorites:
                 user.favorites.append(product_id_obj)
@@ -206,7 +193,7 @@ class UserViewSet(viewsets.ViewSet):
                 },
                 status_code=status.HTTP_201_CREATED,
             )
-        else:  # DELETE
+        else:
             if product_id_obj in user.favorites:
                 user.favorites.remove(product_id_obj)
                 user.save()
@@ -217,10 +204,9 @@ class UserViewSet(viewsets.ViewSet):
                     "favoritesCount": len(user.favorites),
                 },
             )
-    
+
     @action(detail=True, methods=["get"], permission_classes=[permissions.AllowAny], authentication_classes=[])
     def check_purchase_history(self, request, pk=None):
-        """Check if user has purchase history."""
         try:
             user = User.objects.get(id=ObjectId(pk))
         except (User.DoesNotExist, Exception):
@@ -229,7 +215,7 @@ class UserViewSet(viewsets.ViewSet):
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
-        
+
         count = Order.objects.filter(user_id=user.id, is_paid=True).count()
         serializer = PurchaseHistorySummarySerializer({
             "has_purchase_history": count > 0,
@@ -241,10 +227,9 @@ class UserViewSet(viewsets.ViewSet):
                 "summary": serializer.data,
             },
         )
-    
+
     @action(detail=True, methods=["get"], permission_classes=[permissions.AllowAny], authentication_classes=[])
     def check_gender(self, request, pk=None):
-        """Check if user has gender."""
         try:
             user = User.objects.get(id=ObjectId(pk))
         except (User.DoesNotExist, Exception):
@@ -253,7 +238,7 @@ class UserViewSet(viewsets.ViewSet):
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
-        
+
         serializer = GenderSummarySerializer({
             "has_gender": bool(user.gender),
             "gender": user.gender,
@@ -264,10 +249,9 @@ class UserViewSet(viewsets.ViewSet):
                 "summary": serializer.data,
             },
         )
-    
+
     @action(detail=True, methods=["get"], permission_classes=[permissions.AllowAny], authentication_classes=[])
     def check_style_preference(self, request, pk=None):
-        """Check if user has style preference."""
         try:
             user = User.objects.get(id=ObjectId(pk))
         except (User.DoesNotExist, Exception):
@@ -276,7 +260,7 @@ class UserViewSet(viewsets.ViewSet):
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
-        
+
         style = user.preferences.get("style") if user.preferences else None
         serializer = StylePreferenceSummarySerializer({
             "has_style_preference": bool(style),
@@ -288,10 +272,9 @@ class UserViewSet(viewsets.ViewSet):
                 "summary": serializer.data,
             },
         )
-    
+
     @action(detail=False, methods=["post"], permission_classes=[permissions.AllowAny], authentication_classes=[])
     def change_password(self, request):
-        """Change user password."""
         if not request.user or not hasattr(request.user, 'id') or not request.user.is_authenticated:
             return api_error(
                 "Login required.",
@@ -301,24 +284,23 @@ class UserViewSet(viewsets.ViewSet):
         serializer = PasswordChangeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = request.user
-        
+
         if not user.check_password(serializer.validated_data["old_password"]):
             return api_error(
                 "Old password is incorrect.",
                 data=None,
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
-        
+
         user.set_password(serializer.validated_data["new_password"])
         user.save()
         return api_success(
             "Password changed successfully.",
             data=None,
         )
-    
+
     @action(detail=False, methods=["get"], permission_classes=[permissions.AllowAny], authentication_classes=[])
     def testing(self, request):
-        """Testing endpoint for user data."""
         query_type = request.query_params.get("type")
         if query_type not in {"personalization", "outfit-suggestions"}:
             return api_error(
@@ -326,7 +308,7 @@ class UserViewSet(viewsets.ViewSet):
                 data=None,
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
-        
+
         users = User.objects.all()
         page, page_size = get_pagination_params(request)
         user_list, total_count, total_pages, current_page, page_size = paginate_queryset(
@@ -345,7 +327,7 @@ class UserViewSet(viewsets.ViewSet):
                 "order_count": order_count,
             }
             results.append(user_data)
-        
+
         return api_success(
             "Testing data retrieved successfully",
             {
@@ -358,18 +340,14 @@ class UserViewSet(viewsets.ViewSet):
             },
         )
 
-
 class UserInteractionViewSet(viewsets.ViewSet):
-    """ViewSet for UserInteraction."""
-    
+
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
-    
+
     def list(self, request):
-        """List user interactions."""
         queryset = UserInteraction.objects.all().order_by("-timestamp")
-        
-        # Pagination
+
         page, page_size = get_pagination_params(request)
         interactions, total_count, total_pages, current_page, page_size = paginate_queryset(
             queryset, page, page_size
@@ -385,14 +363,12 @@ class UserInteractionViewSet(viewsets.ViewSet):
                 "count": total_count,
             },
         )
-    
+
     def create(self, request):
-        """Create new interaction."""
         request_serializer = UserInteractionSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
-        
+
         validated_data = request_serializer.validated_data.copy()
-        # Get user_id from request data or use authenticated user if available
         if not validated_data.get("user_id"):
             if request.user and hasattr(request.user, 'id') and request.user.is_authenticated:
                 validated_data["user_id"] = str(request.user.id)
@@ -402,7 +378,7 @@ class UserInteractionViewSet(viewsets.ViewSet):
                     data=None,
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
-        
+
         interaction = request_serializer.create(validated_data)
         response_serializer = UserInteractionSerializer(interaction)
         return api_success(
@@ -413,18 +389,14 @@ class UserInteractionViewSet(viewsets.ViewSet):
             status_code=status.HTTP_201_CREATED,
         )
 
-
 class OutfitHistoryViewSet(viewsets.ViewSet):
-    """ViewSet for OutfitHistory."""
-    
+
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
-    
+
     def list(self, request):
-        """List outfit history."""
         queryset = OutfitHistory.objects.all().order_by("-timestamp")
-        
-        # Pagination
+
         page, page_size = get_pagination_params(request)
         histories, total_count, total_pages, current_page, page_size = paginate_queryset(
             queryset, page, page_size
@@ -440,14 +412,12 @@ class OutfitHistoryViewSet(viewsets.ViewSet):
                 "count": total_count,
             },
         )
-    
+
     def create(self, request):
-        """Create new outfit history."""
         request_serializer = OutfitHistorySerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
-        
+
         validated_data = request_serializer.validated_data.copy()
-        # Get user_id from request data or use authenticated user if available
         if not validated_data.get("user_id"):
             if request.user and hasattr(request.user, 'id') and request.user.is_authenticated:
                 validated_data["user_id"] = str(request.user.id)
@@ -457,7 +427,7 @@ class OutfitHistoryViewSet(viewsets.ViewSet):
                     data=None,
                     status_code=status.HTTP_400_BAD_REQUEST,
                 )
-        
+
         history = request_serializer.create(validated_data)
         response_serializer = OutfitHistorySerializer(history)
         return api_success(
