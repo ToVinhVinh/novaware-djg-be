@@ -96,9 +96,14 @@ def build_graph(interactions_df: pd.DataFrame, embedding_dim: int = 64) -> Dict:
             'embedding_dim': embedding_dim
         }
     
+    # Chuẩn hóa kiểu dữ liệu để tránh mismatch giữa các bước (sử dụng string cho mọi ID)
+    df = interactions_df.copy()
+    df['user_id'] = df['user_id'].astype(str)
+    df['product_id'] = df['product_id'].astype(str)
+    
     # Tạo mapping user_id -> index và product_id -> index
-    unique_users = sorted(interactions_df['user_id'].unique())
-    unique_products = sorted(interactions_df['product_id'].unique())
+    unique_users = sorted(df['user_id'].unique())
+    unique_products = sorted(df['product_id'].unique())
     
     user_id_to_idx = {user_id: idx for idx, user_id in enumerate(unique_users)}
     product_id_to_idx = {product_id: idx for idx, product_id in enumerate(unique_products)}
@@ -108,7 +113,7 @@ def build_graph(interactions_df: pd.DataFrame, embedding_dim: int = 64) -> Dict:
     
     # Tạo edge_index
     edges = []
-    for _, row in interactions_df.iterrows():
+    for _, row in df.iterrows():
         user_idx = user_id_to_idx[row['user_id']]
         product_idx = product_id_to_idx[row['product_id']] + num_users  # Offset by num_users
         edges.append([user_idx, product_idx])
