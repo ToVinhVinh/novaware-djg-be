@@ -730,7 +730,7 @@ def main():
     
     page = st.sidebar.radio(
         "Chọn chức năng",
-        ["📚 Algorithms & Steps", "📊 Model Comparison", "🎯 Personalized Recommendations", "👗 Outfit Recommendations"]
+        ["📚 Algorithms & Steps", "👗 Recommendations"]
     )
     
     preprocessor, cb_model, gnn_model, hybrid_model = load_models()
@@ -738,7 +738,8 @@ def main():
 
     if page == "📚 Algorithms & Steps":
         st.markdown("## 📚 Algorithms & Steps")
-
+        st.markdown('<div class="sub-header">📚 PHẦN I: TIỀN XỬ LÝ DỮ LIỆU & TẠO TẬP DỮ LIỆU CHUNG (DỮ LIỆU ĐẦU VÀO)</div>', unsafe_allow_html=True)
+        st.markdown("")
         with st.expander("Bước 0: Xuất dữ liệu từ MongoDB thành CSV", expanded=True):
             st.write("**Nội dung thực hiện:** Xuất dữ liệu từ MongoDB (products, users, interactions) thành các file CSV để sử dụng cho training và evaluation.")
             
@@ -976,7 +977,7 @@ def main():
                     min_interactions = st.number_input(
                         "Số lượng tương tác tối thiểu (min_interactions)",
                         min_value=1,
-                        value=5,
+                        value=2,
                         step=1,
                         key="pruning_min_interactions"
                     )
@@ -1413,8 +1414,6 @@ def main():
             else:
                 st.info("💡 Vui lòng tải lên file products.csv hoặc xuất dữ liệu từ MongoDB (Bước 0) để tiếp tục.")
 
-        # PHẦN II: MÔ HÌNH LỌC DỰA TRÊN NỘI DUNG (CONTENT-BASED FILTERING - CBF)
-        st.markdown("---")
         st.markdown('<div class="sub-header">📚 PHẦN II: MÔ HÌNH LỌC DỰA TRÊN NỘI DUNG (CONTENT-BASED FILTERING - CBF)</div>', unsafe_allow_html=True)
         st.markdown("")
 
@@ -1975,7 +1974,7 @@ def main():
             else:
                 st.info("💡 Vui lòng hoàn thành Bước 2.1 (User Profiles) và Bước 1.2 (Feature Encoding) trước khi tiếp tục.")
 
-        with st.expander("Bước 2.3: Áp dụng Tiêu chí Gợi ý Cá nhân hóa (Personalized Filtering)", expanded=True):
+        with st.expander("Bước 2.3: Tạo Danh sách gợi ý cá nhân hóa", expanded=True):
             st.write("**Nội dung thực hiện:** Quy trình tạo ra danh sách Top-K Personalized dựa trên hai cấp độ lọc cứng (strict filtering) và sau đó là ưu tiên (prioritization) bằng điểm mô hình.")
             st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 2.2 (CBF Predictions) và dữ liệu Products/Users")
 
@@ -2207,271 +2206,7 @@ def main():
             elif apply_personalized_filters is None:
                 st.error(f"❌ Không thể import cbf_filters module: {_cbf_filters_import_error}")
 
-        with st.expander("Bước 2.4: Áp dụng Tiêu chí Tổ hợp Trang phục (Outfit Recommendation)", expanded=True):
-            st.write("**Nội dung thực hiện:** Sử dụng thuật toán tổ hợp (Combinatorial Search) để tìm kiếm bộ trang phục $O$ tối ưu, bao gồm sản phẩm $i_{\\text{payload}}$ và tuân thủ các quy tắc cấu trúc, tương thích và lọc cứng.")
-            st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 2.2 (CBF Predictions) và Bước 1.2 (Feature Encoding)")
-
-            st.markdown("""
-            **Các ràng buộc và công thức:**
-            
-            1. **Ràng buộc Cấu trúc Danh mục (Outfit Components):**
-               - Outfit $O$ phải chứa $i_{\\text{payload}}$ và đầy đủ các thành phần bắt buộc: Accessories (1/3 subs), Bottomwear, Topwear, và Footwear (1/3 subs)
-            
-            2. **Ràng buộc Tương thích usage (NEW STRICT CONSTRAINT):**
-               - Outfit $O = \\{i_1, i_2, \\dots, i_n\\}$ là hợp lệ nếu tất cả các sản phẩm $\\forall i, j \\in O$ phải có cùng giá trị usage (ví dụ: 'Casual' hoặc 'Formal')
-            
-            3. **Tính Điểm Tương thích Cặp:**
-               $$\\text{Comp}(i, j) = \\text{cos}(\\mathbf{v}_i, \\mathbf{v}_j)$$
-            
-            4. **Công thức Tính Điểm Outfit Tổng thể:**
-               $$\\text{Score}(O) = \\sum_{i \\in O} w_i \\cdot \\hat{r}_{ui}^{\\text{CBF}} + \\sum_{i, j \\in O, i \\neq j} w_{i, j} \\cdot \\text{Comp}(i, j)$$
-            
-            **Kết quả mong đợi:** Bộ Outfit có điểm $\\text{Score}(O)$ cao nhất, thỏa mãn tất cả các ràng buộc cấu trúc và tương thích (usage phải đồng nhất).
-            """)
-
-            # Kiểm tra dữ liệu từ các bước trước
-            has_cbf_predictions = 'cbf_predictions' in st.session_state
-            has_feature_encoding = 'feature_encoding' in st.session_state
-
-            if not has_cbf_predictions:
-                st.warning("⚠️ Chưa có dữ liệu từ Bước 2.2 (CBF Predictions). Vui lòng chạy Bước 2.2 trước.")
-            if not has_feature_encoding:
-                st.warning("⚠️ Chưa có dữ liệu từ Bước 1.2 (Feature Encoding). Vui lòng chạy Bước 1.2 trước.")
-            
-            if has_cbf_predictions and has_feature_encoding and generate_outfit_recommendations is not None:
-                cbf_predictions = st.session_state['cbf_predictions']
-                encoding_result = st.session_state['feature_encoding']
-                
-                encoded_matrix = encoding_result['encoded_matrix']
-                product_ids = encoding_result['product_ids']
-                
-                # Load products data
-                products_path = os.path.join(current_dir, 'apps', 'exports', 'products.csv')
-                products_df = None
-                if os.path.exists(products_path):
-                    products_df = pd.read_csv(products_path)
-                    if 'id' in products_df.columns:
-                        products_df['id'] = products_df['id'].astype(str)
-                        products_df.set_index('id', inplace=True)
-                
-                if products_df is not None:
-                    # Configuration
-                    col_config1, col_config2 = st.columns(2)
-                    with col_config1:
-                        selected_user_id = st.selectbox(
-                            "Chọn User ID để tạo outfit recommendations",
-                            list(cbf_predictions['predictions'].keys()) if cbf_predictions else [],
-                            key="outfit_user_id"
-                        )
-                        
-                        # Payload product selection
-                        if selected_user_id:
-                            user_predictions = cbf_predictions['predictions'][selected_user_id]
-                            available_products = list(user_predictions.keys())[:100]  # Limit to first 100 for performance
-                            payload_product_id = st.selectbox(
-                                "Chọn Payload Product ID (sản phẩm đầu vào bắt buộc)",
-                                available_products,
-                                key="payload_product_id"
-                            )
-                        
-                        outfit_size = st.number_input(
-                            "Kích thước Outfit (số lượng sản phẩm)",
-                            min_value=4,
-                            max_value=6,
-                            value=4,
-                            step=1,
-                            key="outfit_size"
-                        )
-                    
-                    with col_config2:
-                        max_outfits = st.number_input(
-                            "Số lượng Outfit tối đa",
-                            min_value=5,
-                            max_value=50,
-                            value=10,
-                            step=5,
-                            key="max_outfits"
-                        )
-                        
-                        item_weight = st.number_input(
-                            "Trọng số CBF Score (w_i)",
-                            min_value=0.1,
-                            max_value=2.0,
-                            value=1.0,
-                            step=0.1,
-                            key="item_weight"
-                        )
-                    
-                    compatibility_weight = st.number_input(
-                        "Trọng số Compatibility (w_i,j)",
-                        min_value=0.1,
-                        max_value=2.0,
-                        value=0.5,
-                        step=0.1,
-                        key="compatibility_weight"
-                    )
-                    
-                    if selected_user_id:
-                        # Get filtered products if available, otherwise use top-K from predictions
-                        candidate_products = None
-                        payload_product_id = None
-                        
-                        # Get payload product ID if available
-                        if 'payload_product_id' in st.session_state.get('outfit_user_id', {}):
-                            payload_product_id = st.session_state.get('payload_product_id')
-                        
-                        if 'personalized_filters' in st.session_state and selected_user_id in st.session_state['personalized_filters']:
-                            candidate_products = st.session_state['personalized_filters'][selected_user_id]['filtered_products']
-                            st.info(f"✅ Sử dụng {len(candidate_products)} sản phẩm đã được lọc từ Bước 2.3")
-                        else:
-                            # Use top-K from CBF predictions
-                            user_ranking = cbf_predictions['rankings'][selected_user_id]
-                            top_k_for_outfit = st.number_input(
-                                "Số lượng sản phẩm ứng viên từ CBF (nếu chưa có filtered list)",
-                                min_value=10,
-                                max_value=100,
-                                value=50,
-                                step=10,
-                                key="top_k_for_outfit"
-                            )
-                            candidate_products = [product_id for product_id, _ in user_ranking[:top_k_for_outfit]]
-                            st.info(f"ℹ️ Sử dụng top-{top_k_for_outfit} sản phẩm từ CBF predictions")
-                        
-                        # Ensure payload product is in candidate list
-                        if payload_product_id and payload_product_id not in [str(p) for p in candidate_products]:
-                            candidate_products.insert(0, str(payload_product_id))
-                        
-                        process_button = st.button(
-                            "🔧 Tạo Outfit Recommendations",
-                            type="primary",
-                            use_container_width=True,
-                            key="outfit_recommendation_button"
-                        )
-                        
-                        if process_button and candidate_products:
-                            with st.spinner(f"Đang tạo outfit recommendations (có thể mất vài phút)..."):
-                                try:
-                                    # Prepare CBF scores in the format expected by generate_outfit_recommendations
-                                    cbf_scores_dict = {}
-                                    user_predictions = cbf_predictions['predictions'][selected_user_id]
-                                    cbf_scores_dict[selected_user_id] = user_predictions
-                                    
-                                    result = generate_outfit_recommendations(
-                                        candidate_products,
-                                        cbf_scores_dict,
-                                        encoded_matrix,
-                                        product_ids,
-                                        products_df,
-                                        selected_user_id,
-                                        payload_product_id=str(payload_product_id) if payload_product_id else None,
-                                        outfit_size=outfit_size,
-                                        max_outfits=max_outfits,
-                                        item_weight=item_weight,
-                                        compatibility_weight=compatibility_weight
-                                    )
-                                    
-                                    if not result:
-                                        st.warning("⚠️ Không tìm thấy outfit nào hợp lệ. Có thể do không có đủ sản phẩm cùng usage.")
-                                    else:
-                                        st.success(f"✅ **Hoàn thành!** Đã tạo {len(result)} outfit recommendations.")
-                                        
-                                        # Store in session state
-                                        if 'outfit_recommendations' not in st.session_state:
-                                            st.session_state['outfit_recommendations'] = {}
-                                        st.session_state['outfit_recommendations'][selected_user_id] = result
-                                        
-                                        # Display results
-                                        st.markdown("### 📊 Kết quả Outfit Recommendations")
-                                        
-                                        # Statistics
-                                        scores = [outfit['score'] for outfit in result]
-                                        cbf_components = [outfit['cbf_component'] for outfit in result]
-                                        comp_components = [outfit['compatibility_component'] for outfit in result]
-                                        
-                                        col_stat1, col_stat2, col_stat3 = st.columns(3)
-                                        with col_stat1:
-                                            st.metric("Số lượng Outfits", len(result))
-                                            st.metric("Điểm cao nhất", f"{max(scores):.4f}")
-                                        with col_stat2:
-                                            st.metric("Điểm trung bình", f"{np.mean(scores):.4f}")
-                                            st.metric("CBF Component (TB)", f"{np.mean(cbf_components):.4f}")
-                                        with col_stat3:
-                                            st.metric("Compatibility Component (TB)", f"{np.mean(comp_components):.4f}")
-                                            st.metric("Điểm thấp nhất", f"{min(scores):.4f}")
-                                        
-                                        # Display outfits
-                                        st.markdown("### 👔 Danh sách Outfit Recommendations")
-                                        
-                                        for idx, outfit in enumerate(result, 1):
-                                            with st.expander(f"Outfit #{idx} - Score: {outfit['score']:.4f}", expanded=(idx == 1)):
-                                                col_outfit1, col_outfit2 = st.columns(2)
-                                                with col_outfit1:
-                                                    st.write(f"**Sản phẩm trong Outfit:**")
-                                                    for product_id in outfit['products']:
-                                                        st.write(f"- Product ID: {product_id}")
-                                                
-                                                with col_outfit2:
-                                                    st.write(f"**Chi tiết điểm số:**")
-                                                    st.write(f"- Tổng điểm: {outfit['score']:.4f}")
-                                                    st.write(f"- CBF Component: {outfit['cbf_component']:.4f}")
-                                                    st.write(f"- Compatibility Component: {outfit['compatibility_component']:.4f}")
-                                        
-                                        # Visualization
-                                        st.markdown("### 📈 Biểu đồ phân bố điểm số")
-                                        scores_df = pd.DataFrame({
-                                            'Outfit Index': range(1, len(result) + 1),
-                                            'Total Score': scores,
-                                            'CBF Component': cbf_components,
-                                            'Compatibility Component': comp_components
-                                        })
-                                        
-                                        fig = go.Figure()
-                                        fig.add_trace(go.Bar(
-                                            x=scores_df['Outfit Index'],
-                                            y=scores_df['Total Score'],
-                                            name='Total Score',
-                                            marker_color='blue'
-                                        ))
-                                        fig.add_trace(go.Bar(
-                                            x=scores_df['Outfit Index'],
-                                            y=scores_df['CBF Component'],
-                                            name='CBF Component',
-                                            marker_color='green'
-                                        ))
-                                        fig.add_trace(go.Bar(
-                                            x=scores_df['Outfit Index'],
-                                            y=scores_df['Compatibility Component'],
-                                            name='Compatibility Component',
-                                            marker_color='orange'
-                                        ))
-                                        fig.update_layout(
-                                            barmode='group',
-                                            title="Phân bố điểm số các Outfit Recommendations",
-                                            xaxis_title="Outfit Index",
-                                            yaxis_title="Điểm số"
-                                        )
-                                        st.plotly_chart(fig, use_container_width=True)
-                                        
-                                        st.markdown("""
-                                        **✅ Kết quả đạt được:**
-                                        - ✅ Một tập hợp các Outfit $O$ có điểm $\\text{Score}(O)$ cao
-                                        - ✅ Các thành phần phù hợp với sở thích cá nhân ($\\hat{r}_{ui}^{\\text{CBF}}$)
-                                        - ✅ Có tính tương thích cao ($\\text{Comp}(i, j)$)
-                                        - ✅ Chia sẻ cùng một ngữ cảnh sử dụng (usage)
-                                        """)
-                                
-                                except Exception as e:
-                                    st.error(f"❌ Lỗi khi tạo outfit recommendations: {str(e)}")
-                                    import traceback
-                                    st.code(traceback.format_exc())
-                        elif process_button and not candidate_products:
-                            st.warning("⚠️ Không có danh sách sản phẩm ứng viên. Vui lòng chạy Bước 2.2 hoặc Bước 2.3 trước.")
-                else:
-                    st.warning("⚠️ Không thể tải dữ liệu products. Vui lòng kiểm tra lại.")
-            elif generate_outfit_recommendations is None:
-                st.error(f"❌ Không thể import outfit_recommendation module: {_outfit_import_error}")
-
-        with st.expander("Bước 2.5: Tính toán Số liệu Đánh giá Hiệu suất", expanded=True):
+        with st.expander("Bước 2.5: Tính toán Số liệu (Đánh giá Mô hình)", expanded=True):
             st.write("**Nội dung thực hiện:** Tính toán tất cả các chỉ số so sánh (Recall@K, NDCG@K,...) trên danh sách Top-K từ CBF Predictions (Bước 2.2).")
             st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 2.2 (CBF Predictions) và dữ liệu Ground Truth (interactions)")
             st.info("💡 **Lưu ý:** Metrics được tính trên CBF Predictions (Bước 2.2), không phải Top-K Personalized (Bước 2.3) vì ground truth nên so sánh với toàn bộ recommendations, không chỉ phần đã lọc.")
@@ -3480,11 +3215,10 @@ def main():
                                 import traceback
                                 st.code(traceback.format_exc())
 
-        with st.expander("Bước 3.5: Tạo Danh sách Gợi ý và Tính toán Số liệu Đánh giá Hiệu suất", expanded=True):
+        with st.expander("Bước 3.5: Tạo Danh sách gợi ý cá nhân hóa và Tính toán Số liệu (Đánh giá Mô hình)", expanded=True):
             st.write("**Nội dung thực hiện:**")
             st.write("1. **Gợi ý Cá nhân hóa:** Áp dụng Logic Lọc và Ưu tiên (Bước 2.3) lên danh sách ứng viên được xếp hạng bởi $\\hat{r}_{ui}^{\\text{GNN}}$.")
-            st.write("2. **Gợi ý Tổ hợp Trang phục:** Áp dụng Logic Tổ hợp (Bước 2.4) sử dụng $\\hat{r}_{ui}^{\\text{GNN}}$ làm yếu tố cá nhân hóa.")
-            st.write("3. **Tính toán Số liệu:** Tính toán tất cả các chỉ số (Recall@K, NDCG@K,...) tương tự như Bước 2.5, sử dụng $L(u)$ và các tham số thời gian tương ứng của GNN.")
+            st.write("2. **Tính toán Số liệu:** Tính toán tất cả các chỉ số (Recall@K, NDCG@K,...) tương tự như Bước 2.5, sử dụng $L(u)$ và các tham số thời gian tương ứng của GNN.")
             st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 3.3 (GNN Predictions) hoặc Bước 3.4 (Trained Model)")
 
             st.markdown("""
@@ -4099,16 +3833,14 @@ def main():
                                 import traceback
                                 st.code(traceback.format_exc())
 
-        with st.expander("Bước 4.3: Tạo Danh sách Gợi ý Cá nhân hóa và Tổ hợp Trang phục", expanded=True):
+        with st.expander("Bước 4.3: Tạo Danh sách gợi ý cá nhân hóa với Hybrid", expanded=True):
             st.write("**Nội dung thực hiện:**")
             st.write("1. **Gợi ý Cá nhân hóa:** Áp dụng Logic Lọc và Ưu tiên (Bước 2.3) lên danh sách ứng viên được xếp hạng bởi $Score_{Hybrid}(u, i)$.")
-            st.write("2. **Gợi ý Tổ hợp Trang phục:** Áp dụng Logic Tổ hợp (Bước 2.4) sử dụng $Score_{Hybrid}(u, i)$ làm yếu tố cá nhân hóa.")
             st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 4.1 & 4.2 (Hybrid Predictions)")
 
             st.markdown("""
             **Kết quả mong đợi:**
             - Danh sách Personalized có chất lượng và tính đa dạng cao nhất
-            - Outfit recommendations có tính tương thích và phù hợp với sở thích người dùng
             """)
 
             # Kiểm tra dữ liệu từ các bước trước
@@ -4119,8 +3851,8 @@ def main():
             else:
                 hybrid_predictions = st.session_state['hybrid_predictions']
                 
-                st.info("💡 **Lưu ý:** Bước này sử dụng cùng logic với Bước 2.3 (Personalized Filtering) và Bước 2.4 (Outfit Recommendation), nhưng với điểm số Hybrid thay vì CBF.")
-                st.info("💡 Để sử dụng các tính năng này, vui lòng tham khảo Bước 2.3 và Bước 2.4, và thay thế `cbf_predictions` bằng `hybrid_predictions`.")
+                st.info("💡 **Lưu ý:** Bước này sử dụng cùng logic với Bước 2.3 (Personalized Filtering), nhưng với điểm số Hybrid thay vì CBF.")
+                st.info("💡 Để sử dụng các tính năng này, vui lòng tham khảo Bước 2.3 và thay thế `cbf_predictions` bằng `hybrid_predictions`.")
                 
                 st.markdown("""
                 **Hướng dẫn sử dụng:**
@@ -4128,13 +3860,9 @@ def main():
                 1. **Gợi ý Cá nhân hóa (Personalized Filtering):**
                    - Sử dụng `hybrid_predictions['predictions']` thay vì `cbf_predictions['predictions']`
                    - Áp dụng các bộ lọc articleType và age/gender như Bước 2.3
-                
-                2. **Gợi ý Tổ hợp Trang phục (Outfit Recommendation):**
-                   - Sử dụng `hybrid_predictions['predictions']` làm CBF scores trong `generate_outfit_recommendations`
-                   - Logic tổ hợp và tương thích giữ nguyên như Bước 2.4
                 """)
 
-        with st.expander("Bước 4.4: Tính toán Số liệu Đánh giá Hiệu suất", expanded=True):
+        with st.expander("Bước 4.4: Tính toán Số liệu (Đánh giá Mô hình)", expanded=True):
             st.write("**Nội dung thực hiện:** Tính toán tất cả các chỉ số (Recall@K, NDCG@K,...) tương tự như Bước 2.5, sử dụng $L(u)$ và các tham số thời gian tương ứng của Hybrid.")
             st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 4.1 & 4.2 (Hybrid Predictions)")
 
