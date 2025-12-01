@@ -6,9 +6,12 @@ import os
 import sys
 import plotly.graph_objects as go
 import plotly.express as px
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
+from pathlib import Path
 import time
 import re
+import ast
+from collections import defaultdict
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
@@ -50,9 +53,9 @@ except ImportError as e:
     cosine_similarity = None
     _user_profile_import_error = str(e)
 
-_cbf_filters_import_error = None
+_cbf_utils_import_error = None
 try:
-    from apps.utils.cbf_filters import (
+    from apps.utils.cbf_utils import (
         apply_personalized_filters,
         apply_articletype_filter,
         apply_age_gender_filter,
@@ -63,7 +66,7 @@ except ImportError as e:
     apply_articletype_filter = None
     apply_age_gender_filter = None
     get_allowed_genders = None
-    _cbf_filters_import_error = str(e)
+    _cbf_utils_import_error = str(e)
 
 _outfit_import_error = None
 try:
@@ -192,6 +195,541 @@ def load_comparison_results():
     except:
         return None
 
+
+# ============================================
+# Helpers: Lưu / tải predictions ra/vào file
+# ============================================
+
+ARTIFACTS_DIR = Path(current_dir) / "artifacts"
+
+
+def _ensure_artifacts_dir() -> Path:
+    """Đảm bảo thư mục artifacts tồn tại."""
+    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    return ARTIFACTS_DIR
+
+
+def _load_pickle_if_exists(path: Path):
+    """Load pickle nếu file tồn tại, ngược lại trả về None."""
+    if not path.exists():
+        return None
+    try:
+        with open(path, "rb") as f:
+            return pickle.load(f)
+    except Exception:
+        return None
+
+
+def _save_pickle_safely(path: Path, obj) -> None:
+    """Lưu pickle một cách an toàn, bỏ qua lỗi nếu có vấn đề IO."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "wb") as f:
+            pickle.dump(obj, f)
+    except Exception:
+        # Không crash app chỉ vì lỗi ghi file
+        pass
+
+
+def save_predictions_artifact(model_key: str, data: Dict) -> None:
+    """
+    Lưu predictions ra file artifacts cho từng loại mô hình.
+    model_key: 'cbf' | 'gnn' | 'hybrid'
+    """
+    base = _ensure_artifacts_dir()
+    filename = {
+        "cbf": "streamlit_cbf_predictions.pkl",
+        "gnn": "streamlit_gnn_predictions.pkl",
+        "hybrid": "streamlit_hybrid_predictions.pkl",
+    }.get(model_key)
+    if not filename:
+        return
+    _save_pickle_safely(base / filename, data)
+
+
+def load_cached_predictions_into_session() -> None:
+    """
+    Auto-load predictions đã lưu (nếu có) vào session_state khi mở app.
+    Chỉ nạp nếu session_state chưa có key tương ứng.
+    """
+    base = ARTIFACTS_DIR
+    mappings = [
+        ("cbf_predictions", "streamlit_cbf_predictions.pkl"),
+        ("gnn_predictions", "streamlit_gnn_predictions.pkl"),
+        ("hybrid_predictions", "streamlit_hybrid_predictions.pkl"),
+    ]
+    for state_key, fname in mappings:
+        if state_key in st.session_state:
+            continue
+        path = base / fname
+        cached = _load_pickle_if_exists(path)
+        if cached:
+            st.session_state[state_key] = cached
+
+
+@st.cache_data
+def load_products_data(path: str = None):
+    """Load products dataset from exports directory."""
+    csv_path = path or os.path.join(current_dir, 'apps', 'exports', 'products.csv')
+    if not os.path.exists(csv_path):
+        return None
+    try:
+        df = pd.read_csv(csv_path)
+        if 'id' in df.columns:
+            df['id'] = df['id'].astype(str)
+            df = df.set_index('id')
+        return df
+    except Exception:
+        return None
+
+
+@st.cache_data
+def load_users_data(path: str = None):
+    """Load users dataset from exports directory."""
+    csv_path = path or os.path.join(current_dir, 'apps', 'exports', 'users.csv')
+    if not os.path.exists(csv_path):
+        return None
+    try:
+        df = pd.read_csv(csv_path)
+        if 'id' in df.columns:
+            df['id'] = df['id'].astype(str)
+            df = df.set_index('id')
+        return df
+    except Exception:
+        return None
+
+
+@st.cache_data
+def load_interactions_data(path: str = None):
+    """Load interactions dataset from exports directory."""
+    csv_path = path or os.path.join(current_dir, 'apps', 'exports', 'interactions.csv')
+    if not os.path.exists(csv_path):
+        return None
+    try:
+        df = pd.read_csv(csv_path)
+        if 'user_id' in df.columns:
+            df['user_id'] = df['user_id'].astype(str)
+        if 'product_id' in df.columns:
+            df['product_id'] = df['product_id'].astype(str)
+        return df
+    except Exception:
+        return None
+
+
+def get_user_record(user_id: str, users_df: pd.DataFrame):
+    if users_df is None or user_id is None:
+        return None
+    try:
+        if user_id in users_df.index:
+            return users_df.loc[user_id]
+        return users_df.loc[users_df.index.astype(str) == str(user_id)].iloc[0]
+    except Exception:
+        return None
+
+
+def get_product_record(product_id: str, products_df: pd.DataFrame):
+    if products_df is None or product_id is None:
+        return None
+    product_key = str(product_id)
+    try:
+        if products_df.index.name is not None or not isinstance(products_df.index, pd.RangeIndex):
+            if product_key in products_df.index.astype(str):
+                return products_df.loc[product_key]
+        if 'id' in products_df.columns:
+            match = products_df[products_df['id'].astype(str) == product_key]
+            if not match.empty:
+                return match.iloc[0]
+    except Exception:
+        return None
+    return None
+
+
+def ensure_hybrid_predictions(alpha: float, candidate_pool: int = 200):
+    """
+    Ensure hybrid predictions are available in session state.
+    Recompute when alpha changes or cached predictions missing.
+    """
+    existing = st.session_state.get('hybrid_predictions')
+    if existing and abs(existing.get('alpha', alpha) - alpha) < 1e-6:
+        return existing
+
+    cbf_predictions = st.session_state.get('cbf_predictions')
+    gnn_predictions = (
+        st.session_state.get('gnn_predictions')
+        or st.session_state.get('gnn_training')
+    )
+
+    if cbf_predictions and gnn_predictions:
+        combined = combine_hybrid_scores(
+            cbf_predictions,
+            gnn_predictions,
+            alpha=alpha,
+            top_k=max(candidate_pool, 50)
+        )
+        st.session_state['hybrid_predictions'] = combined
+        # lưu lại hybrid predictions ra artifacts
+        save_predictions_artifact("hybrid", combined)
+        return combined
+
+    if cbf_predictions and not gnn_predictions:
+        fallback = {
+            'predictions': cbf_predictions.get('predictions', {}),
+            'rankings': cbf_predictions.get('rankings', {}),
+            'alpha': alpha,
+            'stats': {'note': 'Fallback to CBF scores (GNN predictions missing)'}
+        }
+        st.session_state['hybrid_predictions'] = fallback
+        return fallback
+
+    return existing
+
+
+def build_user_interaction_preferences(
+    user_id: str,
+    interactions_df: pd.DataFrame,
+    products_df: pd.DataFrame
+) -> Dict[str, Dict[str, float]]:
+    """
+    Derive normalized preference weights from user interaction history.
+    Returns dict with article, usage, gender preference maps in [0,1].
+    """
+    preference_maps = {
+        'articleType': defaultdict(float),
+        'usage': defaultdict(float),
+        'gender': defaultdict(float)
+    }
+
+    if (
+        interactions_df is None
+        or products_df is None
+        or interactions_df.empty
+        or user_id is None
+    ):
+        return {k: {} for k in preference_maps}
+
+    user_history = interactions_df[interactions_df['user_id'] == str(user_id)]
+    if user_history.empty:
+        return {k: {} for k in preference_maps}
+
+    for _, row in user_history.iterrows():
+        product_id = str(row.get('product_id'))
+        interaction_type = row.get('interaction_type', '').lower()
+        weight = INTERACTION_WEIGHTS.get(interaction_type, 1.0)
+        product_row = get_product_record(product_id, products_df)
+        if product_row is None:
+            continue
+
+        article = str(product_row.get('articleType', '')).strip()
+        usage = str(product_row.get('usage', '')).strip()
+        gender = str(product_row.get('gender', '')).strip()
+
+        if article:
+            preference_maps['articleType'][article] += weight
+        if usage:
+            preference_maps['usage'][usage] += weight
+        if gender:
+            preference_maps['gender'][gender] += weight
+
+    normalized = {}
+    for key, counter in preference_maps.items():
+        if not counter:
+            normalized[key] = {}
+            continue
+        max_val = max(counter.values())
+        if max_val == 0:
+            normalized[key] = {k: 0.0 for k in counter}
+        else:
+            normalized[key] = {k: v / max_val for k, v in counter.items()}
+
+    return normalized
+
+
+def build_personalized_candidates(
+    user_id: str,
+    payload_product_id: str,
+    hybrid_predictions: Dict,
+    products_df: pd.DataFrame,
+    users_df: pd.DataFrame,
+    interactions_df: pd.DataFrame,
+    top_k: int = 10,
+    usage_bonus: float = 0.08,
+    gender_primary_bonus: float = 0.06,
+    gender_secondary_bonus: float = 0.03,
+    interaction_weight: float = 0.05,
+    usage_pref_weight: float = 0.04
+) -> List[Dict]:
+    """Compute prioritized personalized recommendations."""
+    if (
+        hybrid_predictions is None
+        or products_df is None
+        or payload_product_id is None
+    ):
+        return []
+
+    payload_row = get_product_record(payload_product_id, products_df)
+    if payload_row is None:
+        return []
+
+    payload_article = str(payload_row.get('articleType', '')).strip()
+    payload_usage = str(payload_row.get('usage', '')).strip()
+
+    user_record = get_user_record(user_id, users_df)
+    user_age = None
+    if user_record is not None:
+        try:
+            user_age = int(user_record.get('age')) if pd.notna(user_record.get('age')) else None
+        except (ValueError, TypeError):
+            user_age = None
+    user_gender = user_record.get('gender') if user_record is not None else None
+
+    allowed_genders = get_allowed_genders(user_age, user_gender)
+    preference_maps = build_user_interaction_preferences(
+        user_id,
+        interactions_df,
+        products_df
+    )
+
+    # Robustly fetch user scores regardless of user_id key type (str/int)
+    predictions_by_user = hybrid_predictions.get('predictions', {}) or {}
+    user_scores = None
+    user_key_str = str(user_id)
+    if user_key_str in predictions_by_user:
+        user_scores = predictions_by_user[user_key_str]
+    else:
+        for key, val in predictions_by_user.items():
+            if str(key) == user_key_str:
+                user_scores = val
+                break
+
+    if not user_scores:
+        # Không có bất kỳ dự đoán Hybrid nào cho user này
+        return []
+
+    prioritized = []
+    for product_id, base_score in sorted(
+        user_scores.items(),
+        key=lambda x: x[1],
+        reverse=True
+    ):
+        if str(product_id) == str(payload_product_id):
+            continue
+        product_row = get_product_record(product_id, products_df)
+        if product_row is None:
+            continue
+
+        article_type = str(product_row.get('articleType', '')).strip()
+        if not article_type or article_type != payload_article:
+            continue  # strict articleType requirement
+
+        product_usage = str(product_row.get('usage', '')).strip()
+        product_gender = str(product_row.get('gender', '')).strip() or 'Unspecified'
+
+        score = float(base_score)
+        reasons = []
+
+        if payload_usage and product_usage and product_usage == payload_usage:
+            score += usage_bonus
+            reasons.append("Ưu tiên do cùng usage")
+
+        if product_gender in allowed_genders:
+            score += gender_primary_bonus
+            reasons.append("Phù hợp giới tính/độ tuổi")
+        elif product_gender.lower() == 'unisex' and (user_age or 0) >= 13:
+            score += gender_secondary_bonus
+            reasons.append("Unisex phù hợp (>=13)")
+        else:
+            score -= 0.01  # nhẹ nhàng penalize
+
+        article_pref = preference_maps.get('articleType', {}).get(article_type, 0.0)
+        if article_pref > 0:
+            score += interaction_weight * article_pref
+            reasons.append("Trọng số lịch sử articleType")
+
+        usage_pref = preference_maps.get('usage', {}).get(product_usage, 0.0)
+        if usage_pref > 0:
+            score += usage_pref_weight * usage_pref
+            reasons.append("Trọng số lịch sử usage")
+
+        prioritized.append({
+            'product_id': str(product_id),
+            'score': score,
+            'base_score': base_score,
+            'usage_match': product_usage == payload_usage and bool(payload_usage),
+            'gender_match': product_gender in allowed_genders,
+            'reasons': reasons,
+            'product_row': product_row
+        })
+
+    prioritized.sort(key=lambda x: x['score'], reverse=True)
+    return prioritized[:top_k]
+
+
+def build_outfit_suggestions(
+    user_id: str,
+    payload_product_id: str,
+    personalized_items: List[Dict],
+    products_df: pd.DataFrame,
+    hybrid_predictions: Dict,
+    user_age: Optional[int],
+    user_gender: Optional[str],
+    max_outfits: int = 3
+) -> List[Dict]:
+    """Create outfits that include payload product and satisfy structural rules."""
+    if (
+        products_df is None
+        or personalized_items is None
+        or hybrid_predictions is None
+    ):
+        return []
+
+    payload_row = get_product_record(payload_product_id, products_df)
+    if payload_row is None:
+        return []
+
+    target_usage = str(payload_row.get('usage', '')).strip()
+    allowed_genders = get_allowed_genders(user_age, user_gender)
+
+    def gender_allowed(gender_value: str) -> bool:
+        gender_clean = str(gender_value).strip()
+        if not allowed_genders:
+            return True
+        if not gender_clean:
+            return True
+        return gender_clean in allowed_genders or (
+            gender_clean.lower() == 'unisex' and 'Unisex' in allowed_genders
+        )
+
+    usage_filtered = products_df.copy()
+    if target_usage:
+        usage_filtered = usage_filtered[
+            usage_filtered['usage'].astype(str).str.strip() == target_usage
+        ]
+    if usage_filtered.empty:
+        usage_filtered = products_df.copy()
+
+    if 'gender' in usage_filtered.columns:
+        usage_filtered = usage_filtered[usage_filtered['gender'].apply(gender_allowed)]
+    if usage_filtered.empty:
+        usage_filtered = products_df.copy()
+
+    score_lookup = {
+        item['product_id']: item['score']
+        for item in personalized_items
+    }
+    user_scores = hybrid_predictions.get('predictions', {}).get(user_id, {})
+
+    def sort_candidates(df_subset: pd.DataFrame) -> List[str]:
+        if df_subset is None or df_subset.empty:
+            return []
+        # ensure index as string ID
+        ids = df_subset.index.astype(str)
+        scores = [
+            score_lookup.get(pid, user_scores.get(pid, 0.0))
+            for pid in ids
+        ]
+        ordered = sorted(zip(ids, scores), key=lambda x: x[1], reverse=True)
+        return [pid for pid, _ in ordered]
+
+    def subset_by(master=None, subcategories=None):
+        df = usage_filtered
+        if master and 'masterCategory' in df.columns:
+            df = df[df['masterCategory'].astype(str).str.lower() == master.lower()]
+        if subcategories and 'subCategory' in df.columns:
+            sub_values = [s.lower() for s in subcategories]
+            df = df[df['subCategory'].astype(str).str.lower().isin(sub_values)]
+        return df
+
+    accessory_subs = ['bags', 'belts', 'headwear', 'watches']
+    footwear_subs = ['shoes', 'sandal', 'flip flops']
+
+    candidates = {
+        'accessory': sort_candidates(subset_by(master='Accessories', subcategories=accessory_subs)),
+        'topwear': sort_candidates(subset_by(master='Apparel', subcategories=['topwear'])),
+        'bottomwear': sort_candidates(subset_by(master='Apparel', subcategories=['bottomwear'])),
+        'dress': sort_candidates(subset_by(master='Apparel', subcategories=['dress'])),
+        'innerwear': sort_candidates(subset_by(master='Apparel', subcategories=['innerwear'])),
+        'footwear': sort_candidates(subset_by(master='Footwear', subcategories=footwear_subs))
+    }
+
+    def detect_categories(row):
+        cats = set()
+        sub = str(row.get('subCategory', '')).lower()
+        master = str(row.get('masterCategory', '')).lower()
+        if master == 'accessories' or sub in [s.lower() for s in accessory_subs]:
+            cats.add('accessory')
+        if sub == 'topwear':
+            cats.add('topwear')
+        if sub == 'bottomwear':
+            cats.add('bottomwear')
+        if sub == 'dress':
+            cats.add('dress')
+        if sub == 'innerwear':
+            cats.add('innerwear')
+        if master == 'footwear' or sub in [s.lower() for s in footwear_subs]:
+            cats.add('footwear')
+        return cats
+
+    payload_categories = detect_categories(payload_row)
+
+    required_categories = ['accessory', 'topwear', 'bottomwear', 'footwear']
+    optional_categories = []
+    if user_gender and str(user_gender).lower() == 'female':
+        optional_categories.append('dress')
+    optional_categories.append('innerwear')
+
+    outfits = []
+    category_offsets = defaultdict(int)
+
+    def pick_candidate(cat, used):
+        pool = candidates.get(cat, [])
+        if not pool:
+            return None
+        start = category_offsets[cat]
+        for shift in range(len(pool)):
+            idx = (start + shift) % len(pool)
+            pid = pool[idx]
+            if pid not in used and pid != str(payload_product_id):
+                category_offsets[cat] = idx + 1
+                return pid
+        return None
+
+    for outfit_idx in range(max_outfits):
+        used = {str(payload_product_id)}
+        ordered_products = [str(payload_product_id)]
+        missing_required = False
+
+        for cat in required_categories:
+            if cat in payload_categories:
+                continue
+            candidate = pick_candidate(cat, used)
+            if candidate:
+                used.add(candidate)
+                ordered_products.append(candidate)
+            else:
+                missing_required = True
+                break
+
+        if missing_required:
+            continue
+
+        for cat in optional_categories:
+            if cat in payload_categories:
+                continue
+            candidate = pick_candidate(cat, used)
+            if candidate:
+                used.add(candidate)
+                ordered_products.append(candidate)
+
+        score = sum(
+            score_lookup.get(pid, user_scores.get(pid, 0.0))
+            for pid in ordered_products
+        )
+        outfits.append({
+            'products': ordered_products,
+            'score': score
+        })
+
+    return outfits
 def compute_sparsity(df: pd.DataFrame) -> pd.Series:
     if df.empty:
         return pd.Series(dtype=float)
@@ -300,16 +838,56 @@ def render_dataset_upload_section(
 
 def display_product_info(product_info: Dict, score: float = None):
     col1, col2 = st.columns([1, 3])
-    
+
     with col1:
         if score is not None:
             st.metric("Score", f"{score:.4f}")
-    
+        image_url = extract_primary_image_url(product_info)
+        if image_url:
+            st.image(
+                image_url,
+                caption=product_info.get('productDisplayName', 'Product image'),
+                use_container_width=True
+            )
+
     with col2:
         st.markdown(f"**{product_info.get('productDisplayName', 'N/A')}**")
-        st.write(f"🏷️ **Category**: {product_info.get('masterCategory', 'N/A')} > {product_info.get('subCategory', 'N/A')} > {product_info.get('articleType', 'N/A')}")
+        st.write(
+            f"🏷️ **Category**: "
+            f"{product_info.get('masterCategory', 'N/A')} > "
+            f"{product_info.get('subCategory', 'N/A')} > "
+            f"{product_info.get('articleType', 'N/A')}"
+        )
         st.write(f"👤 **Gender**: {product_info.get('gender', 'N/A')}")
+        st.write(f"🧩 **Usage**: {product_info.get('usage', 'N/A')}")
         st.write(f"🎨 **Color**: {product_info.get('baseColour', 'N/A')}")
+
+
+def extract_primary_image_url(product_info: Dict) -> Optional[str]:
+    """Return first valid image URL from product record if available."""
+    if not product_info:
+        return None
+
+    images_field = product_info.get('images')
+    if images_field is None or (isinstance(images_field, float) and pd.isna(images_field)):
+        return None
+
+    if isinstance(images_field, list) and images_field:
+        return images_field[0]
+
+    if isinstance(images_field, str):
+        stripped = images_field.strip()
+        if stripped.startswith('['):
+            try:
+                parsed = ast.literal_eval(stripped)
+                if isinstance(parsed, (list, tuple)) and parsed:
+                    return parsed[0]
+            except (ValueError, SyntaxError):
+                pass
+        if stripped.startswith('http'):
+            return stripped
+
+    return None
 
 def render_metrics_table(df, highlight_model=None):
     if df is None:
@@ -727,12 +1305,13 @@ def main():
     st.markdown('<div class="main-header">👔 Fashion Recommendation System</div>', unsafe_allow_html=True)
     
     st.sidebar.title("⚙️ Menu")
-    
     page = st.sidebar.radio(
         "Chọn chức năng",
         ["📚 Algorithms & Steps", "👗 Recommendations"]
     )
-    
+    # Auto-load các predictions đã lưu (nếu có) trước khi dùng
+    load_cached_predictions_into_session()
+
     preprocessor, cb_model, gnn_model, hybrid_model = load_models()
     comparison_df = load_comparison_results()
 
@@ -1783,8 +2362,9 @@ def main():
                                 else:
                                     st.success(f"✅ **Hoàn thành!** Đã tính điểm dự đoán cho {result['stats']['total_users']} users và {result['stats']['total_products']} products.")
                                     
-                                    # Store in session state
+                                    # Store in session state & lưu ra artifacts
                                     st.session_state['cbf_predictions'] = result
+                                    save_predictions_artifact("cbf", result)
                                     
                                     # Display statistics
                                     st.markdown("### 📊 Thống kê kết quả Predictions")
@@ -2201,28 +2781,35 @@ def main():
                 else:
                     st.warning("⚠️ Không thể tải dữ liệu products. Vui lòng kiểm tra lại.")
             elif apply_personalized_filters is None:
-                st.error(f"❌ Không thể import cbf_filters module: {_cbf_filters_import_error}")
+                st.error(f"❌ Không thể import cbf_utils module: {_cbf_utils_import_error}")
 
         with st.expander("Bước 2.4: Tính toán Số liệu (Đánh giá Mô hình)", expanded=True):
             st.write("**Nội dung thực hiện:** Tính toán tất cả các chỉ số so sánh (Recall@K, NDCG@K,...) trên danh sách Top-K từ CBF Predictions (Bước 2.2).")
             st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 2.2 (CBF Predictions) và dữ liệu Ground Truth (interactions)")
             st.info("💡 **Lưu ý:** Metrics được tính trên CBF Predictions (Bước 2.2), không phải Top-K Personalized (Bước 2.3) vì ground truth nên so sánh với toàn bộ recommendations, không chỉ phần đã lọc.")
 
-            st.markdown("""
-            **Bảng chỉ số đánh giá:**
-            
-            | Chỉ số | Công thức Toán học | Dữ liệu Đầu vào |
-            |--------|-------------------|----------------|
-            | **Training Time (s)** | Đo thời gian từ Bước 2.1 đến 2.2 (xây dựng $\\mathbf{P}_u$) | Quá trình tính toán $\\mathbf{P}_u$ |
-            | **Inference Time (s)** | Đo thời gian từ khi nhận $u$ đến khi tạo $L(u)$ cuối cùng (Bước 2.3) | Quá trình xếp hạng và lọc |
-            | **Recall@K** (K=5,10,20) | $$\\text{Recall}@K = \\frac{|\\text{Relevant}(u) \\cap L(u)|}{|\\text{Relevant}(u)|}$$ | $L(u)$ và $\\text{Relevant}(u)$ |
-            | **Precision@K** (K=5,10,20) | $$\\text{Precision}@K = \\frac{|\\text{Relevant}(u) \\cap L(u)|}{K}$$ | $L(u)$ và $\\text{Relevant}(u)$ |
-            | **NDCG@K** (K=5,10,20) | $$\\text{NDCG}@K = \\frac{\\text{DCG}@K}{\\text{IDCG}@K}$$ $$\\text{DCG}@K = \\sum_{i=1}^{K} \\frac{2^{\\text{rel}(i)} - 1}{\\log_2(i+1)}$$ | $L(u)$ và $\\text{rel}(i) \\in \\{0, 1\\}$ (điểm liên quan) |
-            | **Diversity (ILD@K)** | $$\\text{ILD}@K = \\frac{2}{K(K-1)} \\sum_{i \\in L(u)} \\sum_{j \\in L(u), j>i} (1 - \\text{cos}(\\mathbf{v}_i, \\mathbf{v}_j))$$ | $L(u)$ và $\\mathbf{v}_i$ (Item Profile Vector từ Bước 1.3) |
-            | **Coverage** | $$\\text{Coverage} = \\frac{|\\{i \\in I \\mid i \\in L(u) \\text{ cho ít nhất một user } u\\}|}{|I|}$$ | $L(u)$ cho tất cả users và $I$ (tất cả items) |
-            
-            **Kết quả mong đợi:** Một hàng dữ liệu hoàn chỉnh trong Bảng Tổng hợp Chỉ số, thể hiện hiệu suất cơ sở của mô hình Content-based Filtering.
-            """)
+            st.markdown("**Bảng chỉ số đánh giá:**")
+
+            st.markdown("- **Training Time (s)**: Đo thời gian từ Bước 2.1 đến 2.2 (xây dựng $\\mathbf{P}_u$).")
+            st.markdown("- **Inference Time (s)**: Đo thời gian từ khi nhận $u$ đến khi tạo $L(u)$ cuối cùng (Bước 2.3).")
+
+            st.markdown("- **Recall@K** (K = 5, 10, 20) – Công thức:")
+            st.latex(r"\text{Recall}@K = \frac{|\text{Relevant}(u) \cap L(u)|}{|\text{Relevant}(u)|}")
+
+            st.markdown("- **Precision@K** (K = 5, 10, 20) – Công thức:")
+            st.latex(r"\text{Precision}@K = \frac{|\text{Relevant}(u) \cap L(u)|}{K}")
+
+            st.markdown("- **NDCG@K** (K = 5, 10, 20) – Công thức:")
+            st.latex(r"\text{NDCG}@K = \frac{\text{DCG}@K}{\text{IDCG}@K}")
+            st.latex(r"\text{DCG}@K = \sum_{i=1}^{K} \frac{2^{\text{rel}(i)} - 1}{\log_2(i+1)}")
+
+            st.markdown("- **Diversity (ILD@K)** – Công thức:")
+            st.latex(r"\text{ILD}@K = \frac{2}{K(K-1)} \sum_{i \in L(u)} \sum_{j \in L(u),\, j>i} \left(1 - \text{cos}(\mathbf{v}_i, \mathbf{v}_j)\right)")
+
+            st.markdown("- **Coverage** – Công thức:")
+            st.latex(r"\text{Coverage} = \frac{|\{i \in I \mid i \in L(u) \text{ cho ít nhất một user } u\}|}{|I|}")
+
+            st.markdown("**Kết quả mong đợi:** Một hàng dữ liệu hoàn chỉnh (cho CBF) trong Bảng Tổng hợp Chỉ số, thể hiện hiệu suất cơ sở của mô hình Content-based Filtering.")
 
             # Kiểm tra dữ liệu từ các bước trước
             has_cbf_predictions = 'cbf_predictions' in st.session_state
@@ -2770,8 +3357,9 @@ def main():
                                 # Compute predictions
                                 predictions_result = compute_gnn_predictions(propagation_result, top_k)
                                 
-                                # Store in session state
+                                # Store in session state & lưu ra artifacts
                                 st.session_state['gnn_predictions'] = predictions_result
+                                save_predictions_artifact("gnn", predictions_result)
                                 
                                 st.success(f"✅ **Hoàn thành!** Đã tính điểm dự đoán cho {predictions_result['stats']['total_users']} users.")
                                 
@@ -3416,8 +4004,9 @@ def main():
                                 # Combine scores
                                 hybrid_result = combine_hybrid_scores(cbf_predictions, gnn_predictions, alpha, top_k)
                                 
-                                # Store in session state
+                                # Store in session state & lưu ra artifacts
                                 st.session_state['hybrid_predictions'] = hybrid_result
+                                save_predictions_artifact("hybrid", hybrid_result)
                                 
                                 st.success(f"✅ **Hoàn thành!** Đã hợp nhất điểm số cho {hybrid_result['stats']['total_users']} users.")
                                 
@@ -3769,11 +4358,11 @@ def main():
 
         st.markdown('<div class="sub-header">📚 PHẦN V: BẢNG TỔNG KẾT VÀ SO SÁNH CHỈ SỐ</div>', unsafe_allow_html=True)
         st.markdown("")
-
+        
         with st.expander("Bước 5: Bảng Tổng kết và So sánh Chỉ số", expanded=True):
             st.write("**Nội dung thực hiện:** Tổng hợp và so sánh tất cả các chỉ số đánh giá từ 3 mô hình: CBF, GNN, và Hybrid.")
             st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 2.4 (CBF Metrics), Bước 3.5 (GNN Metrics), và Bước 4.4 (Hybrid Metrics)")
-
+            
             st.markdown("""
             **Mục đích:**
             - So sánh hiệu suất của 3 mô hình trên cùng một bộ metrics
@@ -4101,6 +4690,212 @@ def main():
                     st.info("💡 Vui lòng chạy các bước evaluation (2.5, 3.5, 4.4) để có dữ liệu so sánh.")
             else:
                 st.warning("⚠️ Chưa có dữ liệu metrics từ bất kỳ mô hình nào. Vui lòng chạy các bước evaluation trước.")
+    else:
+        st.markdown("## 👗 Recommendations")
+        st.write("Tạo danh sách gợi ý cá nhân hóa và outfit dựa trên Hybrid (GNN + CBF).")
+
+        products_df = load_products_data()
+        users_df = load_users_data()
+        interactions_df = load_interactions_data()
+
+        if products_df is None or users_df is None:
+            st.warning("⚠️ Không tìm thấy dữ liệu `products.csv` hoặc `users.csv`. Vui lòng chạy bước xuất dữ liệu (1.1).")
+            st.stop()
+
+        user_index = users_df.index.astype(str)
+        product_index = products_df.index.astype(str)
+
+        # Chỉ hiển thị các user đã có predictions (đủ điều kiện) nếu có
+        eligible_user_ids = None
+        try:
+            # Ưu tiên Hybrid → GNN → CBF
+            pred_sources = [
+                st.session_state.get("hybrid_predictions"),
+                st.session_state.get("gnn_predictions") or st.session_state.get("gnn_training"),
+                st.session_state.get("cbf_predictions"),
+            ]
+            for src in pred_sources:
+                if not src or not isinstance(src, dict):
+                    continue
+                preds = src.get("predictions")
+                if preds:
+                    eligible_user_ids = {str(uid) for uid in preds.keys()}
+                    break
+        except Exception:
+            eligible_user_ids = None
+
+        if eligible_user_ids:
+            # Chỉ giữ lại những user nằm trong tập có predictions
+            user_index_filtered = user_index[user_index.isin(eligible_user_ids)]
+            user_options = user_index_filtered.tolist()
+        else:
+            # Fallback: hiển thị toàn bộ user nếu chưa có predictions nào
+            user_options = user_index.tolist()
+
+        product_options = product_index.tolist()
+
+        def format_user_option(uid: str) -> str:
+            row = get_user_record(uid, users_df)
+            if row is None:
+                return uid
+            name = row.get('name') or row.get('email') or 'Unknown'
+            return f"{name} ({uid})"
+
+        def format_product_option(pid: str) -> str:
+            row = get_product_record(pid, products_df)
+            if row is None:
+                return pid
+            name = row.get('productDisplayName') or row.get('articleType') or 'Product'
+            return f"{name} ({pid})"
+
+        input_cols = st.columns(2)
+        with input_cols[0]:
+            selected_user = st.selectbox(
+                "Chọn User",
+                options=user_options,
+                format_func=format_user_option,
+                key="rec_user_select"
+            )
+            active_user_id = selected_user
+
+        with input_cols[1]:
+            selected_product = st.selectbox(
+                "Chọn Product",
+                options=product_options,
+                format_func=format_product_option,
+                key="rec_product_select"
+            )
+            active_product_id = selected_product
+
+        config_cols = st.columns(3)
+        with config_cols[0]:
+            alpha = st.slider("Trọng số Hybrid α (GNN ↔ CBF)", 0.0, 1.0, 0.6, 0.05)
+        with config_cols[1]:
+            top_k_personalized = st.number_input(
+                "Số lượng sản phẩm Personalized",
+                min_value=3,
+                max_value=50,
+                value=6,
+                step=1
+            )
+        with config_cols[2]:
+            top_outfits = st.number_input(
+                "Số lượng outfit muốn xem",
+                min_value=1,
+                max_value=5,
+                value=3,
+                step=1
+            )
+
+        if active_product_id:
+            st.markdown("### 📌 Sản phẩm đầu vào (payload)")
+            payload_row = get_product_record(active_product_id, products_df)
+            display_product_info(payload_row.to_dict() if payload_row is not None else {}, score=None)
+            if payload_row is not None:
+                st.caption(
+                    f"ArticleType: {payload_row.get('articleType', 'N/A')} • "
+                    f"Usage: {payload_row.get('usage', 'N/A')} • "
+                    f"Gender: {payload_row.get('gender', 'N/A')}"
+                )
+
+        run_button = st.button("✨ Tạo gợi ý", type="primary", use_container_width=True)
+
+        if run_button:
+            if not active_user_id or not active_product_id:
+                st.warning("Vui lòng chọn đầy đủ User và Product để tiếp tục.")
+                st.stop()
+
+            candidate_pool = max(int(top_k_personalized * 3), 100)
+            hybrid_data = ensure_hybrid_predictions(alpha, candidate_pool)
+            if hybrid_data is None:
+                st.error("Không tìm thấy dữ liệu hybrid predictions. Vui lòng chạy các bước Training trước.")
+                st.stop()
+
+            user_record = get_user_record(active_user_id, users_df)
+            user_age = None
+            if user_record is not None and pd.notna(user_record.get('age')):
+                try:
+                    user_age = int(user_record.get('age'))
+                except (ValueError, TypeError):
+                    user_age = None
+            user_gender = user_record.get('gender') if user_record is not None else None
+
+            personalized_items = build_personalized_candidates(
+                user_id=active_user_id,
+                payload_product_id=active_product_id,
+                hybrid_predictions=hybrid_data,
+                products_df=products_df,
+                users_df=users_df,
+                interactions_df=interactions_df,
+                top_k=int(top_k_personalized)
+            )
+
+            if not personalized_items:
+                preds = hybrid_data.get("predictions", {}) or {}
+                has_hybrid_for_user = any(str(k) == str(active_user_id) for k in preds.keys())
+                if not has_hybrid_for_user:
+                    st.warning(
+                        "Không có bất kỳ điểm Hybrid nào cho user này (chưa được train hoặc đã bị lọc ở bước trước). "
+                        "Vui lòng kiểm tra lại dữ liệu train hoặc chọn user khác."
+                    )
+                else:
+                    st.warning(
+                        "Không tìm thấy sản phẩm nào thỏa **articleType = articleType của sản phẩm đầu vào** "
+                        "trong Top candidate Hybrid. Vui lòng thử sản phẩm khác hoặc nới lỏng điều kiện."
+                    )
+            else:
+                st.subheader("🎯 Personalized Products")
+                allowed_genders = get_allowed_genders(user_age, user_gender)
+                st.caption(f"Ưu tiên giới tính theo luật: {', '.join(allowed_genders)}")
+
+                personal_table = []
+                for idx, item in enumerate(personalized_items, start=1):
+                    row = item['product_row']
+                    personal_table.append({
+                        "Rank": idx,
+                        "Product ID": item['product_id'],
+                        "Name": row.get('productDisplayName', 'N/A'),
+                        "ArticleType": row.get('articleType', 'N/A'),
+                        "Usage": row.get('usage', 'N/A'),
+                        "Gender": row.get('gender', 'N/A'),
+                        "Hybrid Score": round(item['base_score'], 4),
+                        "Priority Score": round(item['score'], 4),
+                        "Highlights": " • ".join(item['reasons']) or "-"
+                    })
+
+                st.dataframe(pd.DataFrame(personal_table), use_container_width=True)
+
+                for idx, item in enumerate(personalized_items, start=1):
+                    with st.expander(f"#{idx} - {item['product_row'].get('productDisplayName', 'Product')}"):
+                        display_product_info(item['product_row'].to_dict(), score=item['score'])
+                        st.write(f"- ArticleType: {item['product_row'].get('articleType', 'N/A')}")
+                        st.write(f"- Usage: {item['product_row'].get('usage', 'N/A')}")
+                        st.write(f"- Gender: {item['product_row'].get('gender', 'N/A')}")
+                        if item['reasons']:
+                            st.write(f"- Ưu tiên: {', '.join(item['reasons'])}")
+
+                st.subheader("🧥 Outfit Suggestions")
+                outfits = build_outfit_suggestions(
+                    user_id=active_user_id,
+                    payload_product_id=active_product_id,
+                    personalized_items=personalized_items,
+                    products_df=products_df,
+                    hybrid_predictions=hybrid_data,
+                    user_age=user_age,
+                    user_gender=user_gender,
+                    max_outfits=int(top_outfits)
+                )
+
+                if not outfits:
+                    st.info("Chưa đủ thành phần để tạo outfit thoả điều kiện (Accessories / Topwear / Bottomwear / Footwear cùng usage).")
+                else:
+                    for idx, outfit in enumerate(outfits, start=1):
+                        st.markdown(f"#### 👗 Outfit #{idx} — Điểm tổng: {outfit['score']:.4f}")
+                        for pid in outfit['products']:
+                            product_row = get_product_record(pid, products_df)
+                            if product_row is not None:
+                                display_product_info(product_row.to_dict(), score=None)
+                        st.divider()
 
 if __name__ == "__main__":
     main()
