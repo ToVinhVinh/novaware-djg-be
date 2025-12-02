@@ -340,6 +340,202 @@ class UserViewSet(viewsets.ViewSet):
             },
         )
 
+    @action(detail=True, methods=["post"], permission_classes=[permissions.AllowAny], authentication_classes=[])
+    def add_interaction(self, request, pk=None):
+        """
+        Add an interaction to user's interaction_history.
+        Expected payload: {
+            "product_id": int or str,
+            "interaction_type": "view" | "like" | "cart" | "purchase",
+            "timestamp": "ISO format datetime string" (optional, defaults to now)
+        }
+        """
+        try:
+            user = User.objects.get(id=ObjectId(pk))
+        except (User.DoesNotExist, Exception):
+            return api_error(
+                "User does not exist.",
+                data=None,
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+
+        product_id = request.data.get("product_id")
+        interaction_type = request.data.get("interaction_type")
+        timestamp_str = request.data.get("timestamp")
+
+        if not product_id:
+            return api_error(
+                "product_id is required.",
+                data=None,
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not interaction_type:
+            return api_error(
+                "interaction_type is required.",
+                data=None,
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if interaction_type not in ["view", "like", "cart", "purchase", "review"]:
+            return api_error(
+                "interaction_type must be one of: view, like, cart, purchase, review",
+                data=None,
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Parse timestamp or use current time
+        from datetime import datetime
+        if timestamp_str:
+            try:
+                timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            except Exception:
+                timestamp = datetime.utcnow()
+        else:
+            timestamp = datetime.utcnow()
+
+        # Create interaction entry
+        interaction_entry = {
+            "product_id": int(product_id) if str(product_id).isdigit() else product_id,
+            "interaction_type": interaction_type,
+            "timestamp": timestamp.isoformat()
+        }
+
+        # Initialize interaction_history if it doesn't exist
+        if not user.interaction_history:
+            user.interaction_history = []
+
+        # Add the new interaction to the history
+        user.interaction_history.append(interaction_entry)
+        user.save()
+
+        return api_success(
+            "Interaction added to user history successfully",
+            {
+                "user_id": str(user.id),
+                "interaction": interaction_entry,
+                "total_interactions": len(user.interaction_history),
+            },
+            status_code=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=True, methods=["put", "patch"], permission_classes=[permissions.AllowAny], authentication_classes=[])
+    def update_interaction(self, request, pk=None):
+        """
+        Update interaction_type for a specific product in user's interaction_history.
+        If interaction doesn't exist, it will be created.
+        Expected payload: {
+            "product_id": int or str,
+            "interaction_type": "view" | "like" | "cart" | "purchase" | "review",
+            "timestamp": "ISO format datetime string" (optional, defaults to now)
+        }
+        """
+        try:
+            user = User.objects.get(id=ObjectId(pk))
+        except (User.DoesNotExist, Exception):
+            return api_error(
+                "User does not exist.",
+                data=None,
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+
+        product_id = request.data.get("product_id")
+        interaction_type = request.data.get("interaction_type")
+        timestamp_str = request.data.get("timestamp")
+
+        if not product_id:
+            return api_error(
+                "product_id is required.",
+                data=None,
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not interaction_type:
+            return api_error(
+                "interaction_type is required.",
+                data=None,
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if interaction_type not in ["view", "like", "cart", "purchase", "review"]:
+            return api_error(
+                "interaction_type must be one of: view, like, cart, purchase, review",
+                data=None,
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Parse timestamp or use current time
+        from datetime import datetime
+        if timestamp_str:
+            try:
+                timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            except Exception:
+                timestamp = datetime.utcnow()
+        else:
+            timestamp = datetime.utcnow()
+
+        # Normalize product_id to int for comparison
+        try:
+            product_id_int = int(product_id)
+        except (ValueError, TypeError):
+            product_id_int = product_id
+
+        # Initialize interaction_history if it doesn't exist
+        if not user.interaction_history:
+            user.interaction_history = []
+
+        # Find existing interaction with this product_id
+        interaction_found = False
+        for i, interaction in enumerate(user.interaction_history):
+            # Handle different formats of product_id in history
+            hist_product_id = interaction.get("product_id") if isinstance(interaction, dict) else None
+            if hist_product_id is not None:
+                # Convert to int for comparison if possible
+                try:
+                    hist_product_id_int = int(hist_product_id)
+                    if hist_product_id_int == product_id_int:
+                        # Update existing interaction
+                        user.interaction_history[i] = {
+                            "product_id": product_id_int,
+                            "interaction_type": interaction_type,
+                            "timestamp": timestamp.isoformat()
+                        }
+                        interaction_found = True
+                        break
+                except (ValueError, TypeError):
+                    # If can't convert to int, compare as string
+                    if str(hist_product_id) == str(product_id):
+                        user.interaction_history[i] = {
+                            "product_id": product_id_int,
+                            "interaction_type": interaction_type,
+                            "timestamp": timestamp.isoformat()
+                        }
+                        interaction_found = True
+                        break
+
+        # If interaction not found, add new one
+        if not interaction_found:
+            interaction_entry = {
+                "product_id": product_id_int,
+                "interaction_type": interaction_type,
+                "timestamp": timestamp.isoformat()
+            }
+            user.interaction_history.append(interaction_entry)
+
+        user.save()
+
+        return api_success(
+            "Interaction updated successfully",
+            {
+                "user_id": str(user.id),
+                "product_id": product_id_int,
+                "interaction_type": interaction_type,
+                "updated": interaction_found,
+                "total_interactions": len(user.interaction_history),
+            },
+            status_code=status.HTTP_200_OK,
+        )
+
 class UserInteractionViewSet(viewsets.ViewSet):
 
     permission_classes = [permissions.AllowAny]
@@ -380,6 +576,64 @@ class UserInteractionViewSet(viewsets.ViewSet):
                 )
 
         interaction = request_serializer.create(validated_data)
+        
+        # Update user's interaction_history
+        try:
+            user_id = ObjectId(validated_data["user_id"])
+            user = User.objects.get(id=user_id)
+            
+            # Create interaction entry for user's interaction_history
+            # product_id should be an integer to match CSV format
+            product_id_value = interaction.product_id
+            if isinstance(product_id_value, (str, ObjectId)):
+                try:
+                    product_id_value = int(product_id_value)
+                except (ValueError, TypeError):
+                    product_id_value = str(product_id_value)
+            elif not isinstance(product_id_value, int):
+                product_id_value = int(product_id_value) if product_id_value else None
+            
+            interaction_entry = {
+                "product_id": product_id_value,
+                "interaction_type": interaction.interaction_type,
+                "timestamp": interaction.timestamp.isoformat() if interaction.timestamp else None
+            }
+            
+            # Initialize interaction_history if it doesn't exist
+            if not user.interaction_history:
+                user.interaction_history = []
+            
+            # Check if interaction with this product_id already exists
+            interaction_found = False
+            for i, hist_interaction in enumerate(user.interaction_history):
+                if isinstance(hist_interaction, dict):
+                    hist_product_id = hist_interaction.get("product_id")
+                    if hist_product_id is not None:
+                        try:
+                            # Compare as integers
+                            if int(hist_product_id) == int(product_id_value):
+                                # Update existing interaction (replace with new type)
+                                user.interaction_history[i] = interaction_entry
+                                interaction_found = True
+                                break
+                        except (ValueError, TypeError):
+                            # If can't convert to int, compare as string
+                            if str(hist_product_id) == str(product_id_value):
+                                user.interaction_history[i] = interaction_entry
+                                interaction_found = True
+                                break
+            
+            # If interaction not found, add new one
+            if not interaction_found:
+                user.interaction_history.append(interaction_entry)
+            
+            user.save()
+        except Exception as e:
+            # Log error but don't fail the interaction creation
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to update user interaction_history: {str(e)}")
+        
         response_serializer = UserInteractionSerializer(interaction)
         return api_success(
             "User interaction created successfully",

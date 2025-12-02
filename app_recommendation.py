@@ -196,10 +196,6 @@ def load_comparison_results():
         return None
 
 
-# ============================================
-# Helpers: Lưu / tải predictions ra/vào file
-# ============================================
-
 ARTIFACTS_DIR = Path(current_dir) / "artifacts"
 
 
@@ -247,6 +243,37 @@ def save_predictions_artifact(model_key: str, data: Dict) -> None:
     _save_pickle_safely(base / filename, data)
 
 
+def save_intermediate_artifact(key: str, data) -> None:
+    """
+    Lưu intermediate results ra file artifacts.
+    key: 'pruned_interactions' | 'feature_encoding' | 'user_profiles' | 
+         'gnn_graph' | 'gnn_propagation' | 'gnn_training' |
+         'cbf_evaluation_metrics' | 'gnn_evaluation_metrics' | 'hybrid_evaluation_metrics' |
+         'personalized_filters' | 'training_time' | 'inference_time' | 
+         'gnn_training_time' | 'gnn_inference_time'
+    """
+    base = _ensure_artifacts_dir()
+    filename_mapping = {
+        "pruned_interactions": "pruned_interactions.pkl",
+        "feature_encoding": "feature_encoding.pkl",
+        "user_profiles": "user_profiles.pkl",
+        "gnn_graph": "gnn_graph.pkl",
+        "gnn_propagation": "gnn_propagation.pkl",
+        "gnn_training": "gnn_training.pkl",
+        "cbf_evaluation_metrics": "cbf_evaluation_metrics.pkl",
+        "gnn_evaluation_metrics": "gnn_evaluation_metrics.pkl",
+        "hybrid_evaluation_metrics": "hybrid_evaluation_metrics.pkl",
+        "personalized_filters": "personalized_filters.pkl",
+        "training_time": "training_time.pkl",
+        "inference_time": "inference_time.pkl",
+        "gnn_training_time": "gnn_training_time.pkl",
+        "gnn_inference_time": "gnn_inference_time.pkl",
+    }
+    filename = filename_mapping.get(key)
+    if filename:
+        _save_pickle_safely(base / filename, data)
+
+
 def load_cached_predictions_into_session() -> None:
     """
     Auto-load predictions đã lưu (nếu có) vào session_state khi mở app.
@@ -265,6 +292,257 @@ def load_cached_predictions_into_session() -> None:
         cached = _load_pickle_if_exists(path)
         if cached:
             st.session_state[state_key] = cached
+
+
+def _is_valid_data(data) -> bool:
+    """Kiểm tra xem dữ liệu có hợp lệ không (không None, không rỗng)."""
+    if data is None:
+        return False
+    if isinstance(data, dict):
+        return len(data) > 0
+    if isinstance(data, (list, tuple)):
+        return len(data) > 0
+    if isinstance(data, pd.DataFrame):
+        return not data.empty
+    # Các kiểu dữ liệu khác (int, float, str) đều hợp lệ nếu không None
+    return True
+
+
+def restore_all_artifacts() -> None:
+    """
+    Khôi phục tất cả các kết quả từ artifacts vào session_state.
+    Được gọi khi cần đảm bảo không mất dữ liệu sau khi chạy các bước mới.
+    Chỉ restore nếu session_state chưa có hoặc dữ liệu hiện tại không hợp lệ.
+    """
+    base = ARTIFACTS_DIR
+    
+    # Restore predictions
+    predictions_mappings = [
+        ("cbf_predictions", "streamlit_cbf_predictions.pkl"),
+        ("gnn_predictions", "streamlit_gnn_predictions.pkl"),
+        ("hybrid_predictions", "streamlit_hybrid_predictions.pkl"),
+    ]
+    for state_key, fname in predictions_mappings:
+        path = base / fname
+        cached = _load_pickle_if_exists(path)
+        if cached:
+            # Chỉ restore nếu chưa có hoặc dữ liệu hiện tại không hợp lệ
+            if state_key not in st.session_state or not _is_valid_data(st.session_state[state_key]):
+                st.session_state[state_key] = cached
+    
+    # Restore intermediate results (nếu có lưu)
+    intermediate_mappings = [
+        ("pruned_interactions", "pruned_interactions.pkl"),
+        ("feature_encoding", "feature_encoding.pkl"),
+        ("user_profiles", "user_profiles.pkl"),
+        ("gnn_graph", "gnn_graph.pkl"),
+        ("gnn_propagation", "gnn_propagation.pkl"),
+        ("gnn_training", "gnn_training.pkl"),
+        ("cbf_evaluation_metrics", "cbf_evaluation_metrics.pkl"),
+        ("gnn_evaluation_metrics", "gnn_evaluation_metrics.pkl"),
+        ("hybrid_evaluation_metrics", "hybrid_evaluation_metrics.pkl"),
+        ("personalized_filters", "personalized_filters.pkl"),
+        ("training_time", "training_time.pkl"),
+        ("inference_time", "inference_time.pkl"),
+        ("gnn_training_time", "gnn_training_time.pkl"),
+        ("gnn_inference_time", "gnn_inference_time.pkl"),
+    ]
+    for state_key, fname in intermediate_mappings:
+        path = base / fname
+        cached = _load_pickle_if_exists(path)
+        if cached:
+            # Chỉ restore nếu chưa có hoặc dữ liệu hiện tại không hợp lệ
+            if state_key not in st.session_state or not _is_valid_data(st.session_state[state_key]):
+                st.session_state[state_key] = cached
+
+
+def get_artifacts_status() -> Dict[str, bool]:
+    """
+    Kiểm tra trạng thái của các artifacts (đã lưu hay chưa).
+    Trả về dict với key là tên artifact và value là True nếu đã tồn tại.
+    """
+    base = ARTIFACTS_DIR
+    status = {}
+    
+    all_mappings = [
+        ("cbf_predictions", "streamlit_cbf_predictions.pkl"),
+        ("gnn_predictions", "streamlit_gnn_predictions.pkl"),
+        ("hybrid_predictions", "streamlit_hybrid_predictions.pkl"),
+        ("pruned_interactions", "pruned_interactions.pkl"),
+        ("feature_encoding", "feature_encoding.pkl"),
+        ("user_profiles", "user_profiles.pkl"),
+        ("gnn_graph", "gnn_graph.pkl"),
+        ("gnn_propagation", "gnn_propagation.pkl"),
+        ("gnn_training", "gnn_training.pkl"),
+        ("cbf_evaluation_metrics", "cbf_evaluation_metrics.pkl"),
+        ("gnn_evaluation_metrics", "gnn_evaluation_metrics.pkl"),
+        ("hybrid_evaluation_metrics", "hybrid_evaluation_metrics.pkl"),
+    ]
+    
+    for state_key, fname in all_mappings:
+        path = base / fname
+        status[state_key] = path.exists()
+    
+    return status
+
+
+def display_pruning_results(result: Dict) -> None:
+    """Hiển thị kết quả Pruning từ session_state hoặc artifacts."""
+    if result is None or result.get('pruned_interactions') is None or result['pruned_interactions'].empty:
+        return
+    
+    st.success("✅ **Kết quả đã có sẵn:** Ma trận tương tác đã được làm sạch.")
+    
+    # Display statistics
+    st.markdown("### 📊 Thống kê kết quả Pruning")
+    
+    col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
+    with col_stat1:
+        st.metric("Users ban đầu", result['original_users'])
+        st.metric("Users sau pruning", result['original_users'] - result['removed_users'])
+    with col_stat2:
+        st.metric("Products ban đầu", result['original_products'])
+        st.metric("Products sau pruning", result['original_products'] - result['removed_products'])
+    with col_stat3:
+        st.metric("Interactions ban đầu", result['original_interactions'])
+        st.metric("Interactions sau pruning", len(result['pruned_interactions']))
+    with col_stat4:
+        st.metric("Số lần lặp", result['iterations'])
+        reduction_pct = ((result['original_interactions'] - len(result['pruned_interactions'])) / result['original_interactions'] * 100) if result['original_interactions'] > 0 else 0
+        st.metric("Giảm đi", f"{reduction_pct:.2f}%")
+    
+    # Calculate values for tabs
+    pruned_users = result['original_users'] - result['removed_users']
+    pruned_products = result['original_products'] - result['removed_products']
+    
+    # Original sparsity
+    original_density = result['original_interactions'] / (result['original_users'] * result['original_products']) if (result['original_users'] * result['original_products']) > 0 else 0
+    original_sparsity = 1 - original_density
+    
+    # Pruned sparsity
+    pruned_density = len(result['pruned_interactions']) / (pruned_users * pruned_products) if (pruned_users * pruned_products) > 0 else 0
+    pruned_sparsity = 1 - pruned_density
+    
+    improvement = original_sparsity - pruned_sparsity
+    
+    # Create tabs for different visualizations
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📋 Ma trận tương tác đã làm sạch",
+        "📉 So sánh độ thưa thớt",
+        "📈 Quá trình Pruning qua các lần lặp",
+        "🔥 Ma trận tương tác (Heatmap)"
+    ])
+    
+    with tab1:
+        st.markdown("### 📋 Ma trận tương tác đã làm sạch $R_{pruned}$")
+        st.dataframe(
+            result['pruned_interactions'].head(100),
+            use_container_width=True
+        )
+        
+        # Download button
+        csv = result['pruned_interactions'].to_csv(index=False)
+        st.download_button(
+            "⬇️ Tải xuống interactions đã làm sạch (CSV)",
+            csv,
+            file_name="interactions_pruned.csv",
+            mime="text/csv",
+            key="pruning_download_saved"
+        )
+    
+    with tab2:
+        st.markdown("### 📉 So sánh độ thưa thớt")
+        
+        col_sparse1, col_sparse2 = st.columns(2)
+        with col_sparse1:
+            st.metric("Độ thưa ban đầu", f"{original_sparsity:.4f}")
+            st.metric("Mật độ ban đầu", f"{original_density:.6f}")
+        with col_sparse2:
+            st.metric("Độ thưa sau pruning", f"{pruned_sparsity:.4f}")
+            st.metric("Mật độ sau pruning", f"{pruned_density:.6f}")
+        
+        if improvement > 0:
+            st.success(f"✅ Độ thưa giảm {improvement:.4f} ({improvement/original_sparsity*100:.2f}%) - Mật độ dữ liệu tăng!")
+        else:
+            st.info("ℹ️ Mật độ dữ liệu đã được cải thiện cho các users/products còn lại.")
+    
+    with tab3:
+        if result.get('stats'):
+            st.markdown("### 📈 Quá trình Pruning qua các lần lặp")
+            stats_df = pd.DataFrame(result['stats'])
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=stats_df['iteration'],
+                y=stats_df['users'],
+                mode='lines+markers',
+                name='Users',
+                line=dict(color='#1f77b4')
+            ))
+            fig.add_trace(go.Scatter(
+                x=stats_df['iteration'],
+                y=stats_df['products'],
+                mode='lines+markers',
+                name='Products',
+                line=dict(color='#2ca02c')
+            ))
+            fig.add_trace(go.Scatter(
+                x=stats_df['iteration'],
+                y=stats_df['interactions'],
+                mode='lines+markers',
+                name='Interactions',
+                line=dict(color='#d62728')
+            ))
+            fig.update_layout(
+                title="Thay đổi số lượng Users, Products và Interactions qua các lần lặp",
+                xaxis_title="Số lần lặp",
+                yaxis_title="Số lượng",
+                hovermode='x unified'
+            )
+            st.plotly_chart(fig, use_container_width=True, key="pruning_stats_chart_saved")
+        else:
+            st.info("ℹ️ Không có dữ liệu thống kê quá trình pruning.")
+    
+    with tab4:
+        if pruned_users <= 100 and pruned_products <= 100:
+            st.markdown("### 🔥 Ma trận tương tác (Heatmap)")
+            st.info("ℹ️ Hiển thị ma trận tương tác dưới dạng heatmap (1 = có tương tác, 0 = không có tương tác)")
+            
+            # Create interaction matrix
+            interaction_matrix = result['pruned_interactions'].pivot_table(
+                index='user_id',
+                columns='product_id',
+                aggfunc='size',
+                fill_value=0
+            )
+            
+            interaction_matrix = (interaction_matrix > 0).astype(int)
+            
+            fig_heatmap = go.Figure(data=go.Heatmap(
+                z=interaction_matrix.values,
+                x=interaction_matrix.columns,
+                y=interaction_matrix.index,
+                colorscale='YlOrRd',
+                showscale=True,
+                colorbar=dict(title="Interaction")
+            ))
+            fig_heatmap.update_layout(
+                title="Ma trận tương tác User-Product (1 = có tương tác, 0 = không có)",
+                xaxis_title="Product ID",
+                yaxis_title="User ID",
+                width=800,
+                height=600
+            )
+            st.plotly_chart(fig_heatmap, use_container_width=True, key="pruning_heatmap_chart_saved")
+        else:
+            st.info(f"ℹ️ Ma trận quá lớn ({pruned_users} users × {pruned_products} products) để hiển thị heatmap. Chỉ hiển thị dữ liệu dạng bảng.")
+            st.markdown("**💡 Gợi ý:** Xem dữ liệu dạng bảng trong tab '📋 Ma trận tương tác đã làm sạch'")
+    
+    st.markdown("""
+    **✅ Kết quả đạt được:**
+    - ✅ Ma trận tương tác thưa thớt $R$ được làm sạch, giảm nhiễu (noise) do tương tác ngẫu nhiên hoặc không đủ dữ liệu
+    - ✅ Tăng mật độ dữ liệu tương tác cho các thuật toán cộng tác (GNN)
+    - ✅ Loại bỏ các users và products có quá ít tương tác, giúp model học được patterns rõ ràng hơn
+    """)
 
 
 @st.cache_data
@@ -1289,6 +1567,9 @@ def run_training(model_type: str):
             
             st.cache_resource.clear()
             st.cache_data.clear()
+            
+            restore_all_artifacts()
+            
             preprocessor, cb_model, gnn_model, hybrid_model = load_models()
             comparison_df = load_comparison_results()
             
@@ -1309,8 +1590,11 @@ def main():
         "Chọn chức năng",
         ["📚 Algorithms & Steps", "👗 Recommendations"]
     )
+    
     # Auto-load các predictions đã lưu (nếu có) trước khi dùng
     load_cached_predictions_into_session()
+    # Khôi phục tất cả artifacts để đảm bảo không mất dữ liệu
+    restore_all_artifacts()
 
     preprocessor, cb_model, gnn_model, hybrid_model = load_models()
     comparison_df = load_comparison_results()
@@ -1487,8 +1771,19 @@ def main():
                     st.info(f"💡 **Lưu ý:** Các file CSV sẽ được lưu tại: `{export_dir}`")
         
         with st.expander("Bước 1.2: Làm sạch và Lọc Dữ liệu (Pruning & Sparsity Handling)", expanded=True):
+            # Tự động restore artifacts trước khi kiểm tra dữ liệu
+            restore_all_artifacts()
+            
             st.write("**Nội dung thực hiện:** Áp dụng kỹ thuật 5-Core Pruning để loại bỏ đệ quy các người dùng và sản phẩm có dưới 5 tương tác nhằm giảm độ thưa thớt của dữ liệu.")
             st.write("**Dữ liệu sử dụng:** `interactions.csv`")
+            
+            # Hiển thị kết quả đã có nếu đã chạy bước này trước đó
+            if 'pruned_interactions' in st.session_state and _is_valid_data(st.session_state['pruned_interactions']):
+                st.markdown("---")
+                st.markdown("### 📋 Kết quả đã có sẵn (từ lần chạy trước)")
+                display_pruning_results(st.session_state['pruned_interactions'])
+                st.markdown("---")
+                st.markdown("### 🔄 Chạy lại bước này (tùy chọn)")
 
             st.markdown("""
             **Thuật toán 5-Core Pruning:**
@@ -1592,6 +1887,8 @@ def main():
                                 
                                 # Store in session state
                                 st.session_state['pruned_interactions'] = result
+                                # Lưu vào artifacts để không bị mất khi chạy bước khác
+                                save_intermediate_artifact('pruned_interactions', result)
                                 
                                 # Display statistics
                                 st.markdown("### 📊 Thống kê kết quả Pruning")
@@ -1698,7 +1995,7 @@ def main():
                                             yaxis_title="Số lượng",
                                             hovermode='x unified'
                                         )
-                                        st.plotly_chart(fig, use_container_width=True)
+                                        st.plotly_chart(fig, use_container_width=True, key="pruning_stats_chart_new")
                                     else:
                                         st.info("ℹ️ Không có dữ liệu thống kê quá trình pruning.")
                                 
@@ -1732,7 +2029,7 @@ def main():
                                             width=800,
                                             height=600
                                         )
-                                        st.plotly_chart(fig_heatmap, use_container_width=True)
+                                        st.plotly_chart(fig_heatmap, use_container_width=True, key="pruning_heatmap_chart_new")
                                     else:
                                         st.info(f"ℹ️ Ma trận quá lớn ({pruned_users} users × {pruned_products} products) để hiển thị heatmap. Chỉ hiển thị dữ liệu dạng bảng.")
                                         st.markdown("**💡 Gợi ý:** Xem dữ liệu dạng bảng trong tab '📋 Ma trận tương tác đã làm sạch'")
@@ -1752,8 +2049,36 @@ def main():
                 st.info("💡 Vui lòng tải lên file interactions.csv hoặc xuất dữ liệu từ MongoDB (Bước 1.1) để tiếp tục.")
 
         with st.expander("Bước 1.3: Mã hóa Đặc trưng Nội dung (Feature Encoding)", expanded=True):
+            # Tự động restore artifacts trước khi kiểm tra dữ liệu
+            restore_all_artifacts()
+            
             st.write("**Nội dung thực hiện:** Chuyển đổi các đặc trưng phân loại của sản phẩm (masterCategory, subCategory, articleType, baseColour, usage) thành Item Profile Vector $\\mathbf{v}_i$ bằng One-Hot Encoding hoặc Categorical Embedding.")
             st.write("**Dữ liệu sử dụng:** `products.csv`")
+            
+            # Hiển thị kết quả đã có nếu đã chạy bước này trước đó
+            if 'feature_encoding' in st.session_state and _is_valid_data(st.session_state['feature_encoding']):
+                result = st.session_state['feature_encoding']
+                st.markdown("---")
+                st.markdown("### 📋 Kết quả đã có sẵn (từ lần chạy trước)")
+                st.success("✅ **Đặc trưng nội dung đã được mã hóa.**")
+                
+                # Display statistics
+                st.markdown("### 📊 Thống kê kết quả Feature Encoding")
+                
+                col_stat1, col_stat2, col_stat3 = st.columns(3)
+                with col_stat1:
+                    num_products = len(result.get('product_ids', []))
+                    st.metric("Số lượng sản phẩm", num_products)
+                    st.metric("Số features được mã hóa", len(result.get('feature_dims', {})))
+                with col_stat2:
+                    st.metric("Tổng số chiều", result.get('total_dims', 0))
+                    st.metric("Kích thước ma trận", f"{num_products} × {result.get('total_dims', 0)}")
+                with col_stat3:
+                    memory_size_mb = (num_products * result.get('total_dims', 0) * 4) / (1024 * 1024)
+                    st.metric("Kích thước bộ nhớ (ước tính)", f"{memory_size_mb:.2f} MB")
+                
+                st.markdown("---")
+                st.markdown("### 🔄 Chạy lại bước này (tùy chọn)")
 
             st.markdown("""
             **Phương pháp mã hóa:**
@@ -1878,6 +2203,8 @@ def main():
                                     
                                     # Store in session state
                                     st.session_state['feature_encoding'] = result
+                                    # Lưu vào artifacts để không bị mất khi chạy bước khác
+                                    save_intermediate_artifact('feature_encoding', result)
                                     
                                     # Display statistics
                                     st.markdown("### 📊 Thống kê kết quả Feature Encoding")
@@ -1996,6 +2323,9 @@ def main():
         st.markdown("")
 
         with st.expander("Bước 2.1: Xây dựng Hồ sơ Người dùng Có Trọng số (Weighted User Profile)", expanded=True):
+            # Tự động restore artifacts trước khi kiểm tra dữ liệu
+            restore_all_artifacts()
+            
             st.write("**Nội dung thực hiện:** Vector Hồ sơ Người dùng $\\mathbf{P}_u$ được xây dựng bằng cách tổng hợp có trọng số các Item Profile $\\mathbf{v}_i$ của các sản phẩm mà người dùng đã tương tác tích cực.")
             st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 1.2 (Pruned Interactions) và Bước 1.3 (Feature Encoding)")
 
@@ -2106,6 +2436,8 @@ def main():
                                     st.success(f"✅ **Hoàn thành!** Đã xây dựng {result['total_users']} user profiles.")
                                     
                                     st.session_state['user_profiles'] = result
+                                    # Lưu vào artifacts để không bị mất khi chạy bước khác
+                                    save_intermediate_artifact('user_profiles', result)
                                     
                                     st.markdown("### 📊 Thống kê kết quả User Profiles")
                                     
@@ -2275,6 +2607,9 @@ def main():
                 st.info("💡 Vui lòng hoàn thành Bước 1.2 (Pruning) và Bước 1.3 (Feature Encoding) trước khi tiếp tục.")
 
         with st.expander("Bước 2.2: Tính Điểm Dự đoán và Xếp hạng", expanded=True):
+            # Tự động restore artifacts trước khi kiểm tra dữ liệu
+            restore_all_artifacts()
+            
             st.write("**Nội dung thực hiện:** Tính độ tương đồng Cosine giữa Hồ sơ Người dùng $\\mathbf{P}_u$ và Item Profile $\\mathbf{v}_i$ để dự đoán điểm tương tác $\\hat{r}_{ui}^{\\text{CBF}}$.")
             st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 2.1 (User Profiles) và Bước 1.3 (Feature Encoding)")
 
@@ -2690,6 +3025,8 @@ def main():
                                     if 'personalized_filters' not in st.session_state:
                                         st.session_state['personalized_filters'] = {}
                                     st.session_state['personalized_filters'][selected_user_id] = result
+                                    # Lưu vào artifacts để không bị mất khi chạy bước khác
+                                    save_intermediate_artifact('personalized_filters', st.session_state['personalized_filters'])
                                     
                                     # Lưu Inference Time vào session state (lấy trung bình nếu có nhiều users)
                                     if 'inference_times' not in st.session_state:
@@ -2784,6 +3121,9 @@ def main():
                 st.error(f"❌ Không thể import cbf_utils module: {_cbf_utils_import_error}")
 
         with st.expander("Bước 2.4: Tính toán Số liệu (Đánh giá Mô hình)", expanded=True):
+            # Tự động restore artifacts trước khi kiểm tra dữ liệu
+            restore_all_artifacts()
+            
             st.write("**Nội dung thực hiện:** Tính toán tất cả các chỉ số so sánh (Recall@K, NDCG@K,...) trên danh sách Top-K từ CBF Predictions (Bước 2.2).")
             st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 2.2 (CBF Predictions) và dữ liệu Ground Truth (interactions)")
             st.info("💡 **Lưu ý:** Metrics được tính trên CBF Predictions (Bước 2.2), không phải Top-K Personalized (Bước 2.3) vì ground truth nên so sánh với toàn bộ recommendations, không chỉ phần đã lọc.")
@@ -2969,6 +3309,13 @@ def main():
                             
                             # Store in session state
                             st.session_state['cbf_evaluation_metrics'] = result
+                            # Lưu vào artifacts để không bị mất khi chạy bước khác
+                            save_intermediate_artifact('cbf_evaluation_metrics', result)
+                            # Lưu timing metrics
+                            if 'training_time' in st.session_state:
+                                save_intermediate_artifact('training_time', st.session_state['training_time'])
+                            if 'inference_time' in st.session_state:
+                                save_intermediate_artifact('inference_time', st.session_state['inference_time'])
                             
                             # Display results
                             st.markdown("### 📊 Kết quả Evaluation Metrics")
@@ -3073,6 +3420,9 @@ def main():
         st.markdown("")
 
         with st.expander("Bước 3.1: Xây dựng Đồ thị và Khởi tạo Nhúng", expanded=True):
+            # Tự động restore artifacts trước khi kiểm tra dữ liệu
+            restore_all_artifacts()
+            
             st.write("**Nội dung thực hiện:** Xây dựng đồ thị hai phía $G=(U, I, \\mathcal{E})$ và khởi tạo ngẫu nhiên các vector nhúng $\\mathbf{e}_u^{(0)}$ và $\\mathbf{e}_i^{(0)}$.")
             st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 1.2 (Pruned Interactions)")
 
@@ -3137,6 +3487,8 @@ def main():
                                 
                                 # Store in session state
                                 st.session_state['gnn_graph'] = graph_result
+                                # Lưu vào artifacts để không bị mất khi chạy bước khác
+                                save_intermediate_artifact('gnn_graph', graph_result)
                                 
                                 st.success(f"✅ **Hoàn thành!** Đã xây dựng đồ thị với {graph_result['num_users']} users và {graph_result['num_products']} products.")
                                 
@@ -3258,6 +3610,8 @@ def main():
                                 
                                 # Store in session state
                                 st.session_state['gnn_propagation'] = propagation_result
+                                # Lưu vào artifacts để không bị mất khi chạy bước khác
+                                save_intermediate_artifact('gnn_propagation', propagation_result)
                                 
                                 st.success(f"✅ **Hoàn thành!** Đã thực hiện lan truyền qua {num_layers} lớp.")
                                 
@@ -3529,6 +3883,8 @@ def main():
                                 # Lưu vào session state
                                 st.session_state['gnn_training'] = training_result
                                 st.session_state['gnn_training_time'] = training_time_measured
+                                # Lưu vào artifacts để không bị mất khi chạy bước khác
+                                save_intermediate_artifact('gnn_training', training_result)
                                 
                                 st.success(f"✅ **Hoàn thành!** Đã huấn luyện mô hình qua {num_epochs} epochs.")
                                 
@@ -3621,6 +3977,9 @@ def main():
                                 st.code(traceback.format_exc())
 
         with st.expander("Bước 3.5: Tạo Danh sách gợi ý cá nhân hóa và Tính toán Số liệu (Đánh giá Mô hình)", expanded=True):
+            # Tự động restore artifacts trước khi kiểm tra dữ liệu
+            restore_all_artifacts()
+            
             st.write("**Nội dung thực hiện:**")
             st.write("1. **Gợi ý Cá nhân hóa:** Áp dụng Logic Lọc và Ưu tiên (Bước 2.3) lên danh sách ứng viên được xếp hạng bởi $\\hat{r}_{ui}^{\\text{GNN}}$.")
             st.write("2. **Tính toán Số liệu:** Tính toán tất cả các chỉ số (Recall@K, NDCG@K,...) tương tự như Bước 2.4, sử dụng $L(u)$ và các tham số thời gian tương ứng của GNN.")
@@ -3824,6 +4183,13 @@ def main():
                                     
                                     # Store in session state
                                     st.session_state['gnn_evaluation_metrics'] = result
+                                    # Lưu vào artifacts để không bị mất khi chạy bước khác
+                                    save_intermediate_artifact('gnn_evaluation_metrics', result)
+                                    # Lưu timing metrics
+                                    if 'gnn_training_time' in st.session_state:
+                                        save_intermediate_artifact('gnn_training_time', st.session_state['gnn_training_time'])
+                                    if 'gnn_inference_time' in st.session_state:
+                                        save_intermediate_artifact('gnn_inference_time', st.session_state['gnn_inference_time'])
                                     
                                     # Display results (similar to Step 2.5)
                                     st.markdown("### 📊 Kết quả Evaluation Metrics")
@@ -4084,6 +4450,9 @@ def main():
                 """)
 
         with st.expander("Bước 4.4: Tính toán Số liệu (Đánh giá Mô hình)", expanded=True):
+            # Tự động restore artifacts trước khi kiểm tra dữ liệu
+            restore_all_artifacts()
+            
             st.write("**Nội dung thực hiện:** Tính toán tất cả các chỉ số (Recall@K, NDCG@K,...) tương tự như Bước 2.4, sử dụng $L(u)$ và các tham số thời gian tương ứng của Hybrid.")
             st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 4.1 & 4.2 (Hybrid Predictions)")
 
@@ -4261,6 +4630,8 @@ def main():
                                 
                                 # Store in session state
                                 st.session_state['hybrid_evaluation_metrics'] = result
+                                # Lưu vào artifacts để không bị mất khi chạy bước khác
+                                save_intermediate_artifact('hybrid_evaluation_metrics', result)
                                 
                                 # Display results (similar to Step 2.5 and 3.5)
                                 st.markdown("### 📊 Kết quả Evaluation Metrics")
@@ -4360,6 +4731,9 @@ def main():
         st.markdown("")
         
         with st.expander("Bước 5: Bảng Tổng kết và So sánh Chỉ số", expanded=True):
+            # Tự động restore artifacts trước khi kiểm tra dữ liệu
+            restore_all_artifacts()
+            
             st.write("**Nội dung thực hiện:** Tổng hợp và so sánh tất cả các chỉ số đánh giá từ 3 mô hình: CBF, GNN, và Hybrid.")
             st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 2.4 (CBF Metrics), Bước 3.5 (GNN Metrics), và Bước 4.4 (Hybrid Metrics)")
             
