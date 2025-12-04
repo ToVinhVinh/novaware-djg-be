@@ -37,12 +37,13 @@ class UserViewSet(viewsets.ViewSet):
     def list(self, request):
         users = User.objects.all()
 
-        search = request.query_params.get("search")
-        if search:
+        keyword = request.query_params.get("keyword")
+        if keyword:
             users = users.filter(
                 __raw__={"$or": [
-                    {"email": {"$regex": search, "$options": "i"}},
-                    {"username": {"$regex": search, "$options": "i"}},
+                    {"email": {"$regex": keyword, "$options": "i"}},
+                    {"name": {"$regex": keyword, "$options": "i"}},
+                    {"username": {"$regex": keyword, "$options": "i"}},
                 ]}
             )
 
@@ -315,14 +316,11 @@ class UserViewSet(viewsets.ViewSet):
         
         validated_data = request_serializer.validated_data.copy()
         
-        # Remove age if it's invalid (<= 10 or > 100)
         if "age" in validated_data:
             age_value = validated_data.get("age")
             if age_value is not None and (age_value <= 10 or age_value > 100):
-                # Remove invalid age from validated_data
                 validated_data.pop("age")
         
-        # Update user with filtered validated_data
         user = request_serializer.update(user, validated_data)
         
         response_serializer = UserDetailSerializer(user)

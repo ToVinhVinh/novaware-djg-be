@@ -525,8 +525,6 @@ def build_outfit_suggestions(
     accessory_subs = ['bags', 'belts', 'headwear', 'watches']
     footwear_subs = ['shoes', 'sandal', 'flip flops']
     
-    # Strict: same usage + gender; Relaxed: any usage + same gender/Unisex;
-    # User-gender: any usage + gender phù hợp với user (hoặc Unisex)
     candidates_strict = {
         "accessory": sort_candidates(
             subset_by(usage_gender_filtered, master="Accessories", subcategories=accessory_subs)
