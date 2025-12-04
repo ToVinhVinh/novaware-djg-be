@@ -436,7 +436,17 @@ def build_outfit_suggestions(
     if usage_gender_filtered.empty:
         usage_gender_filtered = products_df.copy()
 
-    if "gender" in usage_gender_filtered.columns and target_gender:
+    # Nếu payload là Unisex → cùng usage + phù hợp với gender của User
+    is_payload_unisex = str(target_gender).strip().lower() == 'unisex'
+    if is_payload_unisex:
+        # Filter theo gender của User (không phải gender của payload)
+        if "gender" in usage_gender_filtered.columns and allowed_genders_for_user:
+            allowed_set = {str(g).strip().lower() for g in allowed_genders_for_user + ["Unisex"]}
+            usage_gender_filtered = usage_gender_filtered[
+                usage_gender_filtered["gender"].astype(str).str.strip().str.lower().isin(allowed_set)
+            ]
+    elif "gender" in usage_gender_filtered.columns and target_gender:
+        # Bình thường: filter theo gender của payload
         usage_gender_filtered = usage_gender_filtered[
             usage_gender_filtered["gender"].apply(gender_allowed)
         ]
@@ -704,13 +714,21 @@ def build_outfit_suggestions(
         if is_payload_top_or_bottom and cat == 'dress':
             return None
         
-        pools = [
-            ("strict", candidates_strict.get(cat, [])),
-            ("relaxed", candidates_relaxed.get(cat, [])),
-            ("user_gender", candidates_user_gender.get(cat, [])),
-            ("unisex", candidates_unisex.get(cat, [])),
-            ("any", candidates_any.get(cat, [])),
-        ]
+        is_payload_unisex = str(target_gender).strip().lower() == 'unisex'
+        
+        if is_payload_unisex:
+            pools = [
+                ("strict", candidates_strict.get(cat, [])),
+            ]
+        else:
+            # Bình thường: sử dụng tất cả các pools
+            pools = [
+                ("strict", candidates_strict.get(cat, [])),
+                ("relaxed", candidates_relaxed.get(cat, [])),
+                ("user_gender", candidates_user_gender.get(cat, [])),
+                ("unisex", candidates_unisex.get(cat, [])),
+                ("any", candidates_any.get(cat, [])),
+            ]
         for pool_key, pool in pools:
             if not pool:
                 continue

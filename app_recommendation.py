@@ -902,6 +902,9 @@ def build_outfit_suggestions(
     target_usage = str(payload_row.get('usage', '')).strip()
     target_gender = str(payload_row.get('gender', '')).strip()
     
+    # Get allowed genders for user (cần cho trường hợp payload là Unisex)
+    allowed_genders_for_user = get_allowed_genders(user_age, user_gender) if get_allowed_genders else []
+    
     def gender_allowed(gender_value: str) -> bool:
         gender_clean = str(gender_value).strip()
         if not target_gender:
@@ -914,7 +917,7 @@ def build_outfit_suggestions(
             return True
         return gender_lower == 'unisex'
 
-    # Strict pool: same usage + compatible gender
+    # Strict pool: same usage + compatible gender (hoặc cùng usage + user gender nếu payload là Unisex)
     usage_gender_filtered = products_df.copy()
     if target_usage:
         usage_gender_filtered = usage_gender_filtered[
@@ -923,7 +926,17 @@ def build_outfit_suggestions(
     if usage_gender_filtered.empty:
         usage_gender_filtered = products_df.copy()
 
-    if 'gender' in usage_gender_filtered.columns and target_gender:
+    # Nếu payload là Unisex → cùng usage + phù hợp với gender của User
+    is_payload_unisex = str(target_gender).strip().lower() == 'unisex'
+    if is_payload_unisex:
+        # Filter theo gender của User (không phải gender của payload)
+        if 'gender' in usage_gender_filtered.columns and allowed_genders_for_user:
+            allowed_set = {str(g).strip().lower() for g in allowed_genders_for_user + ["Unisex"]}
+            usage_gender_filtered = usage_gender_filtered[
+                usage_gender_filtered['gender'].astype(str).str.strip().str.lower().isin(allowed_set)
+            ]
+    elif 'gender' in usage_gender_filtered.columns and target_gender:
+        # Bình thường: filter theo gender của payload
         usage_gender_filtered = usage_gender_filtered[usage_gender_filtered['gender'].apply(gender_allowed)]
     if usage_gender_filtered.empty:
         usage_gender_filtered = products_df.copy()
@@ -936,8 +949,6 @@ def build_outfit_suggestions(
         gender_filtered = products_df.copy()
 
     # User-gender pool: filter by user's allowed genders (includes Unisex)
-    allowed_genders_for_user = get_allowed_genders(user_age, user_gender) if get_allowed_genders else []
-    
     user_gender_filtered = products_df.copy()
     if 'gender' in user_gender_filtered.columns and allowed_genders_for_user:
         # So sánh case-insensitive và strip whitespace
@@ -1122,13 +1133,23 @@ def build_outfit_suggestions(
         if is_payload_top_or_bottom and cat == 'dress':
             return None
         
-        pools = [
-            ('strict', candidates_strict.get(cat, [])),
-            ('relaxed', candidates_relaxed.get(cat, [])),
-            ('user_gender', candidates_user_gender.get(cat, [])),
-            ('unisex', candidates_unisex.get(cat, [])),
-            ('any', candidates_any.get(cat, [])),
-        ]
+        # Nếu payload có gender=Unisex → chỉ dùng candidates_strict (cùng usage)
+        is_payload_unisex = str(target_gender).strip().lower() == 'unisex'
+        
+        if is_payload_unisex:
+            # Chỉ sử dụng strict pool (cùng usage) khi payload là Unisex
+            pools = [
+                ('strict', candidates_strict.get(cat, [])),
+            ]
+        else:
+            # Bình thường: sử dụng tất cả các pools
+            pools = [
+                ('strict', candidates_strict.get(cat, [])),
+                ('relaxed', candidates_relaxed.get(cat, [])),
+                ('user_gender', candidates_user_gender.get(cat, [])),
+                ('unisex', candidates_unisex.get(cat, [])),
+                ('any', candidates_any.get(cat, [])),
+            ]
         for pool_key, pool in pools:
             if not pool:
                 continue
@@ -5430,7 +5451,17 @@ def main():
                 )
 
                 if not outfits:
-                    st.info("Chưa đủ thành phần để tạo outfit thoả điều kiện (Accessories / Topwear / Bottomwear / Footwear cùng gender và cùng usage).")
+                    # Kiểm tra payload có phải Unisex không để hiển thị message phù hợp
+                    payload_row = get_product_record(current_product_id, products_df)
+                    is_unisex = False
+                    if payload_row is not None:
+                        payload_gender = str(payload_row.get('gender', '')).strip().lower()
+                        is_unisex = payload_gender == 'unisex'
+                    
+                    if is_unisex:
+                        st.info("Chưa đủ thành phần để tạo outfit thoả điều kiện (Accessories / Topwear / Bottomwear / Footwear cùng usage).")
+                    else:
+                        st.info("Chưa đủ thành phần để tạo outfit thoả điều kiện (Accessories / Topwear / Bottomwear / Footwear cùng gender và cùng usage).")
                 else:
                     for idx, outfit in enumerate(outfits, start=1):
                         st.markdown(f"#### 👗 Outfit #{idx} — Điểm tổng: {outfit['score']:.4f}")
