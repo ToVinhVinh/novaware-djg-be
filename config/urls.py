@@ -27,8 +27,6 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/v1/", include(api_router.urls)),
     path("api/v1/auth/", include("apps.users.auth_urls")),
-    path("api/v1/gnn/", include("apps.recommendations.gnn.urls")),
-    path("api/v1/cbf/", include("apps.recommendations.cbf.urls")),
     path("api/v1/hybrid/", include("apps.recommendations.hybrid.urls")),
 ]
 

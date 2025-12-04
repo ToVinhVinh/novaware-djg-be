@@ -10,8 +10,6 @@ from django.core.management.base import BaseCommand, CommandParser
 from django.utils import timezone
 
 from apps.products.models import Category, Product
-from apps.recommendations.cbf.models import engine as cbf_engine, recommend_cbf
-from apps.recommendations.gnn.models import engine as gnn_engine, recommend_gnn
 from apps.recommendations.hybrid.models import engine as hybrid_engine, recommend_hybrid
 from apps.recommendations.common.exceptions import ModelNotTrainedError
 from apps.recommendations.common.filters import CandidateFilter
@@ -23,9 +21,9 @@ class Command(BaseCommand):
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument(
             "--model",
-            choices=["gnn", "cbf", "hybrid"],
-            default="cbf",
-            help="Which model to train before running the demo.",
+            choices=["hybrid"],
+            default="hybrid",
+            help="Which model to train before running the demo. (Only 'hybrid' is available now.)",
         )
         parser.add_argument(
             "--outfile",
@@ -57,11 +55,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.NOTICE(f"Current product: {product.name} (id={product.id})"))
 
         self.stdout.write(self.style.WARNING(f"Training model: {model_to_train} ..."))
-        if model_to_train == "cbf":
-            cbf_engine.train(force_retrain=True)
-        elif model_to_train == "gnn":
-            gnn_engine.train(force_retrain=True)
-        elif model_to_train == "hybrid":
+        if model_to_train == "hybrid":
             hybrid_engine.train(force_retrain=True)
 
         request_params = {
@@ -73,8 +67,6 @@ class Command(BaseCommand):
 
         results: dict[str, Any] = {}
         for name, fn in {
-            "gnn": recommend_gnn,
-            "cbf": recommend_cbf,
             "hybrid": recommend_hybrid,
         }.items():
             try:
