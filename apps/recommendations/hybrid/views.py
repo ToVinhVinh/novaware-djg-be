@@ -384,7 +384,8 @@ def build_personalized_candidates(
         
         seen_product_ids.add(product_id_str)  # Mark as seen
     
-    prioritized.sort(key=lambda x: x['score'], reverse=True)
+    # Sort by score (desc), then by product_id (asc) for deterministic ordering
+    prioritized.sort(key=lambda x: (-x['score'], x['product_id']))
     return prioritized[:top_k]
 
 
@@ -476,16 +477,36 @@ def build_outfit_suggestions(
     if user_scores is None:
         user_scores = {}
     
+    def get_product_score(pid: str) -> float:
+        """Robust lookup product score from score_lookup or user_scores."""
+        # Try score_lookup first (from personalized_items)
+        if pid in score_lookup:
+            return score_lookup[pid]
+        # Try user_scores with robust lookup (handle both str and int keys)
+        pid_str = str(pid)
+        if pid_str in user_scores:
+            return user_scores[pid_str]
+        # Try int key if pid is numeric
+        try:
+            pid_int = int(pid)
+            if pid_int in user_scores:
+                return user_scores[pid_int]
+        except (ValueError, TypeError):
+            pass
+        # Try string matching
+        for key, val in user_scores.items():
+            if str(key) == pid_str:
+                return val
+        return 0.0
+    
     def sort_candidates(df_subset: pd.DataFrame) -> List[str]:
         if df_subset is None or df_subset.empty:
             return []
         # ensure index as string ID
         ids = df_subset.index.astype(str)
-        scores = [
-            score_lookup.get(pid, user_scores.get(pid, 0.0))
-            for pid in ids
-        ]
-        ordered = sorted(zip(ids, scores), key=lambda x: x[1], reverse=True)
+        scores = [get_product_score(pid) for pid in ids]
+        # Sort by score (desc), then by product_id (asc) for deterministic ordering
+        ordered = sorted(zip(ids, scores), key=lambda x: (-x[1], x[0]))
         return [pid for pid, _ in ordered]
     
     def subset_by(df: pd.DataFrame, master=None, subcategories=None):
@@ -708,7 +729,7 @@ def build_outfit_suggestions(
                 ordered_products.append(candidate)
         
         score = sum(
-            score_lookup.get(pid, user_scores.get(pid, 0.0))
+            get_product_score(pid)
             for pid in ordered_products
         )
         outfits.append({
