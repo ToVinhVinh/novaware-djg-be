@@ -786,13 +786,23 @@ def build_personalized_candidates(
         return []
 
     prioritized = []
+    seen_product_ids = set()  # Track để tránh duplicate
+    
     for product_id, base_score in sorted(
         user_scores.items(),
         key=lambda x: x[1],
         reverse=True
     ):
-        if str(product_id) == str(payload_product_id):
+        product_id_str = str(product_id)
+        
+        # Skip payload product
+        if product_id_str == str(payload_product_id):
             continue
+        
+        # Skip nếu đã thêm product này rồi (tránh duplicate)
+        if product_id_str in seen_product_ids:
+            continue
+        
         product_row = get_product_record(product_id, products_df)
         if product_row is None:
             continue
@@ -851,7 +861,7 @@ def build_personalized_candidates(
             reasons.append("Trọng số lịch sử usage")
 
         prioritized.append({
-            'product_id': str(product_id),
+            'product_id': product_id_str,
             'score': score,
             'base_score': base_score,
             'usage_match': product_usage == payload_usage and bool(payload_usage),
@@ -859,6 +869,8 @@ def build_personalized_candidates(
             'reasons': reasons,
             'product_row': product_row
         })
+        
+        seen_product_ids.add(product_id_str)  # Mark as seen
 
     prioritized.sort(key=lambda x: x['score'], reverse=True)
     return prioritized[:top_k]
@@ -948,7 +960,19 @@ def build_outfit_suggestions(
         item['product_id']: item['score']
         for item in personalized_items
     }
-    user_scores = hybrid_predictions.get('predictions', {}).get(user_id, {})
+    # Robustly fetch user scores regardless of user_id key type (str/int) - đồng bộ với API
+    predictions_by_user = hybrid_predictions.get('predictions', {}) or {}
+    user_scores = None
+    user_key_str = str(user_id)
+    if user_key_str in predictions_by_user:
+        user_scores = predictions_by_user[user_key_str]
+    else:
+        for key, val in predictions_by_user.items():
+            if str(key) == user_key_str:
+                user_scores = val
+                break
+    if user_scores is None:
+        user_scores = {}
 
     def sort_candidates(df_subset: pd.DataFrame) -> List[str]:
         if df_subset is None or df_subset.empty:
