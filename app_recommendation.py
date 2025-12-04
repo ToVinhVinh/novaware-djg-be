@@ -1262,7 +1262,7 @@ def render_metrics_table(df, highlight_model=None):
 def slugify_model_name(model_name: str) -> str:
     return re.sub(r'[^a-z0-9]+', '_', model_name.lower()).strip('_')
 
-def apply_5core_pruning(interactions_df: pd.DataFrame, min_interactions: int = 5) -> Dict:
+def apply_5core_pruning(interactions_df: pd.DataFrame, min_interactions: int = 2) -> Dict:
 
     if interactions_df.empty:
         return {
@@ -1823,7 +1823,7 @@ def main():
             # Tự động restore artifacts trước khi kiểm tra dữ liệu
             restore_all_artifacts()
             
-            st.write("**Nội dung thực hiện:** Áp dụng kỹ thuật 5-Core Pruning để loại bỏ đệ quy các người dùng và sản phẩm có dưới 5 tương tác nhằm giảm độ thưa thớt của dữ liệu.")
+            st.write("**Nội dung thực hiện:** Áp dụng kỹ thuật k-Core Pruning để loại bỏ đệ quy các người dùng và sản phẩm có dưới số lượng tương tác tối thiểu (có thể điều chỉnh) nhằm giảm độ thưa thớt của dữ liệu.")
             st.write("**Dữ liệu sử dụng:** `interactions.csv`")
             
             # Hiển thị kết quả đã có nếu đã chạy bước này trước đó
@@ -1833,27 +1833,6 @@ def main():
                 display_pruning_results(st.session_state['pruned_interactions'])
                 st.markdown("---")
                 st.markdown("### 🔄 Chạy lại bước này (tùy chọn)")
-
-            st.markdown("""
-            **Thuật toán 5-Core Pruning:**
-
-            1. **Khởi tạo:** Đếm số lượng tương tác cho mỗi user và mỗi product
-            2. **Lặp đệ quy:**
-               - Loại bỏ tất cả users có < 3 interactions
-               - Loại bỏ tất cả products có < 3 interactions
-               - Cập nhật lại số lượng interactions của các users/products còn lại
-               - Lặp lại cho đến khi không còn user/product nào bị loại bỏ
-            3. **Kết quả:** Ma trận tương tác $R$ được làm sạch, chỉ giữ lại các users và products có đủ dữ liệu
-
-            **Công thức:**
-            $$R_{pruned} = \\{(u, i) \\in R : |I_u| \\geq 5 \\land |U_i| \\geq 5\\}$$
-
-            Trong đó:
-            - $R$: Ma trận tương tác gốc
-            - $I_u$: Tập sản phẩm mà user $u$ đã tương tác
-            - $U_i$: Tập users đã tương tác với sản phẩm $i$
-            - $R_{pruned}$: Ma trận sau khi pruning
-            """)
 
             # Data source selection
             col_source1, col_source2 = st.columns([2, 1])
@@ -1908,14 +1887,37 @@ def main():
                 with col_config2:
                     st.write("")  # Spacing
                     process_button = st.button(
-                        "🔧 Áp dụng 5-Core Pruning",
+                        f"🔧 Áp dụng {min_interactions}-Core Pruning",
                         type="primary",
                         use_container_width=True,
                         key="pruning_process_button"
                     )
                 
+                # Hiển thị mô tả thuật toán và công thức động theo min_interactions
+                st.markdown(f"""
+                **Thuật toán {min_interactions}-Core Pruning:**
+
+                1. **Khởi tạo:** Đếm số lượng tương tác cho mỗi user và mỗi product
+                2. **Lặp đệ quy:**
+                   - Loại bỏ tất cả users có < {min_interactions} interactions
+                   - Loại bỏ tất cả products có < {min_interactions} interactions
+                   - Cập nhật lại số lượng interactions của các users/products còn lại
+                   - Lặp lại cho đến khi không còn user/product nào bị loại bỏ
+                3. **Kết quả:** Ma trận tương tác $R$ được làm sạch, chỉ giữ lại các users và products có đủ dữ liệu
+
+                **Công thức:**
+                $$R_{{pruned}} = \\{{(u, i) \\in R : |I_u| \\geq {min_interactions} \\land |U_i| \\geq {min_interactions}\\}}$$
+
+                Trong đó:
+                - $R$: Ma trận tương tác gốc
+                - $I_u$: Tập sản phẩm mà user $u$ đã tương tác
+                - $U_i$: Tập users đã tương tác với sản phẩm $i$
+                - $R_{{pruned}}$: Ma trận sau khi pruning
+                - ${min_interactions}$: Số lượng tương tác tối thiểu (min_interactions)
+                """)
+                
                 if process_button:
-                    with st.spinner("Đang áp dụng 5-Core Pruning..."):
+                    with st.spinner(f"Đang áp dụng {min_interactions}-Core Pruning..."):
                         try:
                             result = apply_5core_pruning(interactions_df, min_interactions)
                             
@@ -1927,7 +1929,7 @@ def main():
                         - Điều này tạo ra hiệu ứng cascade: khi loại bỏ users/products, các interactions liên quan cũng bị loại bỏ, khiến các users/products khác cũng không đủ điều kiện
 
                         **Giải pháp:**
-                        1. Giảm min_interactions xuống (ví dụ: 3 hoặc 2)
+                        1. Giảm min_interactions xuống (ví dụ: {max(1, min_interactions - 1)} hoặc {max(1, min_interactions - 2)})
                         2. Thu thập thêm dữ liệu interactions
                         3. Chấp nhận dữ liệu thưa thớt và không áp dụng pruning
                                 """)
