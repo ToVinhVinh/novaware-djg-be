@@ -1839,8 +1839,8 @@ def main():
 
             1. **Khởi tạo:** Đếm số lượng tương tác cho mỗi user và mỗi product
             2. **Lặp đệ quy:**
-               - Loại bỏ tất cả users có < 5 interactions
-               - Loại bỏ tất cả products có < 5 interactions
+               - Loại bỏ tất cả users có < 3 interactions
+               - Loại bỏ tất cả products có < 3 interactions
                - Cập nhật lại số lượng interactions của các users/products còn lại
                - Lặp lại cho đến khi không còn user/product nào bị loại bỏ
             3. **Kết quả:** Ma trận tương tác $R$ được làm sạch, chỉ giữ lại các users và products có đủ dữ liệu
