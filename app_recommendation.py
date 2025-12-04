@@ -1044,7 +1044,7 @@ def build_outfit_suggestions(
     optional_categories = []
     if user_gender and str(user_gender).lower() == 'female':
         optional_categories.append('dress')
-    optional_categories.append('innerwear')
+    # innerwear removed - không thêm vào outfit suggestions
 
     outfits = []
     category_offsets = defaultdict(int)
