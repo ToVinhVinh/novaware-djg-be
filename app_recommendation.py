@@ -4601,16 +4601,264 @@ def main():
             else:
                 hybrid_predictions = st.session_state['hybrid_predictions']
                 
-                st.info("💡 **Lưu ý:** Bước này sử dụng cùng logic với Bước 2.3 (Personalized Filtering), nhưng với điểm số Hybrid thay vì CBF.")
-                st.info("💡 Để sử dụng các tính năng này, vui lòng tham khảo Bước 2.3 và thay thế `cbf_predictions` bằng `hybrid_predictions`.")
-                
                 st.markdown("""
-                **Hướng dẫn sử dụng:**
+                **Quy trình lọc và xếp hạng với Hybrid Scores:**
                 
-                1. **Gợi ý Cá nhân hóa (Personalized Filtering):**
-                   - Sử dụng `hybrid_predictions['predictions']` thay vì `cbf_predictions['predictions']`
-                   - Áp dụng các bộ lọc articleType và age/gender như Bước 2.3
+                Bước 4.3 áp dụng cùng logic lọc cá nhân hóa như Bước 2.3, nhưng sử dụng điểm số Hybrid ($Score_{Hybrid}(u, i)$) thay vì điểm CBF ($\\hat{r}_{ui}^{\\text{CBF}}$). 
+                Điểm Hybrid kết hợp ưu điểm của cả GNN và CBF, mang lại độ chính xác và tính đa dạng cao hơn.
+                
+                **1. Lọc Cứng theo articleType (STRICT):**
+                   - **Logic:** $i_{\\text{cand}} \\in I_{\\text{valid}}$ nếu và chỉ nếu $i_{\\text{cand}}.\\text{articleType} = i_{\\text{payload}}.\\text{articleType}$
+                   - **Mục đích:** Đảm bảo các sản phẩm gợi ý cùng loại với sản phẩm đầu vào (payload)
+                   - **Kết quả:** Loại bỏ tất cả các sản phẩm không cùng loại với sản phẩm đầu vào
+                   - **Ví dụ:** Nếu payload là "Trousers", chỉ các sản phẩm "Trousers" mới được giữ lại
+                
+                **2. Lọc và Ưu tiên theo Giới tính/Độ tuổi (Age/Gender Priority):**
+                   - **Logic Áp dụng (Strict Filtering):**
+                     - Nếu $u.\\text{age} < 13$ và $u.\\text{gender} = \\text{'male'}$: $i_{\\text{cand}}.\\text{gender}$ phải là $\\text{'Boys'}$
+                     - Nếu $u.\\text{age} \\ge 13$ và $u.\\text{gender} = \\text{'female'}$: $i_{\\text{cand}}.\\text{gender}$ phải là $\\text{'Women'}$ hoặc $\\text{'Unisex'}$
+                   - **Mục đích:** Đảm bảo các sản phẩm phù hợp với đặc điểm nhân khẩu học của người dùng
+                   - **Phân tích Ưu tiên/Xếp hạng:** Các sản phẩm còn lại sau khi lọc cứng được xếp hạng trực tiếp bằng điểm Hybrid ($Score_{Hybrid}(u, i)$)
+                
+                **3. Xếp hạng theo Hybrid Score:**
+                   - **Công thức:** $Score_{Hybrid}(u, i) = \\alpha \\cdot \\hat{r}_{ui}^{\\text{GNN}} + (1 - \\alpha) \\cdot \\hat{r}_{ui}^{\\text{CBF}}$
+                   - **Ưu điểm:** Kết hợp sức mạnh của Graph Neural Network (học từ cấu trúc đồ thị tương tác) và Content-Based Filtering (dựa trên đặc trưng sản phẩm)
+                   - **Kết quả:** Danh sách Top-K được sắp xếp theo điểm Hybrid giảm dần
+                
+                **Kết quả mong đợi:**
+                - ✅ Danh sách ứng viên được lọc chỉ chứa các sản phẩm hợp lệ về articleType, age, và gender
+                - ✅ Danh sách được xếp hạng theo điểm $Score_{Hybrid}(u, i)$ để tạo ra danh sách Top-K Personalized cuối cùng
+                - ✅ Đảm bảo tính hợp lệ cơ bản và độ ưu tiên của các đề xuất
+                - ✅ Chất lượng gợi ý cao hơn nhờ kết hợp ưu điểm của cả GNN và CBF
+                
+                **So sánh với Bước 2.3:**
+                - **Bước 2.3:** Sử dụng $\\hat{r}_{ui}^{\\text{CBF}}$ (chỉ dựa trên đặc trưng nội dung)
+                - **Bước 4.3:** Sử dụng $Score_{Hybrid}(u, i)$ (kết hợp GNN + CBF)
+                - **Lợi ích:** Hybrid score mang lại độ chính xác cao hơn và khả năng phát hiện các mẫu phức tạp từ đồ thị tương tác
                 """)
+                
+                # Kiểm tra xem có hàm apply_personalized_filters không
+                if apply_personalized_filters is not None:
+                    # Load products and users data
+                    products_path = os.path.join(current_dir, 'apps', 'exports', 'products.csv')
+                    users_path = os.path.join(current_dir, 'apps', 'exports', 'users.csv')
+                    
+                    products_df = None
+                    users_df = None
+                    
+                    if os.path.exists(products_path):
+                        products_df = pd.read_csv(products_path)
+                        if 'id' in products_df.columns:
+                            products_df['id'] = products_df['id'].astype(str)
+                            products_df.set_index('id', inplace=True)
+                    else:
+                        st.warning("⚠️ Không tìm thấy file products.csv. Vui lòng đảm bảo file tồn tại trong apps/exports/")
+                    
+                    if os.path.exists(users_path):
+                        users_df = pd.read_csv(users_path)
+                        if 'id' in users_df.columns:
+                            users_df['id'] = users_df['id'].astype(str)
+                    else:
+                        st.warning("⚠️ Không tìm thấy file users.csv. Vui lòng đảm bảo file tồn tại trong apps/exports/")
+                    
+                    if products_df is not None:
+                        # Kiểm tra format của hybrid_predictions
+                        if 'predictions' in hybrid_predictions:
+                            predictions_dict = hybrid_predictions['predictions']
+                        elif 'rankings' in hybrid_predictions:
+                            # Convert rankings to predictions format
+                            predictions_dict = {}
+                            for user_id, ranking in hybrid_predictions['rankings'].items():
+                                user_id_str = str(user_id)
+                                predictions_dict[user_id_str] = {str(pid): score for pid, score in ranking}
+                        else:
+                            st.error("❌ Không tìm thấy 'predictions' hoặc 'rankings' trong hybrid_predictions")
+                            predictions_dict = {}
+                        
+                        if predictions_dict:
+                            # Configuration
+                            col_config1, col_config2 = st.columns(2)
+                            with col_config1:
+                                selected_user_id = st.selectbox(
+                                    "Chọn User ID để áp dụng lọc",
+                                    list(predictions_dict.keys()),
+                                    key="hybrid_filter_user_id"
+                                )
+                            
+                            with col_config2:
+                                payload_articletype = st.selectbox(
+                                    "Chọn articleType của sản phẩm đầu vào (payload)",
+                                    products_df['articleType'].unique().tolist() if 'articleType' in products_df.columns else [],
+                                    key="hybrid_payload_articletype"
+                                )
+                            
+                            # Get user info
+                            user_age = None
+                            user_gender = None
+                            if users_df is not None and selected_user_id:
+                                user_row = users_df[users_df['id'] == selected_user_id]
+                                if not user_row.empty:
+                                    user_age = user_row.iloc[0].get('age', None)
+                                    user_gender = user_row.iloc[0].get('gender', None)
+                            
+                            if selected_user_id and payload_articletype:
+                                col_info1, col_info2 = st.columns(2)
+                                with col_info1:
+                                    if user_age is not None:
+                                        st.info(f"👤 User Age: {user_age}")
+                                    if user_gender is not None:
+                                        st.info(f"👤 User Gender: {user_gender}")
+                                with col_info2:
+                                    st.info(f"📦 Payload articleType: {payload_articletype}")
+                                    if user_age is not None and user_gender is not None:
+                                        allowed_genders = get_allowed_genders(user_age, user_gender) if get_allowed_genders else []
+                                        st.info(f"✅ Allowed Genders: {', '.join(allowed_genders)}")
+                                
+                                # Top-K configuration
+                                top_k_personalized = st.number_input(
+                                    "Số lượng sản phẩm Top-K Personalized",
+                                    min_value=5,
+                                    max_value=100,
+                                    value=20,
+                                    step=5,
+                                    key="hybrid_top_k_personalized"
+                                )
+                                
+                                process_button = st.button(
+                                    "🔧 Áp dụng Personalized Filters và Xếp hạng Top-K với Hybrid",
+                                    type="primary",
+                                    use_container_width=True,
+                                    key="hybrid_personalized_filter_button"
+                                )
+                                
+                                if process_button:
+                                    # Đo Inference Time (từ khi nhận user đến khi tạo L(u) - Bước 4.3)
+                                    inference_start_time = time.time()
+                                    
+                                    with st.spinner("Đang áp dụng các bộ lọc cá nhân hóa và xếp hạng với Hybrid scores..."):
+                                        try:
+                                            # Lấy danh sách candidate products từ Hybrid predictions
+                                            user_predictions = predictions_dict[selected_user_id]
+                                            candidate_products = list(user_predictions.keys())
+                                            
+                                            # Áp dụng filters và xếp hạng Top-K với Hybrid scores
+                                            result = apply_personalized_filters(
+                                                candidate_products,
+                                                products_df,
+                                                payload_articletype=payload_articletype,
+                                                user_age=user_age,
+                                                user_gender=user_gender,
+                                                cbf_scores=user_predictions,  # Sử dụng hybrid scores như cbf_scores
+                                                top_k=top_k_personalized
+                                            )
+                                            
+                                            # Kết thúc đo Inference Time
+                                            inference_end_time = time.time()
+                                            inference_time_measured = inference_end_time - inference_start_time
+                                            
+                                            st.success(f"✅ **Hoàn thành!** Đã lọc danh sách ứng viên với Hybrid scores.")
+                                            
+                                            # Store in session state
+                                            if 'hybrid_personalized_filters' not in st.session_state:
+                                                st.session_state['hybrid_personalized_filters'] = {}
+                                            st.session_state['hybrid_personalized_filters'][selected_user_id] = result
+                                            # Lưu vào artifacts để không bị mất khi chạy bước khác
+                                            save_intermediate_artifact('hybrid_personalized_filters', st.session_state['hybrid_personalized_filters'])
+                                            
+                                            # Lưu Inference Time vào session state (lấy trung bình nếu có nhiều users)
+                                            if 'hybrid_inference_times' not in st.session_state:
+                                                st.session_state['hybrid_inference_times'] = []
+                                            st.session_state['hybrid_inference_times'].append(inference_time_measured)
+                                            st.session_state['hybrid_inference_time'] = np.mean(st.session_state['hybrid_inference_times'])
+                                            
+                                            # Display statistics
+                                            st.markdown("### 📊 Thống kê quá trình lọc")
+                                            
+                                            stats = result['stats']
+                                            col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
+                                            with col_stat1:
+                                                st.metric("Danh sách ban đầu", f"{stats['initial_count']:,}")
+                                            with col_stat2:
+                                                st.metric("Sau lọc articleType", f"{stats['after_articletype']:,}")
+                                            with col_stat3:
+                                                st.metric("Sau lọc Age/Gender", f"{stats['after_age_gender']:,}")
+                                            with col_stat4:
+                                                st.metric(f"Top-K Personalized ({top_k_personalized})", f"{stats['final_count']:,}")
+                                            
+                                            # Hiển thị Top-K Personalized Rankings
+                                            if result.get('ranked_products'):
+                                                st.markdown(f"### 📋 Danh sách Top-{top_k_personalized} Personalized (Hybrid)")
+                                                ranked_df = pd.DataFrame([
+                                                    {
+                                                        'Rank': rank + 1,
+                                                        'Product ID': product_id,
+                                                        'Hybrid Score': f"{score:.4f}"
+                                                    }
+                                                    for rank, (product_id, score) in enumerate(result['ranked_products'])
+                                                ])
+                                                st.dataframe(ranked_df, use_container_width=True)
+                                                
+                                                # Biểu đồ Top-K scores
+                                                fig_scores = px.bar(
+                                                    ranked_df,
+                                                    x='Rank',
+                                                    y='Hybrid Score',
+                                                    title=f"Top-{top_k_personalized} Personalized Hybrid Scores",
+                                                    labels={'Rank': 'Xếp hạng', 'Hybrid Score': 'Điểm Hybrid'}
+                                                )
+                                                st.plotly_chart(fig_scores, use_container_width=True)
+                                            
+                                            # Reduction visualization
+                                            st.markdown("### 📉 Biểu đồ giảm kích thước danh sách")
+                                            reduction_df = pd.DataFrame({
+                                                'Bước': ['Ban đầu', 'Sau articleType', 'Sau Age/Gender', f'Top-{top_k_personalized}'],
+                                                'Số lượng': [
+                                                    stats['initial_count'],
+                                                    stats['after_articletype'],
+                                                    stats['after_age_gender'],
+                                                    stats['final_count']
+                                                ]
+                                            })
+                                            
+                                            fig = px.bar(
+                                                reduction_df,
+                                                x='Bước',
+                                                y='Số lượng',
+                                                title="Quá trình giảm kích thước danh sách ứng viên (Hybrid)",
+                                                labels={'Số lượng': 'Số lượng sản phẩm', 'Bước': 'Bước lọc'}
+                                            )
+                                            st.plotly_chart(fig, use_container_width=True)
+                                            
+                                            # Ví dụ tính toán
+                                            st.markdown("### 🧮 Ví dụ tính toán")
+                                            st.markdown(f"""
+                                            **Ví dụ:** User {selected_user_id} với danh sách ứng viên ban đầu:
+                                            
+                                            - **Danh sách ban đầu:** {stats['initial_count']:,} sản phẩm
+                                            - **Sau Lọc Cứng 1 (articleType='{payload_articletype}'):** {stats['after_articletype']:,} sản phẩm (giảm {stats['initial_count'] - stats['after_articletype']:,} sản phẩm)
+                                            - **Sau Lọc Cứng 2 (User age {'< 13' if user_age and user_age < 13 else '≥ 13'}, gender='{user_gender}'):** {stats['after_age_gender']:,} sản phẩm (giảm {stats['after_articletype'] - stats['after_age_gender']:,} sản phẩm)
+                                            - **Sau Xếp hạng Top-{top_k_personalized}:** {stats['final_count']:,} sản phẩm (xếp hạng theo $Score_{{Hybrid}}(u, i)$)
+                                            - **Tổng giảm:** {stats['removed_count']:,} sản phẩm ({stats['reduction_rate']:.2f}%)
+                                            
+                                            **✅ Kết quả đạt được:**
+                                            - ✅ Danh sách ứng viên được lọc chỉ chứa các sản phẩm hợp lệ về articleType, age, và gender
+                                            - ✅ Danh sách được xếp hạng theo điểm $Score_{{Hybrid}}(u, i)$ để tạo ra danh sách Top-K Personalized cuối cùng
+                                            - ✅ Đảm bảo tính hợp lệ cơ bản và độ ưu tiên của các đề xuất
+                                            - ✅ Chất lượng gợi ý cao hơn nhờ kết hợp ưu điểm của cả GNN và CBF
+                                            """)
+                                        
+                                        except Exception as e:
+                                            st.error(f"❌ Lỗi khi áp dụng personalized filters với Hybrid: {str(e)}")
+                                            import traceback
+                                            st.code(traceback.format_exc())
+                            else:
+                                st.info("💡 Vui lòng chọn User ID và articleType để tiếp tục.")
+                        else:
+                            st.warning("⚠️ Không có predictions trong hybrid_predictions. Vui lòng kiểm tra lại dữ liệu.")
+                    else:
+                        st.warning("⚠️ Không thể tải dữ liệu products. Vui lòng kiểm tra lại.")
+                elif apply_personalized_filters is None:
+                    st.error(f"❌ Không thể import cbf_utils module: {_cbf_utils_import_error}")
 
         with st.expander("Bước 4.4: Tính toán Số liệu (Đánh giá Mô hình)", expanded=True):
             # Tự động restore artifacts trước khi kiểm tra dữ liệu
