@@ -2104,20 +2104,9 @@ def main():
                                 pruned_users = result['original_users'] - result['removed_users']
                                 pruned_products = result['original_products'] - result['removed_products']
                                 
-                                # Original sparsity
-                                original_density = result['original_interactions'] / (result['original_users'] * result['original_products']) if (result['original_users'] * result['original_products']) > 0 else 0
-                                original_sparsity = 1 - original_density
-                                
-                                # Pruned sparsity
-                                pruned_density = len(result['pruned_interactions']) / (pruned_users * pruned_products) if (pruned_users * pruned_products) > 0 else 0
-                                pruned_sparsity = 1 - pruned_density
-                                
-                                improvement = original_sparsity - pruned_sparsity
-                                
                                 # Create tabs for different visualizations
-                                tab1, tab2, tab3, tab4 = st.tabs([
+                                tab1, tab2, tab3 = st.tabs([
                                     "📋 Ma trận tương tác đã làm sạch",
-                                    "📉 So sánh độ thưa thớt",
                                     "📈 Quá trình Pruning qua các lần lặp",
                                     "🔥 Ma trận tương tác (Heatmap)"
                                 ])
@@ -2140,22 +2129,6 @@ def main():
                                     )
                                 
                                 with tab2:
-                                    st.markdown("### 📉 So sánh độ thưa thớt")
-                                    
-                                    col_sparse1, col_sparse2 = st.columns(2)
-                                    with col_sparse1:
-                                        st.metric("Độ thưa ban đầu", f"{original_sparsity:.4f}")
-                                        st.metric("Mật độ ban đầu", f"{original_density:.6f}")
-                                    with col_sparse2:
-                                        st.metric("Độ thưa sau pruning", f"{pruned_sparsity:.4f}")
-                                        st.metric("Mật độ sau pruning", f"{pruned_density:.6f}")
-                                    
-                                    if improvement > 0:
-                                        st.success(f"✅ Độ thưa giảm {improvement:.4f} ({improvement/original_sparsity*100:.2f}%) - Mật độ dữ liệu tăng!")
-                                    else:
-                                        st.info("ℹ️ Mật độ dữ liệu đã được cải thiện cho các users/products còn lại.")
-                                
-                                with tab3:
                                     if result['stats']:
                                         st.markdown("### 📈 Quá trình Pruning qua các lần lặp")
                                         stats_df = pd.DataFrame(result['stats'])
@@ -2191,7 +2164,7 @@ def main():
                                     else:
                                         st.info("ℹ️ Không có dữ liệu thống kê quá trình pruning.")
                                 
-                                with tab4:
+                                with tab3:
                                     if pruned_users <= 100 and pruned_products <= 100:
                                         st.markdown("### 🔥 Ma trận tương tác (Heatmap)")
                                         st.info("ℹ️ Hiển thị ma trận tương tác dưới dạng heatmap (1 = có tương tác, 0 = không có tương tác)")
@@ -5464,7 +5437,7 @@ def main():
                         st.info("Chưa đủ thành phần để tạo outfit thoả điều kiện (Accessories / Topwear / Bottomwear / Footwear cùng gender và cùng usage).")
                 else:
                     for idx, outfit in enumerate(outfits, start=1):
-                        st.markdown(f"#### 👗 Outfit #{idx} — Điểm tổng: {outfit['score']:.4f}")
+                        st.markdown(f"#### 👗 Outfit #{idx}")
                         for pid in outfit['products']:
                             product_row = get_product_record(pid, products_df)
                             if product_row is not None:
