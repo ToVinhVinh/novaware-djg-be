@@ -1066,8 +1066,14 @@ def build_outfit_suggestions(
 
     required_categories = ['accessory', 'topwear', 'bottomwear', 'footwear']
     optional_categories = []
-    if user_gender and str(user_gender).lower() == 'female':
-        optional_categories.append('dress')
+    # Thêm dress dựa trên gender của payload product, không phải user gender
+    # Nếu payload product là Women hoặc Girls → được phép có dress
+    # Nếu payload product là Men → không được có dress
+    if target_gender:
+        target_gender_lower = str(target_gender).strip().lower()
+        if target_gender_lower in ['women', 'girls']:
+            optional_categories.append('dress')
+        # Nếu là Men, Boys, hoặc Unisex → không thêm dress
     # innerwear removed - không thêm vào outfit suggestions
 
     outfits = []
