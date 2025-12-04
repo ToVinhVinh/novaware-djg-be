@@ -1,633 +1,810 @@
 from __future__ import annotations
 
 import logging
+import os
+import pickle
+from pathlib import Path
+from typing import Dict, List, Optional
+from collections import defaultdict
 
+import pandas as pd
+from django.conf import settings
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.recommendations.common.background_tasks import get_task_status, submit_task
-from apps.recommendations.common.exceptions import ModelNotTrainedError
+from apps.products.mongo_models import Product as MongoProduct
+from apps.products.mongo_serializers import ProductSerializer as MongoProductSerializer
 
-from .models import recommend_hybrid, train_hybrid_model
-from .serializers import HybridRecommendationSerializer, HybridTrainSerializer
+from apps.recommendations.common.exceptions import ModelNotTrainedError
+from apps.utils.hybrid_utils import combine_hybrid_scores
+from apps.utils.cbf_utils import get_allowed_genders
+from apps.utils.user_profile import INTERACTION_WEIGHTS
+
+from .serializers import HybridRecommendationSerializer
 
 logger = logging.getLogger(__name__)
 
-class TrainHybridView(APIView):
-    serializer_class = HybridTrainSerializer
-    permission_classes = [permissions.AllowAny]
-    authentication_classes = []
+# Base directory for the project
+BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
+EXPORTS_DIR = BASE_DIR / "apps" / "exports"
+ARTIFACTS_DIR = BASE_DIR / "artifacts"
 
-    def _build_evaluation_support(self, max_pairs: int = 100) -> dict:
-        pairs = []
-        user_ids = set()
-        product_ids = set()
+
+def load_products_data() -> Optional[pd.DataFrame]:
+    """Load products dataset from exports directory."""
+    csv_path = EXPORTS_DIR / 'products.csv'
+    if not csv_path.exists():
+        return None
+    try:
+        df = pd.read_csv(csv_path)
+        if 'id' in df.columns:
+            df['id'] = df['id'].astype(str)
+            df = df.set_index('id')
+        return df
+    except Exception as e:
+        logger.error(f"Error loading products data: {e}")
+        return None
+
+
+def load_users_data() -> Optional[pd.DataFrame]:
+    """Load users dataset from exports directory."""
+    csv_path = EXPORTS_DIR / 'users.csv'
+    if not csv_path.exists():
+        return None
+    try:
+        df = pd.read_csv(csv_path)
+        if 'id' in df.columns:
+            df['id'] = df['id'].astype(str)
+            df = df.set_index('id')
+        return df
+    except Exception as e:
+        logger.error(f"Error loading users data: {e}")
+        return None
+
+
+def load_interactions_data() -> Optional[pd.DataFrame]:
+    """Load interactions dataset from exports directory."""
+    csv_path = EXPORTS_DIR / 'interactions.csv'
+    if not csv_path.exists():
+        return None
+    try:
+        df = pd.read_csv(csv_path)
+        if 'user_id' in df.columns:
+            df['user_id'] = df['user_id'].astype(str)
+        if 'product_id' in df.columns:
+            df['product_id'] = df['product_id'].astype(str)
+        return df
+    except Exception as e:
+        logger.error(f"Error loading interactions data: {e}")
+        return None
+
+
+def get_user_record(user_id: str, users_df: pd.DataFrame):
+    """Get user record from DataFrame."""
+    if users_df is None or user_id is None:
+        return None
+    try:
+        if user_id in users_df.index:
+            return users_df.loc[user_id]
+        return users_df.loc[users_df.index.astype(str) == str(user_id)].iloc[0]
+    except Exception:
+        return None
+
+
+def get_product_record(product_id: str, products_df: pd.DataFrame):
+    """Get product record from DataFrame."""
+    if products_df is None or product_id is None:
+        return None
+    product_key = str(product_id)
+    try:
+        if products_df.index.name is not None or not isinstance(products_df.index, pd.RangeIndex):
+            if product_key in products_df.index.astype(str):
+                return products_df.loc[product_key]
+        if 'id' in products_df.columns:
+            match = products_df[products_df['id'].astype(str) == product_key]
+            if not match.empty:
+                return match.iloc[0]
+    except Exception:
+        return None
+    return None
+
+
+def load_cached_predictions() -> Dict:
+    """Load cached predictions from artifacts directory (giống Streamlit)."""
+    predictions = {}
+    
+    # Load CBF predictions
+    cbf_path = ARTIFACTS_DIR / "streamlit_cbf_predictions.pkl"
+    if cbf_path.exists():
         try:
-            from apps.users.models import UserInteraction
-            qs = UserInteraction.objects.all().order_by('-timestamp')[: max_pairs * 3]
-            for inter in qs:
-                uid = str(inter.user_id)
-                pid = str(inter.product_id)
-                pairs.append({"user_id": uid, "current_product_id": pid})
-                user_ids.add(uid)
-                product_ids.add(pid)
-                if len(pairs) >= max_pairs:
-                    break
-        except Exception:
-            pass
-        if not pairs:
-            try:
-                from apps.users.mongo_models import UserInteraction as MongoInteraction
-                mq = MongoInteraction.objects.order_by('-timestamp').limit(max_pairs)
-                for inter in mq:
-                    uid = str(inter.user_id)
-                    pid = str(inter.product_id)
-                    pairs.append({"user_id": uid, "current_product_id": pid})
-                    user_ids.add(uid)
-                    product_ids.add(pid)
-            except Exception:
-                pass
-        return {"pairs": pairs, "user_ids": list(user_ids), "product_ids": list(product_ids)}
-
-    def _get_training_data(self, result: dict, include_artifacts: bool = True) -> dict:
-        from apps.recommendations.common.storage import ArtifactStorage
-
-        training_data = {
-            "status": result.get("status", "unknown"),
-            "model": "hybrid",
-            "result": result,
-        }
-
-        if isinstance(result, dict):
-            training_data.update({
-                "num_users": result.get("num_users"),
-                "num_products": result.get("num_products"),
-                "num_interactions": result.get("num_interactions"),
-                "embedding_dim": result.get("embedding_dim", 64),
-                "test_size": 0.2,
-            })
-
-            if "matrix_data" in result:
-                matrix_data = result["matrix_data"]
-                if isinstance(matrix_data, dict) and "shape" in matrix_data:
-                    shape = matrix_data["shape"]
-                    if isinstance(shape, (list, tuple)) and len(shape) >= 2:
-                        if training_data.get("num_users") is None:
-                            training_data["num_users"] = shape[0]
-                        if training_data.get("num_products") is None:
-                            training_data["num_products"] = shape[1]
-
-        if isinstance(result, dict) and result.get("status") in ["loaded", "already_trained"]:
-            pass
-
-        if include_artifacts:
-            try:
-                storage = ArtifactStorage("hybrid")
-                stored = storage.load()
-                artifacts = stored.get("artifacts", {})
-
-                training_data["training_info"] = {
-                    "trained_at": stored.get("trained_at") or result.get("trained_at"),
-                    "model_name": stored.get("model", "hybrid"),
-                }
-
-                if "matrix_data" in artifacts:
-                    matrix_data = artifacts["matrix_data"]
-                    training_data["matrix_data"] = {
-                        "shape": matrix_data.get("shape") if isinstance(matrix_data, dict) else None,
-                        "sparsity": matrix_data.get("sparsity") if isinstance(matrix_data, dict) else None,
-                    }
-                    if isinstance(matrix_data, dict) and "shape" in matrix_data:
-                        shape = matrix_data["shape"]
-                        if isinstance(shape, (list, tuple)) and len(shape) >= 2:
-                            if training_data.get("num_users") is None:
-                                training_data["num_users"] = shape[0]
-                            if training_data.get("num_products") is None:
-                                training_data["num_products"] = shape[1]
-
-                if "metrics" in artifacts:
-                    training_data["metrics"] = artifacts["metrics"]
-                    metrics = artifacts["metrics"]
-                    if isinstance(metrics, dict):
-                        training_data.update({
-                            "mape": metrics.get("mape"),
-                            "rmse": metrics.get("rmse"),
-                            "precision": metrics.get("precision"),
-                            "recall": metrics.get("recall"),
-                            "f1": metrics.get("f1") or metrics.get("f1_score"),
-                        })
-                elif "training_metrics" in artifacts:
-                    training_data["metrics"] = artifacts["training_metrics"]
-
-                if "model_info" in artifacts:
-                    model_info = artifacts["model_info"]
-                    training_data["model_info"] = model_info
-                    if isinstance(model_info, dict):
-                        training_data.update({
-                            "num_users": model_info.get("num_users", training_data.get("num_users")),
-                            "num_products": model_info.get("num_products", training_data.get("num_products")),
-                            "num_interactions": model_info.get("num_interactions", training_data.get("num_interactions")),
-                            "embedding_dim": model_info.get("embedding_dim", training_data.get("embedding_dim", 64)),
-                        })
-
-                if "training_data" in artifacts:
-                    stored_training = artifacts["training_data"]
-                    if isinstance(stored_training, dict):
-                        for key in ["num_users", "num_products", "num_interactions", "embedding_dim"]:
-                            if key in stored_training and training_data.get(key) is None:
-                                training_data[key] = stored_training[key]
-
-                if "matrix_data" in training_data and training_data["matrix_data"]:
-                    matrix_data = training_data["matrix_data"]
-                    if isinstance(matrix_data, dict) and "shape" in matrix_data:
-                        shape = matrix_data["shape"]
-                        if isinstance(shape, (list, tuple)) and len(shape) >= 2:
-                            if training_data.get("num_users") is None:
-                                training_data["num_users"] = shape[0]
-                            if training_data.get("num_products") is None:
-                                training_data["num_products"] = shape[1]
-
-                if training_data.get("num_interactions") is None:
-                    if "num_interactions" in artifacts:
-                        training_data["num_interactions"] = artifacts["num_interactions"]
-                    elif "gnn_artifacts" in artifacts:
-                        gnn_artifacts = artifacts["gnn_artifacts"]
-                        if isinstance(gnn_artifacts, dict) and "num_interactions" in gnn_artifacts:
-                            training_data["num_interactions"] = gnn_artifacts["num_interactions"]
-
-                if "alpha" in artifacts:
-                    training_data["alpha"] = artifacts["alpha"]
-            except Exception as e:
-                logger.warning(f"Could not load artifacts: {e}")
-
-        if training_data.get("num_interactions") is None:
-            try:
-                from apps.users.mongo_models import UserInteraction
-                interaction_count = UserInteraction.objects.count()
-                if interaction_count > 0:
-                    training_data["num_interactions"] = interaction_count
-            except Exception:
-                pass
-
-        try:
-            training_data["evaluation_support"] = self._build_evaluation_support(max_pairs=100)
-        except Exception:
-            training_data["evaluation_support"] = {"pairs": [], "user_ids": [], "product_ids": []}
-        return training_data
-
-    def _get_task_status(self, task_id: str) -> dict:
-        try:
-            task_status = get_task_status(task_id)
-
-            if task_status is None:
-                return {
-                    "task_id": task_id,
-                    "model": "hybrid",
-                    "status": "not_found",
-                    "message": "Task not found",
-                    "error": "Task ID does not exist or has been cleaned up",
-                }
-
-            response_data = {
-                "task_id": task_id,
-                "model": "hybrid",
-                "status": task_status.status,
-            }
-
-            if task_status.status == "pending":
-                response_data.update({
-                    "message": "Task is waiting to be processed",
-                    "progress": 0,
-                })
-            elif task_status.status == "running":
-                response_data.update({
-                    "message": "Training in progress",
-                    "progress": task_status.progress,
-                    "current_step": task_status.current_step,
-                    "total_steps": task_status.total_steps,
-                })
-            elif task_status.status == "success":
-                result = task_status.result
-                if result:
-                    from apps.recommendations.common.storage import ArtifactStorage
-                    try:
-                        storage = ArtifactStorage("hybrid")
-                        stored = storage.load()
-                        artifacts = stored.get("artifacts", {})
-
-                        response_data.update({
-                            "message": "Training completed successfully",
-                            "progress": 100,
-                            "result": result,
-                            "training_info": {
-                                "trained_at": stored.get("trained_at"),
-                                "model_name": stored.get("model", "hybrid"),
-                            },
-                        })
-
-                        if "metrics" in artifacts:
-                            response_data["metrics"] = artifacts["metrics"]
-                        elif "training_metrics" in artifacts:
-                            response_data["metrics"] = artifacts["training_metrics"]
-
-                        if "matrix_data" in artifacts:
-                            matrix_data = artifacts["matrix_data"]
-                            response_data["matrix_data"] = {
-                                "shape": matrix_data.get("shape") if isinstance(matrix_data, dict) else None,
-                                "sparsity": matrix_data.get("sparsity") if isinstance(matrix_data, dict) else None,
-                            }
-
-                        if "alpha" in artifacts:
-                            response_data["alpha"] = artifacts["alpha"]
-                    except Exception as e:
-                        response_data["result"] = result
-                        response_data["warning"] = f"Could not load full artifacts: {e}"
-                else:
-                    response_data.update({
-                        "message": "Training completed",
-                        "progress": 100,
-                    })
-            elif task_status.status == "failure":
-                response_data.update({
-                    "message": "Training failed",
-                    "error": task_status.error or "Unknown error",
-                    "progress": task_status.progress,
-                })
-            else:
-                response_data.update({
-                    "message": f"Task status: {task_status.status}",
-                    "progress": task_status.progress,
-                })
-
-            return response_data
+            with open(cbf_path, 'rb') as f:
+                predictions['cbf'] = pickle.load(f)
         except Exception as e:
-            return {
-                "task_id": task_id,
-                "model": "hybrid",
-                "status": "error",
-                "error": str(e),
-            }
+            logger.warning(f"Could not load CBF predictions: {e}")
+    
+    # Load GNN predictions (ưu tiên gnn_predictions, fallback gnn_training)
+    gnn_path = ARTIFACTS_DIR / "streamlit_gnn_predictions.pkl"
+    gnn_training_path = ARTIFACTS_DIR / "streamlit_gnn_training.pkl"
+    
+    if gnn_path.exists():
+        try:
+            with open(gnn_path, 'rb') as f:
+                predictions['gnn'] = pickle.load(f)
+        except Exception as e:
+            logger.warning(f"Could not load GNN predictions: {e}")
+    elif gnn_training_path.exists():
+        # Fallback to gnn_training (giống Streamlit)
+        try:
+            with open(gnn_training_path, 'rb') as f:
+                predictions['gnn'] = pickle.load(f)
+        except Exception as e:
+            logger.warning(f"Could not load GNN training: {e}")
+    
+    return predictions
 
-    def post(self, request, *args, **kwargs):
-        serializer = self.serializer_class(data=request.data)
-        serializer.is_valid(raise_exception=True)
 
-        task_id = serializer.validated_data.get("task_id")
-        if task_id and task_id.strip():
-            status_data = self._get_task_status(task_id)
-            status_code = status.HTTP_200_OK
-            if status_data.get("status") == "error":
-                status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
-            return Response(status_data, status=status_code)
+def ensure_hybrid_predictions(alpha: float, candidate_pool: int = 200) -> Optional[Dict]:
+    """
+    Ensure hybrid predictions are available.
+    Recompute when alpha changes or cached predictions missing.
+    """
+    cached = load_cached_predictions()
+    cbf_predictions = cached.get('cbf')
+    gnn_predictions = cached.get('gnn')
+    
+    if cbf_predictions and gnn_predictions:
+        combined = combine_hybrid_scores(
+            cbf_predictions,
+            gnn_predictions,
+            alpha=alpha,
+            top_k=max(candidate_pool, 50)
+        )
+        return combined
+    
+    if cbf_predictions and not gnn_predictions:
+        fallback = {
+            'predictions': cbf_predictions.get('predictions', {}),
+            'rankings': cbf_predictions.get('rankings', {}),
+            'alpha': alpha,
+            'stats': {'note': 'Fallback to CBF scores (GNN predictions missing)'}
+        }
+        return fallback
+    
+    return None
 
-        force_retrain = serializer.validated_data.get("force_retrain", False)
-        alpha = serializer.validated_data.get("alpha")
-        sync_mode = serializer.validated_data.get("sync", False)
 
-        logger.info(f"[hybrid] Train request received: force_retrain={force_retrain}, alpha={alpha}, sync={sync_mode}")
-
-        if sync_mode:
-            logger.info("[hybrid] Running training in sync mode")
-            try:
-                result = train_hybrid_model(force_retrain=force_retrain, alpha=alpha)
-                training_data = self._get_training_data(result, include_artifacts=True)
-                return Response(training_data, status=status.HTTP_200_OK)
-            except Exception as e:
-                logger.error(f"[hybrid] Training failed: {e}", exc_info=True)
-                return Response(
-                    {
-                        "status": "training_failed",
-                        "model": "hybrid",
-                        "error": str(e),
-                        "error_type": type(e).__name__,
-                    },
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
+def build_user_interaction_preferences(
+    user_id: str,
+    interactions_df: pd.DataFrame,
+    products_df: pd.DataFrame
+) -> Dict[str, Dict[str, float]]:
+    """
+    Derive normalized preference weights from user interaction history.
+    Returns dict with article, usage, gender preference maps in [0,1].
+    """
+    preference_maps = {
+        'articleType': defaultdict(float),
+        'usage': defaultdict(float),
+        'gender': defaultdict(float)
+    }
+    
+    if (
+        interactions_df is None
+        or products_df is None
+        or interactions_df.empty
+        or user_id is None
+    ):
+        return {k: {} for k in preference_maps}
+    
+    user_history = interactions_df[interactions_df['user_id'] == str(user_id)]
+    if user_history.empty:
+        return {k: {} for k in preference_maps}
+    
+    for _, row in user_history.iterrows():
+        product_id = str(row.get('product_id'))
+        interaction_type = row.get('interaction_type', '').lower()
+        weight = INTERACTION_WEIGHTS.get(interaction_type, 1.0)
+        product_row = get_product_record(product_id, products_df)
+        if product_row is None:
+            continue
+        
+        article = str(product_row.get('articleType', '')).strip()
+        usage = str(product_row.get('usage', '')).strip()
+        gender = str(product_row.get('gender', '')).strip()
+        
+        if article:
+            preference_maps['articleType'][article] += weight
+        if usage:
+            preference_maps['usage'][usage] += weight
+        if gender:
+            preference_maps['gender'][gender] += weight
+    
+    normalized = {}
+    for key, counter in preference_maps.items():
+        if not counter:
+            normalized[key] = {}
+            continue
+        max_val = max(counter.values())
+        if max_val == 0:
+            normalized[key] = {k: 0.0 for k in counter}
         else:
-            try:
-                from apps.recommendations.hybrid.models import engine
+            normalized[key] = {k: v / max_val for k, v in counter.items()}
+    
+    return normalized
 
-                def train_with_alpha():
-                    if alpha is not None:
-                        original_alpha = engine.alpha
-                        engine.alpha = alpha
-                        try:
-                            return engine.train(force_retrain=force_retrain)
-                        finally:
-                            engine.alpha = original_alpha
-                    else:
-                        return engine.train(force_retrain=force_retrain)
 
-                task_id = submit_task(train_with_alpha)
-                logger.info(f"[hybrid] Training task started: task_id={task_id}")
-                status_data = self._get_task_status(task_id)
-                return Response(status_data, status=status.HTTP_202_ACCEPTED)
-            except Exception as e:
-                logger.error(f"[hybrid] Failed to start background task: {e}", exc_info=True)
-                try:
-                    result = train_hybrid_model(force_retrain=force_retrain, alpha=alpha)
-                    training_data = self._get_training_data(result, include_artifacts=True)
-                    training_data["note"] = "Ran synchronously (background task failed)"
-                    return Response(training_data, status=status.HTTP_200_OK)
-                except Exception as sync_error:
-                    logger.error(f"[hybrid] Sync training also failed: {sync_error}", exc_info=True)
-                    return Response(
-                        {
-                            "status": "training_failed",
-                            "model": "hybrid",
-                            "error": str(sync_error),
-                            "error_type": type(sync_error).__name__,
-                            "note": "Both async and sync execution failed",
-                        },
-                        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    )
+def build_personalized_candidates(
+    user_id: str,
+    payload_product_id: str,
+    hybrid_predictions: Dict,
+    products_df: pd.DataFrame,
+    users_df: pd.DataFrame,
+    interactions_df: pd.DataFrame,
+    top_k: int = 10,
+    usage_bonus: float = 0.08,
+    gender_primary_bonus: float = 0.06,
+    gender_secondary_bonus: float = 0.03,
+    interaction_weight: float = 0.05,
+    usage_pref_weight: float = 0.04
+) -> List[Dict]:
+    """Compute prioritized personalized recommendations."""
+    if (
+        hybrid_predictions is None
+        or products_df is None
+        or payload_product_id is None
+    ):
+        return []
+    
+    payload_row = get_product_record(payload_product_id, products_df)
+    if payload_row is None:
+        return []
+    
+    payload_article = str(payload_row.get('articleType', '')).strip()
+    payload_usage = str(payload_row.get('usage', '')).strip()
+    payload_gender = str(payload_row.get('gender', '')).strip()
+    payload_gender_lower = payload_gender.lower()
+    
+    user_record = get_user_record(user_id, users_df)
+    user_age = None
+    if user_record is not None:
+        try:
+            user_age = int(user_record.get('age')) if pd.notna(user_record.get('age')) else None
+        except (ValueError, TypeError):
+            user_age = None
+    user_gender = user_record.get('gender') if user_record is not None else None
+    
+    allowed_genders = get_allowed_genders(user_age, user_gender)
+    preference_maps = build_user_interaction_preferences(
+        user_id,
+        interactions_df,
+        products_df
+    )
+    
+    # Robustly fetch user scores regardless of user_id key type (str/int)
+    predictions_by_user = hybrid_predictions.get('predictions', {}) or {}
+    user_scores = None
+    user_key_str = str(user_id)
+    if user_key_str in predictions_by_user:
+        user_scores = predictions_by_user[user_key_str]
+    else:
+        for key, val in predictions_by_user.items():
+            if str(key) == user_key_str:
+                user_scores = val
+                break
+    
+    if not user_scores:
+        # Không có bất kỳ dự đoán Hybrid nào cho user này
+        return []
+    
+    prioritized = []
+    for product_id, base_score in sorted(
+        user_scores.items(),
+        key=lambda x: x[1],
+        reverse=True
+    ):
+        if str(product_id) == str(payload_product_id):
+            continue
+        product_row = get_product_record(product_id, products_df)
+        if product_row is None:
+            continue
+        
+        article_type = str(product_row.get('articleType', '')).strip()
+        if not article_type or article_type != payload_article:
+            continue  # strict articleType requirement
+        
+        product_usage = str(product_row.get('usage', '')).strip()
+        product_gender = str(product_row.get('gender', '')).strip() or 'Unspecified'
+        product_gender_lower = product_gender.lower()
+        payload_gender_match = False
+        payload_unisex_fallback = False
+
+        if payload_gender:
+            if product_gender_lower == payload_gender_lower:
+                payload_gender_match = True
+            elif product_gender_lower == 'unisex':
+                payload_gender_match = True
+                payload_unisex_fallback = True
+            else:
+                continue  # Skip products outside payload gender scope
+        
+        score = float(base_score)
+        reasons = []
+        
+        if payload_usage and product_usage and product_usage == payload_usage:
+            score += usage_bonus
+            reasons.append("Ưu tiên do cùng usage")
+        
+        if payload_gender:
+            if payload_gender_match and not payload_unisex_fallback:
+                score += gender_primary_bonus
+                reasons.append("Phù hợp gender với sản phẩm đang xem")
+            elif payload_unisex_fallback:
+                score += gender_secondary_bonus
+                reasons.append("Unisex phù hợp với sản phẩm đang xem")
+        else:
+            if product_gender in allowed_genders:
+                score += gender_primary_bonus
+                reasons.append("Phù hợp giới tính/độ tuổi")
+            elif product_gender_lower == 'unisex' and (user_age or 0) >= 13:
+                score += gender_secondary_bonus
+                reasons.append("Unisex phù hợp (>=13)")
+            else:
+                score -= 0.01
+        
+        article_pref = preference_maps.get('articleType', {}).get(article_type, 0.0)
+        if article_pref > 0:
+            score += interaction_weight * article_pref
+            reasons.append("Trọng số lịch sử articleType")
+        
+        usage_pref = preference_maps.get('usage', {}).get(product_usage, 0.0)
+        if usage_pref > 0:
+            score += usage_pref_weight * usage_pref
+            reasons.append("Trọng số lịch sử usage")
+        
+        prioritized.append({
+            'product_id': str(product_id),
+            'score': score,
+            'base_score': base_score,
+            'usage_match': product_usage == payload_usage and bool(payload_usage),
+            'gender_match': payload_gender_match if payload_gender else (product_gender in allowed_genders),
+            'reasons': reasons,
+            'product_row': product_row
+        })
+    
+    prioritized.sort(key=lambda x: x['score'], reverse=True)
+    return prioritized[:top_k]
+
+
+def build_outfit_suggestions(
+    user_id: str,
+    payload_product_id: str,
+    personalized_items: List[Dict],
+    products_df: pd.DataFrame,
+    hybrid_predictions: Dict,
+    user_age: Optional[int],
+    user_gender: Optional[str],
+    max_outfits: int = 3
+) -> List[Dict]:
+    """Create outfits that include payload product and satisfy structural rules."""
+    if (
+        products_df is None
+        or personalized_items is None
+        or hybrid_predictions is None
+    ):
+        return []
+    
+    payload_row = get_product_record(payload_product_id, products_df)
+    if payload_row is None:
+        return []
+    
+    target_usage = str(payload_row.get('usage', '')).strip()
+    target_gender = str(payload_row.get('gender', '')).strip()
+    
+    def gender_allowed(gender_value: str) -> bool:
+        gender_clean = str(gender_value).strip()
+        if not target_gender:
+            return True
+        if not gender_clean:
+            return False
+        gender_lower = gender_clean.lower()
+        target_lower = target_gender.lower()
+        if gender_lower == target_lower:
+            return True
+        return gender_lower == 'unisex'
+    
+    # Strict pool: same usage + compatible gender
+    usage_gender_filtered = products_df.copy()
+    if target_usage:
+        usage_gender_filtered = usage_gender_filtered[
+            usage_gender_filtered["usage"].astype(str).str.strip() == target_usage
+        ]
+    if usage_gender_filtered.empty:
+        usage_gender_filtered = products_df.copy()
+
+    if "gender" in usage_gender_filtered.columns and target_gender:
+        usage_gender_filtered = usage_gender_filtered[
+            usage_gender_filtered["gender"].apply(gender_allowed)
+        ]
+    if usage_gender_filtered.empty:
+        usage_gender_filtered = products_df.copy()
+
+    # Relaxed pool: ignore usage, keep only gender-compatible (includes Unisex)
+    gender_filtered = products_df.copy()
+    if "gender" in gender_filtered.columns and target_gender:
+        gender_filtered = gender_filtered[gender_filtered["gender"].apply(gender_allowed)]
+    if gender_filtered.empty:
+        gender_filtered = products_df.copy()
+    
+    score_lookup = {
+        item['product_id']: item['score']
+        for item in personalized_items
+    }
+    user_scores = hybrid_predictions.get('predictions', {}).get(str(user_id), {})
+    
+    def sort_candidates(df_subset: pd.DataFrame) -> List[str]:
+        if df_subset is None or df_subset.empty:
+            return []
+        # ensure index as string ID
+        ids = df_subset.index.astype(str)
+        scores = [
+            score_lookup.get(pid, user_scores.get(pid, 0.0))
+            for pid in ids
+        ]
+        ordered = sorted(zip(ids, scores), key=lambda x: x[1], reverse=True)
+        return [pid for pid, _ in ordered]
+    
+    def subset_by(df: pd.DataFrame, master=None, subcategories=None):
+        if master and 'masterCategory' in df.columns:
+            df = df[df['masterCategory'].astype(str).str.lower() == master.lower()]
+        if subcategories and 'subCategory' in df.columns:
+            sub_values = [s.lower() for s in subcategories]
+            df = df[df['subCategory'].astype(str).str.lower().isin(sub_values)]
+        return df
+    
+    accessory_subs = ['bags', 'belts', 'headwear', 'watches']
+    footwear_subs = ['shoes', 'sandal', 'flip flops']
+    
+    # Strict: same usage + gender; Relaxed: any usage + same gender/Unisex
+    candidates_strict = {
+        "accessory": sort_candidates(
+            subset_by(usage_gender_filtered, master="Accessories", subcategories=accessory_subs)
+        ),
+        "topwear": sort_candidates(
+            subset_by(usage_gender_filtered, master="Apparel", subcategories=["topwear"])
+        ),
+        "bottomwear": sort_candidates(
+            subset_by(usage_gender_filtered, master="Apparel", subcategories=["bottomwear"])
+        ),
+        "dress": sort_candidates(
+            subset_by(usage_gender_filtered, master="Apparel", subcategories=["dress"])
+        ),
+        "innerwear": sort_candidates(
+            subset_by(usage_gender_filtered, master="Apparel", subcategories=["innerwear"])
+        ),
+        "footwear": sort_candidates(
+            subset_by(usage_gender_filtered, master="Footwear", subcategories=footwear_subs)
+        ),
+    }
+
+    candidates_relaxed = {
+        "accessory": sort_candidates(
+            subset_by(gender_filtered, master="Accessories", subcategories=accessory_subs)
+        ),
+        "topwear": sort_candidates(
+            subset_by(gender_filtered, master="Apparel", subcategories=["topwear"])
+        ),
+        "bottomwear": sort_candidates(
+            subset_by(gender_filtered, master="Apparel", subcategories=["bottomwear"])
+        ),
+        "dress": sort_candidates(
+            subset_by(gender_filtered, master="Apparel", subcategories=["dress"])
+        ),
+        "innerwear": sort_candidates(
+            subset_by(gender_filtered, master="Apparel", subcategories=["innerwear"])
+        ),
+        "footwear": sort_candidates(
+            subset_by(gender_filtered, master="Footwear", subcategories=footwear_subs)
+        ),
+    }
+    
+    def detect_categories(row):
+        cats = set()
+        sub = str(row.get('subCategory', '')).lower()
+        master = str(row.get('masterCategory', '')).lower()
+        if master == 'accessories' or sub in [s.lower() for s in accessory_subs]:
+            cats.add('accessory')
+        if sub == 'topwear':
+            cats.add('topwear')
+        if sub == 'bottomwear':
+            cats.add('bottomwear')
+        if sub == 'dress':
+            cats.add('dress')
+        if sub == 'innerwear':
+            cats.add('innerwear')
+        if master == 'footwear' or sub in [s.lower() for s in footwear_subs]:
+            cats.add('footwear')
+        return cats
+    
+    payload_categories = detect_categories(payload_row)
+    
+    required_categories = ['accessory', 'topwear', 'bottomwear', 'footwear']
+    optional_categories = []
+    if user_gender and str(user_gender).lower() == 'female':
+        optional_categories.append('dress')
+    optional_categories.append('innerwear')
+    
+    outfits = []
+    category_offsets = defaultdict(int)
+    
+    def pick_candidate(cat, used):
+        """
+        Prefer strict (same usage + gender), but if không đủ thì nới lỏng usage
+        và chỉ giữ điều kiện gender (hoặc Unisex).
+        """
+        pools = [
+            ("strict", candidates_strict.get(cat, [])),
+            ("relaxed", candidates_relaxed.get(cat, [])),
+        ]
+        for pool_key, pool in pools:
+            if not pool:
+                continue
+            offset_key = f"{cat}:{pool_key}"
+            start = category_offsets[offset_key]
+            for shift in range(len(pool)):
+                idx = (start + shift) % len(pool)
+                pid = pool[idx]
+                if pid in used or pid == str(payload_product_id):
+                    continue
+                category_offsets[offset_key] = idx + 1
+                return pid
+        return None
+    
+    for outfit_idx in range(max_outfits):
+        used = {str(payload_product_id)}
+        ordered_products = [str(payload_product_id)]
+        missing_required = False
+        
+        for cat in required_categories:
+            if cat in payload_categories:
+                continue
+            candidate = pick_candidate(cat, used)
+            if candidate:
+                used.add(candidate)
+                ordered_products.append(candidate)
+            else:
+                missing_required = True
+                break
+        
+        if missing_required:
+            continue
+        
+        for cat in optional_categories:
+            if cat in payload_categories:
+                continue
+            candidate = pick_candidate(cat, used)
+            if candidate:
+                used.add(candidate)
+                ordered_products.append(candidate)
+        
+        score = sum(
+            score_lookup.get(pid, user_scores.get(pid, 0.0))
+            for pid in ordered_products
+        )
+        outfits.append({
+            'products': ordered_products,
+            'score': score
+        })
+    
+    return outfits
+
 
 class RecommendHybridView(APIView):
     serializer_class = HybridRecommendationSerializer
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
-
-    def get(self, request, *args, **kwargs):
-        import time
-        from apps.recommendations.common.evaluation import calculate_evaluation_metrics
-
-        user_id = request.query_params.get('user_id')
-        product_id = request.query_params.get('product_id')
-        top_k_personal = int(request.query_params.get('top_k_personal', 5))
-        top_k_outfit = int(request.query_params.get('top_k_outfit', 4))
-        alpha = float(request.query_params.get('alpha', 0.8))
-
-        if not user_id or not product_id:
-            return Response(
-                {"detail": "user_id and product_id are required query parameters"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        ground_truth = []
-        try:
-            from apps.users.models import UserInteraction
-            try:
-                user_interactions = UserInteraction.objects.filter(
-                    user_id=user_id
-                ).exclude(
-                    product_id=product_id
-                ).select_related('product').order_by('-timestamp')[:50]
-            except (ValueError, TypeError):
-                try:
-                    user_id_int = int(user_id)
-                    user_interactions = UserInteraction.objects.filter(
-                        user_id=user_id_int
-                    ).exclude(
-                        product_id=product_id
-                    ).select_related('product').order_by('-timestamp')[:50]
-                except (ValueError, TypeError):
-                    user_interactions = UserInteraction.objects.none()
-
-            for interaction in user_interactions:
-                item = {"id": str(interaction.product_id)}
-                if interaction.rating is not None:
-                    item["rating"] = float(interaction.rating)
-                ground_truth.append(item)
-        except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.warning(f"Could not fetch ground truth for user {user_id}: {e}")
-            ground_truth = []
-
-        if not ground_truth:
-            ground_truth = None
-
-        start_time = time.time()
-        try:
-            payload = recommend_hybrid(
-                user_id=user_id,
-                current_product_id=product_id,
-                top_k_personal=top_k_personal,
-                top_k_outfit=top_k_outfit,
-                alpha=alpha,
-                request_params=dict(request.query_params),
-            )
-            execution_time = time.time() - start_time
-
-            personalized_recommendations = payload.get("personalized", [])
-            metrics = calculate_evaluation_metrics(
-                recommendations=personalized_recommendations,
-                ground_truth=ground_truth,
-                execution_time=execution_time,
-            )
-            metrics["model"] = "hybrid"
-            metrics["alpha"] = alpha
-
-            payload["evaluation_metrics"] = metrics
-
-            try:
-                rec_ids = []
-                for rec in personalized_recommendations:
-                    rid = None
-                    if isinstance(rec, dict):
-                        prod = rec.get("product")
-                        if isinstance(prod, dict):
-                            rid = prod.get("id") or prod.get("product_id")
-                        rid = rid or rec.get("id") or rec.get("product_id")
-                    else:
-                        rid = rec
-                    if rid is not None:
-                        rec_ids.append(str(rid))
-                gt_ids = []
-                if isinstance(ground_truth, list):
-                    gt_ids = [str(x.get("id")) for x in ground_truth if isinstance(x, dict) and x.get("id") is not None]
-                payload["evaluation_support"] = {
-                    "pairs": [{"user_id": str(user_id), "current_product_id": str(product_id)}],
-                    "user_ids": [str(user_id)],
-                    "product_ids": [str(product_id)],
-                    "rec_ids": rec_ids,
-                    "ground_truth_ids": gt_ids,
-                }
-            except Exception:
-                pass
-
-        except ModelNotTrainedError as exc:
-            return Response(
-                {"detail": str(exc), "model": "hybrid"},
-                status=status.HTTP_409_CONFLICT,
-            )
-        except Exception as exc:
-            return Response(
-                {"detail": str(exc)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-        return Response(payload, status=status.HTTP_200_OK)
-
+    
     def post(self, request, *args, **kwargs):
-        import time
-        from apps.recommendations.common.evaluation import calculate_evaluation_metrics
-        from apps.users.models import UserInteraction
-
         serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
-        alpha = serializer.validated_data.get("alpha")
-
+        
         user_id = serializer.validated_data["user_id"]
         current_product_id = serializer.validated_data["current_product_id"]
-
-        ground_truth = []
-        try:
-            try:
-                user_interactions = UserInteraction.objects.filter(
-                    user_id=user_id
-                ).exclude(
-                    product_id=current_product_id
-                ).select_related('product').order_by('-timestamp')[:50]
-            except (ValueError, TypeError):
-                try:
-                    user_id_int = int(user_id)
-                    user_interactions = UserInteraction.objects.filter(
-                        user_id=user_id_int
-                    ).exclude(
-                        product_id=current_product_id
-                    ).select_related('product').order_by('-timestamp')[:50]
-                except (ValueError, TypeError):
-                    user_interactions = UserInteraction.objects.none()
-
-            for interaction in user_interactions:
-                item = {"id": str(interaction.product_id)}
-                if interaction.rating is not None:
-                    item["rating"] = float(interaction.rating)
-                ground_truth.append(item)
-
-            if not ground_truth:
-                try:
-                    from apps.users.mongo_models import User as MongoUser
-                    from bson import ObjectId
-
-                    try:
-                        user_obj_id = ObjectId(user_id) if len(user_id) == 24 else user_id
-                    except:
-                        user_obj_id = user_id
-
-                    mongo_user = MongoUser.objects(id=user_obj_id).first()
-                    if mongo_user and hasattr(mongo_user, 'interaction_history') and mongo_user.interaction_history:
-                        import logging
-                        logger = logging.getLogger(__name__)
-                        logger.info(f"Using interaction_history from user profile for user {user_id}")
-
-                        for interaction in mongo_user.interaction_history:
-                            if str(interaction.get('product_id')) == str(current_product_id):
-                                continue
-
-                            item = {"id": str(interaction.get('product_id'))}
-
-                            rating = interaction.get('rating')
-                            if rating is not None:
-                                item["rating"] = float(rating)
-                            else:
-                                interaction_type = interaction.get('interaction_type', '').lower()
-                                if interaction_type == 'purchase':
-                                    item["rating"] = 5.0
-                                elif interaction_type == 'like':
-                                    item["rating"] = 4.0
-                                elif interaction_type == 'cart':
-                                    item["rating"] = 3.0
-                                elif interaction_type == 'view':
-                                    item["rating"] = 2.0
-
-                            ground_truth.append(item)
-
-                            if len(ground_truth) >= 50:
-                                break
-                except Exception as e:
-                    import logging
-                    logger = logging.getLogger(__name__)
-                    logger.warning(f"Could not fetch interaction_history from user profile: {e}")
-
-        except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.warning(f"Could not fetch ground truth for user {user_id}: {e}")
-            ground_truth = []
-
-        if not ground_truth:
-            try:
-                from apps.users.mongo_models import User as MongoUser
-                from bson import ObjectId
-
-                try:
-                    user_obj_id = ObjectId(user_id) if len(user_id) == 24 else user_id
-                except:
-                    user_obj_id = user_id
-
-                mongo_user = MongoUser.objects(id=user_obj_id).first()
-                if mongo_user and hasattr(mongo_user, 'interaction_history') and mongo_user.interaction_history:
-                    import logging
-                    logger = logging.getLogger(__name__)
-                    logger.info(f"Using interaction_history from user profile for user {user_id}")
-
-                    for interaction in mongo_user.interaction_history:
-                        if str(interaction.get('product_id')) == str(current_product_id):
-                            continue
-
-                        item = {"id": str(interaction.get('product_id'))}
-
-                        rating = interaction.get('rating')
-                        if rating is not None:
-                            item["rating"] = float(rating)
-                        else:
-                            interaction_type = interaction.get('interaction_type', '').lower()
-                            if interaction_type == 'purchase':
-                                item["rating"] = 5.0
-                            elif interaction_type == 'like':
-                                item["rating"] = 4.0
-                            elif interaction_type == 'cart':
-                                item["rating"] = 3.0
-                            elif interaction_type == 'view':
-                                item["rating"] = 2.0
-
-                        ground_truth.append(item)
-
-                        if len(ground_truth) >= 50:
-                            break
-            except Exception as e:
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.warning(f"Could not fetch interaction_history from user profile: {e}")
-
-        if not ground_truth:
-            ground_truth = None
-        else:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.info(
-                f"Found {len(ground_truth)} ground truth items for user {user_id}, "
-                f"product {current_product_id}"
-            )
-
-        start_time = time.time()
-        try:
-            payload = recommend_hybrid(
-                user_id=user_id,
-                current_product_id=current_product_id,
-                top_k_personal=serializer.validated_data["top_k_personal"],
-                top_k_outfit=serializer.validated_data["top_k_outfit"],
-                alpha=alpha,
-                request_params=serializer.validated_data,
-            )
-            execution_time = time.time() - start_time
-
-            personalized_recommendations = payload.get("personalized", [])
-            metrics = calculate_evaluation_metrics(
-                recommendations=personalized_recommendations,
-                ground_truth=ground_truth,
-                execution_time=execution_time,
-            )
-            metrics["model"] = "hybrid"
-
-            payload["evaluation_metrics"] = metrics
-
-        except ModelNotTrainedError as exc:
+        alpha = serializer.validated_data.get("alpha", 0.6)
+        top_k_personalized = serializer.validated_data.get("top_k_personalized", 6)
+        top_k_outfit = serializer.validated_data.get("top_k_outfit", 3)
+        
+        # Load data
+        products_df = load_products_data()
+        users_df = load_users_data()
+        interactions_df = load_interactions_data()
+        
+        if products_df is None or users_df is None:
             return Response(
-                {"detail": str(exc), "model": "hybrid"},
+                {
+                    "detail": "Không tìm thấy dữ liệu `products.csv` hoặc `users.csv`. Vui lòng chạy bước xuất dữ liệu trước.",
+                    "error": "missing_data"
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        # Ensure hybrid predictions
+        candidate_pool = max(int(top_k_personalized * 3), 100)
+        hybrid_data = ensure_hybrid_predictions(alpha, candidate_pool)
+        
+        if hybrid_data is None:
+            return Response(
+                {
+                    "detail": "Không tìm thấy dữ liệu hybrid predictions. Vui lòng chạy các bước Training trước.",
+                    "error": "missing_predictions"
+                },
                 status=status.HTTP_409_CONFLICT,
             )
-        return Response(payload, status=status.HTTP_200_OK)
+        
+        # Get user info
+        user_record = get_user_record(user_id, users_df)
+        user_age = None
+        if user_record is not None and pd.notna(user_record.get('age')):
+            try:
+                user_age = int(user_record.get('age'))
+            except (ValueError, TypeError):
+                user_age = None
+        user_gender = user_record.get('gender') if user_record is not None else None
+        
+        # Build personalized candidates
+        personalized_items = build_personalized_candidates(
+            user_id=user_id,
+            payload_product_id=current_product_id,
+            hybrid_predictions=hybrid_data,
+            products_df=products_df,
+            users_df=users_df,
+            interactions_df=interactions_df,
+            top_k=int(top_k_personalized)
+        )
+        
+        if not personalized_items:
+            preds = hybrid_data.get("predictions", {}) or {}
+            has_hybrid_for_user = any(str(k) == str(user_id) for k in preds.keys())
+            if not has_hybrid_for_user:
+                return Response(
+                    {
+                        "detail": "Không có bất kỳ điểm Hybrid nào cho user này (chưa được train hoặc đã bị lọc ở bước trước). Vui lòng kiểm tra lại dữ liệu train hoặc chọn user khác.",
+                        "error": "no_predictions_for_user"
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            else:
+                return Response(
+                    {
+                        "detail": "Không tìm thấy sản phẩm nào thỏa **articleType = articleType của sản phẩm đầu vào** trong Top candidate Hybrid. Vui lòng thử sản phẩm khác hoặc nới lỏng điều kiện.",
+                        "error": "no_matching_products"
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+        
+        personalized_products = []
+        for idx, item in enumerate(personalized_items, start=1):
+            row = item["product_row"]
+            # Convert pandas Series to dict
+            if hasattr(row, "to_dict"):
+                product_dict = row.to_dict()
+            else:
+                product_dict = dict(row)
+
+            personalized_products.append(
+                {
+                    "rank": idx,
+                    "product_id": item["product_id"],
+                    "name": row.get("productDisplayName", "N/A"),
+                    "articleType": row.get("articleType", "N/A"),
+                    "usage": row.get("usage", "N/A"),
+                    "gender": row.get("gender", "N/A"),
+                    "hybrid_score": round(item["base_score"], 4),
+                    "priority_score": round(item["score"], 4),
+                    "highlights": " • ".join(item["reasons"]) if item["reasons"] else "-",
+                    # Tạm thời giữ product_dict, sẽ được thay thế bằng dữ liệu Mongo (nếu có)
+                    "product": product_dict,
+                }
+            )
+        
+        # Build outfit suggestions
+        outfits = build_outfit_suggestions(
+            user_id=user_id,
+            payload_product_id=current_product_id,
+            personalized_items=personalized_items,
+            products_df=products_df,
+            hybrid_predictions=hybrid_data,
+            user_age=user_age,
+            user_gender=user_gender,
+            max_outfits=int(top_k_outfit)
+        )
+        
+        formatted_outfits = []
+        for idx, outfit in enumerate(outfits, start=1):
+            outfit_products = []
+            for pid in outfit["products"]:
+                product_row = get_product_record(pid, products_df)
+                if product_row is not None:
+                    # Convert pandas Series to dict
+                    if hasattr(product_row, "to_dict"):
+                        product_dict = product_row.to_dict()
+                    else:
+                        product_dict = dict(product_row)
+                    outfit_products.append(
+                        {
+                            "product_id": pid,
+                            # Tạm dùng product_dict, sẽ được thay bằng dữ liệu Mongo nếu available
+                            "product": product_dict,
+                        }
+                    )
+            formatted_outfits.append(
+                {
+                    "outfit_number": idx,
+                    "score": round(outfit["score"], 4),
+                    "products": outfit_products,
+                }
+            )
+
+        # Enrich tất cả product bằng dữ liệu đầy đủ từ MongoDB
+        try:
+            # Thu thập toàn bộ product_id cần query
+            all_product_ids: set[int] = set()
+            for p in personalized_products:
+                try:
+                    all_product_ids.add(int(p["product_id"]))
+                except (TypeError, ValueError):
+                    continue
+            for outfit in formatted_outfits:
+                for p in outfit.get("products", []):
+                    try:
+                        all_product_ids.add(int(p["product_id"]))
+                    except (TypeError, ValueError):
+                        continue
+
+            mongo_products_map: dict[str, dict] = {}
+            if all_product_ids:
+                try:
+                    mongo_qs = MongoProduct.objects(id__in=list(all_product_ids))
+                    serializer = MongoProductSerializer(mongo_qs, many=True)
+                    for prod in serializer.data:
+                        mongo_products_map[str(prod.get("id"))] = prod
+                except Exception:
+                    mongo_products_map = {}
+
+            # Thay thế field "product" bằng dữ liệu Mongo nếu tìm thấy
+            if mongo_products_map:
+                for p in personalized_products:
+                    pid_str = str(p.get("product_id"))
+                    full_prod = mongo_products_map.get(pid_str)
+                    if full_prod:
+                        p["product"] = full_prod
+
+                for outfit in formatted_outfits:
+                    for p in outfit.get("products", []):
+                        pid_str = str(p.get("product_id"))
+                        full_prod = mongo_products_map.get(pid_str)
+                        if full_prod:
+                            p["product"] = full_prod
+        except Exception:
+            # Nếu có lỗi khi enrich, vẫn trả về dữ liệu gốc từ CSV
+            pass
+        
+        allowed_genders = get_allowed_genders(user_age, user_gender)
+        
+        response = {
+            "personalized_products": personalized_products,
+            "outfits": formatted_outfits,
+            "metadata": {
+                "user_id": user_id,
+                "current_product_id": current_product_id,
+                "alpha": alpha,
+                "top_k_personalized": top_k_personalized,
+                "top_k_outfit": top_k_outfit,
+                "allowed_genders": allowed_genders,
+                "user_age": user_age,
+                "user_gender": user_gender
+            }
+        }
+        
+        return Response(response, status=status.HTTP_200_OK)
 

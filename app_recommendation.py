@@ -750,6 +750,8 @@ def build_personalized_candidates(
 
     payload_article = str(payload_row.get('articleType', '')).strip()
     payload_usage = str(payload_row.get('usage', '')).strip()
+    payload_gender = str(payload_row.get('gender', '')).strip()
+    payload_gender_lower = payload_gender.lower()
 
     user_record = get_user_record(user_id, users_df)
     user_age = None
@@ -801,6 +803,18 @@ def build_personalized_candidates(
 
         product_usage = str(product_row.get('usage', '')).strip()
         product_gender = str(product_row.get('gender', '')).strip() or 'Unspecified'
+        product_gender_lower = product_gender.lower()
+        payload_gender_match = False
+        payload_unisex_fallback = False
+
+        if payload_gender:
+            if product_gender_lower == payload_gender_lower:
+                payload_gender_match = True
+            elif product_gender_lower == 'unisex':
+                payload_gender_match = True
+                payload_unisex_fallback = True
+            else:
+                continue  # enforce payload gender alignment
 
         score = float(base_score)
         reasons = []
@@ -809,14 +823,22 @@ def build_personalized_candidates(
             score += usage_bonus
             reasons.append("Ưu tiên do cùng usage")
 
-        if product_gender in allowed_genders:
-            score += gender_primary_bonus
-            reasons.append("Phù hợp giới tính/độ tuổi")
-        elif product_gender.lower() == 'unisex' and (user_age or 0) >= 13:
-            score += gender_secondary_bonus
-            reasons.append("Unisex phù hợp (>=13)")
+        if payload_gender:
+            if payload_gender_match and not payload_unisex_fallback:
+                score += gender_primary_bonus
+                reasons.append("Phù hợp gender với sản phẩm đang xem")
+            elif payload_unisex_fallback:
+                score += gender_secondary_bonus
+                reasons.append("Unisex phù hợp với sản phẩm đang xem")
         else:
-            score -= 0.01  # nhẹ nhàng penalize
+            if product_gender in allowed_genders:
+                score += gender_primary_bonus
+                reasons.append("Phù hợp giới tính/độ tuổi")
+            elif product_gender_lower == 'unisex' and (user_age or 0) >= 13:
+                score += gender_secondary_bonus
+                reasons.append("Unisex phù hợp (>=13)")
+            else:
+                score -= 0.01
 
         article_pref = preference_maps.get('articleType', {}).get(article_type, 0.0)
         if article_pref > 0:
@@ -833,7 +855,7 @@ def build_personalized_candidates(
             'score': score,
             'base_score': base_score,
             'usage_match': product_usage == payload_usage and bool(payload_usage),
-            'gender_match': product_gender in allowed_genders,
+            'gender_match': payload_gender_match if payload_gender else (product_gender in allowed_genders),
             'reasons': reasons,
             'product_row': product_row
         })
@@ -867,31 +889,38 @@ def build_outfit_suggestions(
     target_usage = str(payload_row.get('usage', '')).strip()
     target_gender = str(payload_row.get('gender', '')).strip()
     
-    # Filter by payload product's gender instead of user's gender
     def gender_allowed(gender_value: str) -> bool:
         gender_clean = str(gender_value).strip()
         if not target_gender:
-            # If payload product has no gender, allow all
             return True
         if not gender_clean:
-            # If candidate has no gender, don't allow (to ensure consistency)
             return False
-        # Match exact gender (case-insensitive)
-        return gender_clean.lower() == target_gender.lower()
+        gender_lower = gender_clean.lower()
+        target_lower = target_gender.lower()
+        if gender_lower == target_lower:
+            return True
+        return gender_lower == 'unisex'
 
-    usage_filtered = products_df.copy()
+    # Strict pool: same usage + compatible gender
+    usage_gender_filtered = products_df.copy()
     if target_usage:
-        usage_filtered = usage_filtered[
-            usage_filtered['usage'].astype(str).str.strip() == target_usage
+        usage_gender_filtered = usage_gender_filtered[
+            usage_gender_filtered['usage'].astype(str).str.strip() == target_usage
         ]
-    if usage_filtered.empty:
-        usage_filtered = products_df.copy()
+    if usage_gender_filtered.empty:
+        usage_gender_filtered = products_df.copy()
 
-    # Filter by payload product's gender
-    if 'gender' in usage_filtered.columns and target_gender:
-        usage_filtered = usage_filtered[usage_filtered['gender'].apply(gender_allowed)]
-    if usage_filtered.empty:
-        usage_filtered = products_df.copy()
+    if 'gender' in usage_gender_filtered.columns and target_gender:
+        usage_gender_filtered = usage_gender_filtered[usage_gender_filtered['gender'].apply(gender_allowed)]
+    if usage_gender_filtered.empty:
+        usage_gender_filtered = products_df.copy()
+
+    # Relaxed pool: ignore usage, keep only gender-compatible (includes Unisex)
+    gender_filtered = products_df.copy()
+    if 'gender' in gender_filtered.columns and target_gender:
+        gender_filtered = gender_filtered[gender_filtered['gender'].apply(gender_allowed)]
+    if gender_filtered.empty:
+        gender_filtered = products_df.copy()
 
     score_lookup = {
         item['product_id']: item['score']
@@ -911,8 +940,7 @@ def build_outfit_suggestions(
         ordered = sorted(zip(ids, scores), key=lambda x: x[1], reverse=True)
         return [pid for pid, _ in ordered]
 
-    def subset_by(master=None, subcategories=None):
-        df = usage_filtered
+    def subset_by(df: pd.DataFrame, master=None, subcategories=None):
         if master and 'masterCategory' in df.columns:
             df = df[df['masterCategory'].astype(str).str.lower() == master.lower()]
         if subcategories and 'subCategory' in df.columns:
@@ -923,13 +951,23 @@ def build_outfit_suggestions(
     accessory_subs = ['bags', 'belts', 'headwear', 'watches']
     footwear_subs = ['shoes', 'sandal', 'flip flops']
 
-    candidates = {
-        'accessory': sort_candidates(subset_by(master='Accessories', subcategories=accessory_subs)),
-        'topwear': sort_candidates(subset_by(master='Apparel', subcategories=['topwear'])),
-        'bottomwear': sort_candidates(subset_by(master='Apparel', subcategories=['bottomwear'])),
-        'dress': sort_candidates(subset_by(master='Apparel', subcategories=['dress'])),
-        'innerwear': sort_candidates(subset_by(master='Apparel', subcategories=['innerwear'])),
-        'footwear': sort_candidates(subset_by(master='Footwear', subcategories=footwear_subs))
+    # Strict: same usage + gender; Relaxed: any usage + same gender/Unisex
+    candidates_strict = {
+        'accessory': sort_candidates(subset_by(usage_gender_filtered, master='Accessories', subcategories=accessory_subs)),
+        'topwear': sort_candidates(subset_by(usage_gender_filtered, master='Apparel', subcategories=['topwear'])),
+        'bottomwear': sort_candidates(subset_by(usage_gender_filtered, master='Apparel', subcategories=['bottomwear'])),
+        'dress': sort_candidates(subset_by(usage_gender_filtered, master='Apparel', subcategories=['dress'])),
+        'innerwear': sort_candidates(subset_by(usage_gender_filtered, master='Apparel', subcategories=['innerwear'])),
+        'footwear': sort_candidates(subset_by(usage_gender_filtered, master='Footwear', subcategories=footwear_subs)),
+    }
+
+    candidates_relaxed = {
+        'accessory': sort_candidates(subset_by(gender_filtered, master='Accessories', subcategories=accessory_subs)),
+        'topwear': sort_candidates(subset_by(gender_filtered, master='Apparel', subcategories=['topwear'])),
+        'bottomwear': sort_candidates(subset_by(gender_filtered, master='Apparel', subcategories=['bottomwear'])),
+        'dress': sort_candidates(subset_by(gender_filtered, master='Apparel', subcategories=['dress'])),
+        'innerwear': sort_candidates(subset_by(gender_filtered, master='Apparel', subcategories=['innerwear'])),
+        'footwear': sort_candidates(subset_by(gender_filtered, master='Footwear', subcategories=footwear_subs)),
     }
 
     def detect_categories(row):
@@ -962,22 +1000,25 @@ def build_outfit_suggestions(
     category_offsets = defaultdict(int)
 
     def pick_candidate(cat, used):
-        pool = candidates.get(cat, [])
-        if not pool:
-            return None
-        start = category_offsets[cat]
-        for shift in range(len(pool)):
-            idx = (start + shift) % len(pool)
-            pid = pool[idx]
-            if pid not in used and pid != str(payload_product_id):
-                # Verify gender matches payload product's gender
-                if target_gender:
-                    candidate_row = get_product_record(pid, products_df)
-                    if candidate_row is not None:
-                        candidate_gender = str(candidate_row.get('gender', '')).strip()
-                        if candidate_gender.lower() != target_gender.lower():
-                            continue  # Skip if gender doesn't match
-                category_offsets[cat] = idx + 1
+        """
+        Ưu tiên strict (cùng usage + gender), thiếu thì nới lỏng usage
+        và chỉ giữ điều kiện gender (hoặc Unisex).
+        """
+        pools = [
+            ('strict', candidates_strict.get(cat, [])),
+            ('relaxed', candidates_relaxed.get(cat, [])),
+        ]
+        for pool_key, pool in pools:
+            if not pool:
+                continue
+            offset_key = f"{cat}:{pool_key}"
+            start = category_offsets[offset_key]
+            for shift in range(len(pool)):
+                idx = (start + shift) % len(pool)
+                pid = pool[idx]
+                if pid in used or pid == str(payload_product_id):
+                    continue
+                category_offsets[offset_key] = idx + 1
                 return pid
         return None
 
@@ -3801,7 +3842,6 @@ def main():
             - Mô hình học được patterns từ đồ thị tương tác
             """)
 
-            # Kiểm tra dữ liệu từ các bước trước
             has_gnn_propagation = 'gnn_propagation' in st.session_state
             has_pruned_interactions = 'pruned_interactions' in st.session_state
 
@@ -3815,7 +3855,6 @@ def main():
                 pruning_result = st.session_state['pruned_interactions']
                 pruned_interactions_df = pruning_result['pruned_interactions']
                 
-                # Configuration
                 col_config1, col_config2 = st.columns(2)
                 with col_config1:
                     num_epochs = st.number_input(

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import logging
 import math
+import re
 
 import random
 
@@ -30,6 +32,8 @@ from .mongo_serializers import (
     ProductVariantSerializer,
     SizeSerializer,
 )
+
+logger = logging.getLogger(__name__)
 
 def ensure_mongodb_connection():
     try:
@@ -589,6 +593,149 @@ class ProductViewSet(viewsets.ViewSet):
             },
         )
 
+    @action(detail=False, methods=["get"], permission_classes=[permissions.AllowAny], authentication_classes=[], url_path="search_by_name")
+    def search_by_name(self, request):
+        """
+        Search products by productDisplayName only.
+        Endpoint: /api/v1/products/search_by_name/?q=<search_term>
+        
+        Query parameters:
+        - q, query, or search: Search term (required)
+        - category: Filter by category ID (optional)
+        - articleType: Filter by article type (optional)
+        - gender: Filter by gender (optional)
+        - masterCategory: Filter by master category (optional)
+        - subCategory: Filter by sub category (optional)
+        - min_price: Minimum price filter (optional)
+        - max_price: Maximum price filter (optional)
+        - sort_by: Sort order (default, price_low_to_high, price_high_to_low, rating, name_asc, name_desc) (optional)
+        - page: Page number (default: 1) (optional)
+        - page_size: Items per page (default: 20) (optional)
+        """
+        try:
+            ensure_mongodb_connection()
+            
+            # Get search term from query params
+            search_term = request.query_params.get("q") or request.query_params.get("query") or request.query_params.get("search")
+            
+            if not search_term:
+                return api_error(
+                    "Search term is required. Use query parameter 'q', 'query', or 'search'.",
+                    status_code=status.HTTP_400_BAD_REQUEST
+            )
+            
+            # Decode URL encoding (e.g., + becomes space, %20 becomes space)
+            from urllib.parse import unquote_plus
+            search_term = unquote_plus(str(search_term))
+            
+            # Escape special regex characters to prevent errors, but allow word characters
+            # Only escape if we want exact match, otherwise use as-is for partial matching
+            escaped_search_term = re.escape(search_term)
+            
+            queryset = Product.objects.filter(
+                __raw__={"productDisplayName": {"$regex": escaped_search_term, "$options": "i"}}
+            )
+            
+            # Apply additional filters if provided
+            category_id = request.query_params.get("category")
+            if category_id:
+                try:
+                    category_object_id = ObjectId(category_id)
+                    queryset = queryset.filter(category_id=category_object_id)
+                except Exception:
+                    queryset = queryset.filter(__raw__={"category_id": category_id})
+            
+            article_type = request.query_params.get("articleType")
+            if article_type:
+                queryset = queryset.filter(articleType__iexact=article_type)
+            
+            gender = request.query_params.get("gender")
+            if gender:
+                queryset = queryset.filter(gender__iexact=gender)
+            
+            master_category = request.query_params.get("masterCategory")
+            if master_category:
+                queryset = queryset.filter(masterCategory__iexact=master_category)
+            
+            sub_category = request.query_params.get("subCategory")
+            if sub_category:
+                queryset = queryset.filter(subCategory__iexact=sub_category)
+            
+            # Price filters
+            min_price = request.query_params.get("min_price")
+            if min_price:
+                try:
+                    min_price_float = float(min_price)
+                    queryset = queryset.filter(price__gte=min_price_float)
+                except ValueError:
+                    pass
+            
+            max_price = request.query_params.get("max_price")
+            if max_price:
+                try:
+                    max_price_float = float(max_price)
+                    queryset = queryset.filter(price__lte=max_price_float)
+                except ValueError:
+                    pass
+            
+            # Sorting
+            sort_by = request.query_params.get("sort_by") or request.query_params.get("ordering")
+            if sort_by:
+                if sort_by == "default":
+                    queryset = queryset.order_by("id")
+                elif sort_by == "price_low_to_high":
+                    queryset = queryset.order_by("price")
+                elif sort_by == "price_high_to_low":
+                    queryset = queryset.order_by("-price")
+                elif sort_by == "rating":
+                    queryset = queryset.order_by("-rating", "-num_reviews")
+                elif sort_by == "name_asc":
+                    queryset = queryset.order_by("productDisplayName")
+                elif sort_by == "name_desc":
+                    queryset = queryset.order_by("-productDisplayName")
+                else:
+                    if sort_by.startswith("-"):
+                        queryset = queryset.order_by(f"-{sort_by[1:]}")
+                    else:
+                        queryset = queryset.order_by(sort_by)
+            else:
+                queryset = queryset.order_by("productDisplayName")
+            
+            # Pagination
+            page, page_size = get_pagination_params(request)
+            total_count = queryset.count()
+            
+            start_index = (page - 1) * page_size
+            end_index = start_index + page_size
+            products = list(queryset[start_index:end_index])
+            
+            serializer = ProductSerializer(products, many=True)
+            
+            total_pages = math.ceil(total_count / page_size) if page_size > 0 else 1
+            
+            return api_success(
+                f"Found {total_count} product(s) matching '{search_term}'",
+                {
+                    "products": serializer.data,
+                    "pagination": {
+                        "page": page,
+                        "page_size": page_size,
+                        "total_count": total_count,
+                        "total_pages": total_pages,
+                        "has_next": page < total_pages,
+                        "has_previous": page > 1,
+                    },
+                    "search_term": search_term,
+                    "search_field": "productDisplayName",
+                },
+            )
+        except Exception as e:
+            logger.error(f"Error in search_by_name: {str(e)}", exc_info=True)
+            return api_error(
+                f"Error searching products: {str(e)}",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
     @action(detail=True, methods=["post"])
     def review(self, request, pk=None):
         try:
@@ -739,6 +886,10 @@ class ProductViewSet(viewsets.ViewSet):
         gender = request.query_params.get("gender")
         if gender:
             queryset = queryset.filter(gender__iexact=gender)
+
+        usage = request.query_params.get("usage")
+        if usage:
+            queryset = queryset.filter(usage__iexact=usage)
 
         master_category = request.query_params.get("masterCategory")
         if master_category:

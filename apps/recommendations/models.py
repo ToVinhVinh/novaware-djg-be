@@ -28,7 +28,7 @@ class Outfit(models.Model):
 
 class RecommendationRequest(models.Model):
     ALGORITHM_CHOICES = (
-        ("cf", "GNN (LightGCN) - Collaborative Filtering"),
+        ("cf", "GNN - Collaborative Filtering"),
         ("cb", "Content Based"),
         ("gnn", "Graph Neural Network"),
         ("hybrid", "Hybrid GNN+CBF"),
