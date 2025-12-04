@@ -401,6 +401,8 @@ def build_outfit_suggestions(
     target_usage = str(payload_row.get('usage', '')).strip()
     target_gender = str(payload_row.get('gender', '')).strip()
     
+    allowed_genders_for_user = get_allowed_genders(user_age, user_gender)
+
     def gender_allowed(gender_value: str) -> bool:
         gender_clean = str(gender_value).strip()
         if not target_gender:
@@ -413,7 +415,6 @@ def build_outfit_suggestions(
             return True
         return gender_lower == 'unisex'
     
-    # Strict pool: same usage + compatible gender
     usage_gender_filtered = products_df.copy()
     if target_usage:
         usage_gender_filtered = usage_gender_filtered[
@@ -429,12 +430,21 @@ def build_outfit_suggestions(
     if usage_gender_filtered.empty:
         usage_gender_filtered = products_df.copy()
 
-    # Relaxed pool: ignore usage, keep only gender-compatible (includes Unisex)
     gender_filtered = products_df.copy()
     if "gender" in gender_filtered.columns and target_gender:
         gender_filtered = gender_filtered[gender_filtered["gender"].apply(gender_allowed)]
     if gender_filtered.empty:
         gender_filtered = products_df.copy()
+
+    user_gender_filtered = products_df.copy()
+    if "gender" in user_gender_filtered.columns and allowed_genders_for_user:
+        # So sánh case-insensitive và strip whitespace
+        allowed_set = {str(g).strip().lower() for g in allowed_genders_for_user + ["Unisex"]}
+        user_gender_filtered = user_gender_filtered[
+            user_gender_filtered["gender"].astype(str).str.strip().str.lower().isin(allowed_set)
+        ]
+    if user_gender_filtered.empty:
+        user_gender_filtered = products_df.copy()
     
     score_lookup = {
         item['product_id']: item['score']
@@ -465,7 +475,8 @@ def build_outfit_suggestions(
     accessory_subs = ['bags', 'belts', 'headwear', 'watches']
     footwear_subs = ['shoes', 'sandal', 'flip flops']
     
-    # Strict: same usage + gender; Relaxed: any usage + same gender/Unisex
+    # Strict: same usage + gender; Relaxed: any usage + same gender/Unisex;
+    # User-gender: any usage + gender phù hợp với user (hoặc Unisex)
     candidates_strict = {
         "accessory": sort_candidates(
             subset_by(usage_gender_filtered, master="Accessories", subcategories=accessory_subs)
@@ -507,6 +518,50 @@ def build_outfit_suggestions(
             subset_by(gender_filtered, master="Footwear", subcategories=footwear_subs)
         ),
     }
+
+    candidates_user_gender = {
+        "accessory": sort_candidates(
+            subset_by(user_gender_filtered, master="Accessories", subcategories=accessory_subs)
+        ),
+        "topwear": sort_candidates(
+            subset_by(user_gender_filtered, master="Apparel", subcategories=["topwear"])
+        ),
+        "bottomwear": sort_candidates(
+            subset_by(user_gender_filtered, master="Apparel", subcategories=["bottomwear"])
+        ),
+        "dress": sort_candidates(
+            subset_by(user_gender_filtered, master="Apparel", subcategories=["dress"])
+        ),
+        "innerwear": sort_candidates(
+            subset_by(user_gender_filtered, master="Apparel", subcategories=["innerwear"])
+        ),
+        "footwear": sort_candidates(
+            subset_by(user_gender_filtered, master="Footwear", subcategories=footwear_subs)
+        ),
+    }
+
+    # Fallback cuối cùng: lấy bất kỳ sản phẩm nào trong category, không quan tâm usage/gender
+    # Chỉ dùng khi cả 3 pools trên đều không có sản phẩm
+    candidates_any = {
+        "accessory": sort_candidates(
+            subset_by(products_df, master="Accessories", subcategories=accessory_subs)
+        ),
+        "topwear": sort_candidates(
+            subset_by(products_df, master="Apparel", subcategories=["topwear"])
+        ),
+        "bottomwear": sort_candidates(
+            subset_by(products_df, master="Apparel", subcategories=["bottomwear"])
+        ),
+        "dress": sort_candidates(
+            subset_by(products_df, master="Apparel", subcategories=["dress"])
+        ),
+        "innerwear": sort_candidates(
+            subset_by(products_df, master="Apparel", subcategories=["innerwear"])
+        ),
+        "footwear": sort_candidates(
+            subset_by(products_df, master="Footwear", subcategories=footwear_subs)
+        ),
+    }
     
     def detect_categories(row):
         cats = set()
@@ -539,12 +594,17 @@ def build_outfit_suggestions(
     
     def pick_candidate(cat, used):
         """
-        Prefer strict (same usage + gender), but if không đủ thì nới lỏng usage
-        và chỉ giữ điều kiện gender (hoặc Unisex).
+        Ưu tiên:
+        1. Strict: cùng usage + cùng gender (hoặc Unisex theo sản phẩm payload)
+        2. Relaxed usage: bỏ điều kiện usage, giữ gender theo sản phẩm payload (hoặc Unisex)
+        3. User-gender: bỏ điều kiện usage + gender payload, chỉ cần phù hợp giới tính user (hoặc Unisex)
+        4. Any: bất kỳ sản phẩm nào trong category (fallback cuối cùng để đảm bảo có thể tạo outfit)
         """
         pools = [
             ("strict", candidates_strict.get(cat, [])),
             ("relaxed", candidates_relaxed.get(cat, [])),
+            ("user_gender", candidates_user_gender.get(cat, [])),
+            ("any", candidates_any.get(cat, [])),
         ]
         for pool_key, pool in pools:
             if not pool:
