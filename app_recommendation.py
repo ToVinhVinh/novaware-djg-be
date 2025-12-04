@@ -5190,7 +5190,7 @@ def main():
 
         config_cols = st.columns(3)
         with config_cols[0]:
-            alpha = st.slider("Trọng số Hybrid α (GNN ↔ CBF)", 0.0, 1.0, 0.6, 0.05)
+            alpha = st.slider("Trọng số Hybrid α (GNN ↔ CBF)", 0.0, 1.0, 0.5, 0.05)
         with config_cols[1]:
             top_k_personalized = st.number_input(
                 "Số lượng sản phẩm Personalized",
