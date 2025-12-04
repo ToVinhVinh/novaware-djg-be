@@ -540,8 +540,36 @@ def build_outfit_suggestions(
         ),
     }
 
-    # Fallback cuối cùng: lấy bất kỳ sản phẩm nào trong category, không quan tâm usage/gender
-    # Chỉ dùng khi cả 3 pools trên đều không có sản phẩm
+    # Pool ưu tiên Unisex: khi thiếu thành phần, ưu tiên Unisex trước
+    unisex_filtered = products_df.copy()
+    if "gender" in unisex_filtered.columns:
+        unisex_filtered = unisex_filtered[
+            unisex_filtered["gender"].astype(str).str.strip().str.lower() == "unisex"
+        ]
+    if unisex_filtered.empty:
+        unisex_filtered = products_df.copy()
+    
+    candidates_unisex = {
+        "accessory": sort_candidates(
+            subset_by(unisex_filtered, master="Accessories", subcategories=accessory_subs)
+        ),
+        "topwear": sort_candidates(
+            subset_by(unisex_filtered, master="Apparel", subcategories=["topwear"])
+        ),
+        "bottomwear": sort_candidates(
+            subset_by(unisex_filtered, master="Apparel", subcategories=["bottomwear"])
+        ),
+        "dress": sort_candidates(
+            subset_by(unisex_filtered, master="Apparel", subcategories=["dress"])
+        ),
+        "innerwear": sort_candidates(
+            subset_by(unisex_filtered, master="Apparel", subcategories=["innerwear"])
+        ),
+        "footwear": sort_candidates(
+            subset_by(unisex_filtered, master="Footwear", subcategories=footwear_subs)
+        ),
+    }
+    
     candidates_any = {
         "accessory": sort_candidates(
             subset_by(products_df, master="Accessories", subcategories=accessory_subs)
@@ -598,12 +626,14 @@ def build_outfit_suggestions(
         1. Strict: cùng usage + cùng gender (hoặc Unisex theo sản phẩm payload)
         2. Relaxed usage: bỏ điều kiện usage, giữ gender theo sản phẩm payload (hoặc Unisex)
         3. User-gender: bỏ điều kiện usage + gender payload, chỉ cần phù hợp giới tính user (hoặc Unisex)
-        4. Any: bất kỳ sản phẩm nào trong category (fallback cuối cùng để đảm bảo có thể tạo outfit)
+        4. Unisex: ưu tiên Unisex khi thiếu thành phần (giảm điều kiện usage/gender)
+        5. Any: bất kỳ sản phẩm nào trong category (fallback cuối cùng để đảm bảo có thể tạo outfit)
         """
         pools = [
             ("strict", candidates_strict.get(cat, [])),
             ("relaxed", candidates_relaxed.get(cat, [])),
             ("user_gender", candidates_user_gender.get(cat, [])),
+            ("unisex", candidates_unisex.get(cat, [])),
             ("any", candidates_any.get(cat, [])),
         ]
         for pool_key, pool in pools:
