@@ -865,17 +865,19 @@ def build_outfit_suggestions(
         return []
 
     target_usage = str(payload_row.get('usage', '')).strip()
-    allowed_genders = get_allowed_genders(user_age, user_gender)
-
+    target_gender = str(payload_row.get('gender', '')).strip()
+    
+    # Filter by payload product's gender instead of user's gender
     def gender_allowed(gender_value: str) -> bool:
         gender_clean = str(gender_value).strip()
-        if not allowed_genders:
+        if not target_gender:
+            # If payload product has no gender, allow all
             return True
         if not gender_clean:
-            return True
-        return gender_clean in allowed_genders or (
-            gender_clean.lower() == 'unisex' and 'Unisex' in allowed_genders
-        )
+            # If candidate has no gender, don't allow (to ensure consistency)
+            return False
+        # Match exact gender (case-insensitive)
+        return gender_clean.lower() == target_gender.lower()
 
     usage_filtered = products_df.copy()
     if target_usage:
@@ -885,7 +887,8 @@ def build_outfit_suggestions(
     if usage_filtered.empty:
         usage_filtered = products_df.copy()
 
-    if 'gender' in usage_filtered.columns:
+    # Filter by payload product's gender
+    if 'gender' in usage_filtered.columns and target_gender:
         usage_filtered = usage_filtered[usage_filtered['gender'].apply(gender_allowed)]
     if usage_filtered.empty:
         usage_filtered = products_df.copy()
@@ -967,6 +970,13 @@ def build_outfit_suggestions(
             idx = (start + shift) % len(pool)
             pid = pool[idx]
             if pid not in used and pid != str(payload_product_id):
+                # Verify gender matches payload product's gender
+                if target_gender:
+                    candidate_row = get_product_record(pid, products_df)
+                    if candidate_row is not None:
+                        candidate_gender = str(candidate_row.get('gender', '')).strip()
+                        if candidate_gender.lower() != target_gender.lower():
+                            continue  # Skip if gender doesn't match
                 category_offsets[cat] = idx + 1
                 return pid
         return None
@@ -1540,7 +1550,7 @@ def run_training(model_type: str):
     model_names = {
         "all": "Tất Cả Models",
         "content_based": "Content-Based Filtering",
-        "gnn": "GNN (GraphSAGE)",
+        "gnn": "GNN",
         "hybrid": "Hybrid (GNN + Content-Based)"
     }
     
@@ -1591,9 +1601,7 @@ def main():
         ["📚 Algorithms & Steps", "👗 Recommendations"]
     )
     
-    # Auto-load các predictions đã lưu (nếu có) trước khi dùng
     load_cached_predictions_into_session()
-    # Khôi phục tất cả artifacts để đảm bảo không mất dữ liệu
     restore_all_artifacts()
 
     preprocessor, cb_model, gnn_model, hybrid_model = load_models()
@@ -3415,8 +3423,8 @@ def main():
             elif compute_cbf_metrics is None:
                 st.error(f"❌ Không thể import evaluation_metrics module: {_evaluation_import_error}")
 
-        # PHẦN III: MÔ HÌNH MẠNG NEURAL ĐỒ THỊ (GNN - NGCF)
-        st.markdown('<div class="sub-header">📚 PHẦN III: MÔ HÌNH MẠNG NEURAL ĐỒ THỊ (GNN - NGCF)</div>', unsafe_allow_html=True)
+        # PHẦN III: MÔ HÌNH MẠNG NEURAL ĐỒ THỊ (GNN)
+        st.markdown('<div class="sub-header">📚 PHẦN III: MÔ HÌNH MẠNG NEURAL ĐỒ THỊ (GNN)</div>', unsafe_allow_html=True)
         st.markdown("")
 
         with st.expander("Bước 3.1: Xây dựng Đồ thị và Khởi tạo Nhúng", expanded=True):
@@ -4811,7 +4819,7 @@ def main():
                 # GNN Metrics
                 if has_gnn_metrics:
                     gnn_metrics = st.session_state['gnn_evaluation_metrics']
-                    gnn_row = {'Model': 'GNN (NGCF)'}
+                    gnn_row = {'Model': 'GNN'}
                     
                     for k in k_values:
                         gnn_row[f'Recall@{k}'] = f"{gnn_metrics['recall'].get(k, 0.0):.4f}"
@@ -5032,8 +5040,8 @@ def main():
                             hybrid_ndcg_20 = ndcg_20_values.get('Hybrid (GNN+CBF)', 0.0)
                             hybrid_diversity = diversity_values.get('Hybrid (GNN+CBF)', 0.0)
                             hybrid_coverage = coverage_values.get('Hybrid (GNN+CBF)', 0.0)
-                            gnn_diversity = diversity_values.get('GNN (NGCF)', 0.0)
-                            gnn_coverage = coverage_values.get('GNN (NGCF)', 0.0)
+                            gnn_diversity = diversity_values.get('GNN', 0.0)
+                            gnn_coverage = coverage_values.get('GNN', 0.0)
                             
                             if hybrid_ndcg_10 >= max([v for k, v in ndcg_10_values.items() if k != 'Hybrid (GNN+CBF)']):
                                 st.success("✅ Hybrid có NDCG@10 cao nhất")
@@ -5261,7 +5269,7 @@ def main():
                 )
 
                 if not outfits:
-                    st.info("Chưa đủ thành phần để tạo outfit thoả điều kiện (Accessories / Topwear / Bottomwear / Footwear cùng usage).")
+                    st.info("Chưa đủ thành phần để tạo outfit thoả điều kiện (Accessories / Topwear / Bottomwear / Footwear cùng gender và cùng usage).")
                 else:
                     for idx, outfit in enumerate(outfits, start=1):
                         st.markdown(f"#### 👗 Outfit #{idx} — Điểm tổng: {outfit['score']:.4f}")
