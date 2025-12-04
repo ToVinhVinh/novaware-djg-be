@@ -47,6 +47,7 @@ class MongoEngineTokenObtainPairView(APIView):
 
 class RegisterView(APIView):
     permission_classes = [permissions.AllowAny]
+    authentication_classes: list = []
 
     def post(self, request, *args, **kwargs):
         serializer = RegisterSerializer(data=request.data)

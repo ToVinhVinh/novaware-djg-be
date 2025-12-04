@@ -273,6 +273,66 @@ class UserViewSet(viewsets.ViewSet):
             },
         )
 
+    @action(detail=False, methods=["post", "put", "patch"], permission_classes=[permissions.AllowAny], authentication_classes=[])
+    def profile(self, request):
+        """
+        Update user profile by email.
+        Expected payload: {
+            "email": "user@example.com",
+            "name": "User Name",
+            "gender": "male",
+            "height": 170,
+            "weight": 55,
+            "age": 21,
+            ...
+        }
+        """
+        email = request.data.get("email")
+        if not email:
+            return api_error(
+                "Email is required.",
+                data=None,
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return api_error(
+                "User does not exist.",
+                data=None,
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as e:
+            return api_error(
+                f"Error finding user: {str(e)}",
+                data=None,
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        
+        request_serializer = UserSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+        
+        validated_data = request_serializer.validated_data.copy()
+        
+        # Remove age if it's invalid (<= 10 or > 100)
+        if "age" in validated_data:
+            age_value = validated_data.get("age")
+            if age_value is not None and (age_value <= 10 or age_value > 100):
+                # Remove invalid age from validated_data
+                validated_data.pop("age")
+        
+        # Update user with filtered validated_data
+        user = request_serializer.update(user, validated_data)
+        
+        response_serializer = UserDetailSerializer(user)
+        return api_success(
+            "User profile updated successfully",
+            {
+                "user": response_serializer.data,
+            },
+        )
+
     @action(detail=False, methods=["post"], permission_classes=[permissions.AllowAny], authentication_classes=[])
     def change_password(self, request):
         if not request.user or not hasattr(request.user, 'id') or not request.user.is_authenticated:

@@ -31,7 +31,7 @@ class User(me.Document):
         db_field="gender",
     )
     age = fields.IntField(
-        min_value=13,
+        min_value=11,
         max_value=100,
         null=True,
         db_field="age",

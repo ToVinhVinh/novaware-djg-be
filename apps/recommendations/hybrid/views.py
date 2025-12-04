@@ -461,7 +461,6 @@ def build_outfit_suggestions(
 
     user_gender_filtered = products_df.copy()
     if "gender" in user_gender_filtered.columns and allowed_genders_for_user:
-        # So sánh case-insensitive và strip whitespace
         allowed_set = {str(g).strip().lower() for g in allowed_genders_for_user + ["Unisex"]}
         user_gender_filtered = user_gender_filtered[
             user_gender_filtered["gender"].astype(str).str.strip().str.lower().isin(allowed_set)
@@ -473,7 +472,6 @@ def build_outfit_suggestions(
         item['product_id']: item['score']
         for item in personalized_items
     }
-    # Robustly fetch user scores regardless of user_id key type (str/int) - đồng bộ với Streamlit
     predictions_by_user = hybrid_predictions.get('predictions', {}) or {}
     user_scores = None
     user_key_str = str(user_id)
@@ -489,14 +487,11 @@ def build_outfit_suggestions(
     
     def get_product_score(pid: str) -> float:
         """Robust lookup product score from score_lookup or user_scores."""
-        # Try score_lookup first (from personalized_items)
         if pid in score_lookup:
             return score_lookup[pid]
-        # Try user_scores with robust lookup (handle both str and int keys)
         pid_str = str(pid)
         if pid_str in user_scores:
             return user_scores[pid_str]
-        # Try int key if pid is numeric
         try:
             pid_int = int(pid)
             if pid_int in user_scores:
