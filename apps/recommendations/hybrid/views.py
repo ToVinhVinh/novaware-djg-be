@@ -670,7 +670,7 @@ class RecommendHybridView(APIView):
         
         user_id = serializer.validated_data["user_id"]
         current_product_id = serializer.validated_data["current_product_id"]
-        alpha = serializer.validated_data.get("alpha", 0.6)
+        alpha = serializer.validated_data.get("alpha", 0.5)
         top_k_personalized = serializer.validated_data.get("top_k_personalized", 6)
         top_k_outfit = serializer.validated_data.get("top_k_outfit", 3)
         

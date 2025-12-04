@@ -17,7 +17,7 @@ class Command(BaseCommand):
         parser.add_argument("--product-id", required=True, help="Mongo ObjectId of the current product")
         parser.add_argument("--top-k-personal", type=int, default=5)
         parser.add_argument("--top-k-outfit", type=int, default=4)
-        parser.add_argument("--alpha", type=float, default=0.6, help="Blend weight between graph and content scores")
+        parser.add_argument("--alpha", type=float, default=0.5, help="Blend weight between graph and content scores")
         parser.add_argument("--outfile", default="hybrid_mongo_result.json")
 
     def handle(self, *args, **options) -> str | None:
