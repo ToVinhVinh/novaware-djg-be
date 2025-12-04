@@ -656,12 +656,22 @@ def build_outfit_suggestions(
     
     payload_categories = detect_categories(payload_row)
     
+    # Kiểm tra payload có phải là Dresses không
+    payload_article_type = str(payload_row.get('articleType', '')).strip().lower()
+    payload_sub_category = str(payload_row.get('subCategory', '')).strip().lower()
+    is_payload_dress = payload_article_type == 'dresses' or payload_sub_category == 'dress'
+    
     required_categories = ['accessory', 'topwear', 'bottomwear', 'footwear']
+    # Nếu payload là Dresses → không cần topwear và bottomwear (vì dress đã thay thế cả hai)
+    if is_payload_dress:
+        required_categories = ['accessory', 'footwear']
+    
     optional_categories = []
     # Thêm dress dựa trên gender của payload product, không phải user gender
     # Nếu payload product là Women hoặc Girls → được phép có dress
     # Nếu payload product là Men → không được có dress
-    if target_gender:
+    # Lưu ý: Nếu payload đã là Dresses, thì không thêm dress vào optional (tránh duplicate)
+    if not is_payload_dress and target_gender:
         target_gender_lower = str(target_gender).strip().lower()
         if target_gender_lower in ['women', 'girls']:
             optional_categories.append('dress')
@@ -680,6 +690,20 @@ def build_outfit_suggestions(
         4. Unisex: ưu tiên Unisex khi thiếu thành phần (giảm điều kiện usage/gender)
         5. Any: bất kỳ sản phẩm nào trong category (fallback cuối cùng để đảm bảo có thể tạo outfit)
         """
+        # Loại trừ: Nếu payload là Dresses → không được có Topwear và Bottomwear
+        payload_article_type = str(payload_row.get('articleType', '')).strip().lower()
+        payload_sub_category = str(payload_row.get('subCategory', '')).strip().lower()
+        is_payload_dress = payload_article_type == 'dresses' or payload_sub_category == 'dress'
+        is_payload_top_or_bottom = payload_sub_category in ['topwear', 'bottomwear']
+        
+        # Nếu payload là Dresses, không cho phép topwear và bottomwear
+        if is_payload_dress and cat in ['topwear', 'bottomwear']:
+            return None
+        
+        # Nếu payload là Topwear hoặc Bottomwear, không cho phép dress
+        if is_payload_top_or_bottom and cat == 'dress':
+            return None
+        
         pools = [
             ("strict", candidates_strict.get(cat, [])),
             ("relaxed", candidates_relaxed.get(cat, [])),
