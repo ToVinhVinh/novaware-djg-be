@@ -1866,9 +1866,6 @@ def main():
                                             st.markdown("**👀 Xem trước dữ liệu (tối đa 100 dòng đầu):**")
                                             st.dataframe(products_df.head(100), use_container_width=True)
                                             
-                                            st.markdown("**📉 Biểu đồ độ thưa (tỉ lệ giá trị null trên mỗi cột):**")
-                                            render_sparsity_chart(products_df, "Độ thưa - Products", "products_export")
-                                            
                                             st.markdown("**📊 Biểu đồ tỉ lệ / phân bố:**")
                                             render_distribution_chart(products_df, "products_export")
                                             
@@ -1896,9 +1893,6 @@ def main():
                                             st.markdown("**👀 Xem trước dữ liệu (tối đa 100 dòng đầu):**")
                                             st.dataframe(users_df.head(100), use_container_width=True)
                                             
-                                            st.markdown("**📉 Biểu đồ độ thưa (tỉ lệ giá trị null trên mỗi cột):**")
-                                            render_sparsity_chart(users_df, "Độ thưa - Users", "users_export")
-                                            
                                             st.markdown("**📊 Biểu đồ tỉ lệ / phân bố:**")
                                             render_distribution_chart(users_df, "users_export")
                                             
@@ -1925,9 +1919,6 @@ def main():
                                             
                                             st.markdown("**👀 Xem trước dữ liệu (tối đa 100 dòng đầu):**")
                                             st.dataframe(interactions_df.head(100), use_container_width=True)
-                                            
-                                            st.markdown("**📉 Biểu đồ độ thưa (tỉ lệ giá trị null trên mỗi cột):**")
-                                            render_sparsity_chart(interactions_df, "Độ thưa - Interactions", "interactions_export")
                                             
                                             st.markdown("**📊 Biểu đồ tỉ lệ / phân bố:**")
                                             render_distribution_chart(interactions_df, "interactions_export")
