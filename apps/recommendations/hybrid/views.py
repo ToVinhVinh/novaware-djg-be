@@ -294,7 +294,6 @@ def build_personalized_candidates(
                 break
     
     if not user_scores:
-        # Không có bất kỳ dự đoán Hybrid nào cho user này
         return []
     
     prioritized = []
@@ -417,11 +416,11 @@ def build_outfit_suggestions(
     # Item-Item complement dictionary
     complement = {
         'Trousers': ['Tshirts', 'Shirts', 'Jackets', 'Sweaters', 'Sweatshirts', 'Formal Shoes', 'Casual Shoes', 'Sports Shoes'],
-        'Tshirts': ['Watches', 'Jeans', 'Casual Shoes', 'Flip Flops'],
+        'Tshirts': [['Watches', 'Jeans', 'Casual Shoes'], ['Watches', 'Jeans', 'Flip Flops']],
         'Shirts': ['Trousers', 'Jeans', 'Shorts', 'Formal Shoes', 'Casual Shoes'],
         'Dresses': [['Watches', 'Casual Shoes'], ['Watches', 'Flats'], ['Watches', 'Flip Flops']],
         'Tops': ['Trousers', 'Jeans', 'Shorts', 'Skirts', 'Capris', 'Casual Shoes', 'Sports Shoes'],
-        'Shorts': [['Tshirts', 'Sweatshirts', 'Sports Shoes', 'Casual Shoes', 'Flip Flops'], ['Tops', 'Sweatshirts', 'Sports Shoes', 'Casual Shoes', 'Flip Flops'], ['Watches', 'Tshirts', 'Sports Shoes']],
+        'Shorts': [['Tshirts', 'Sweatshirts', 'Sports Shoes', 'Casual Shoes'], ['Tops', 'Sweatshirts', 'Sports Shoes', 'Casual Shoes'], ['Tshirts', 'Sweatshirts', 'Sports Shoes', 'Flip Flops'], ['Tops', 'Sweatshirts', 'Sports Shoes', 'Flip Flops'], ['Watches', 'Tshirts', 'Sports Shoes']],
         'Skirts': [['Tshirts', 'Tunics', 'Jackets', 'Heels', 'Flats', 'Casual Shoes'], ['Tops', 'Tunics', 'Jackets', 'Heels', 'Flats', 'Casual Shoes'], ['Watches', 'Tshirts', 'Casual Shoes'], ['Watches', 'Tshirts', 'Flats'], ['Watches', 'Tshirts', 'Flip Flops']],
         'Jeans': [['Tshirts', 'Shirts', 'Sweaters', 'Sweatshirts', 'Jackets', 'Casual Shoes', 'Sports Shoes'], ['Tops', 'Shirts', 'Sweaters', 'Sweatshirts', 'Jackets', 'Casual Shoes', 'Sports Shoes'], ['Watches', 'Tshirts', 'Flip Flops'], ['Watches', 'Shirts', 'Casual Shoes']],
         'Formal Shoes': ['Watches', 'Shirts', 'Trousers'],

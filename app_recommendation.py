@@ -316,7 +316,6 @@ def restore_all_artifacts() -> None:
     """
     base = ARTIFACTS_DIR
     
-    # Restore predictions
     predictions_mappings = [
         ("cbf_predictions", "streamlit_cbf_predictions.pkl"),
         ("gnn_predictions", "streamlit_gnn_predictions.pkl"),
@@ -330,7 +329,7 @@ def restore_all_artifacts() -> None:
             if state_key not in st.session_state or not _is_valid_data(st.session_state[state_key]):
                 st.session_state[state_key] = cached
     
-    # Restore intermediate results (nếu có lưu)
+    # Khôi phục các kết quả trung gian (nếu có lưu)
     intermediate_mappings = [
         ("pruned_interactions", "pruned_interactions.pkl"),
         ("feature_encoding", "feature_encoding.pkl"),
@@ -391,7 +390,6 @@ def display_pruning_results(result: Dict) -> None:
     if result is None or result.get('pruned_interactions') is None or result['pruned_interactions'].empty:
         return
     
-    # Display statistics
     st.markdown("### 📊 Thống kê kết quả Pruning")
     
     col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
@@ -409,21 +407,17 @@ def display_pruning_results(result: Dict) -> None:
         reduction_pct = ((result['original_interactions'] - len(result['pruned_interactions'])) / result['original_interactions'] * 100) if result['original_interactions'] > 0 else 0
         st.metric("Giảm đi", f"{reduction_pct:.2f}%")
     
-    # Calculate values for tabs
     pruned_users = result['original_users'] - result['removed_users']
     pruned_products = result['original_products'] - result['removed_products']
     
-    # Original sparsity
     original_density = result['original_interactions'] / (result['original_users'] * result['original_products']) if (result['original_users'] * result['original_products']) > 0 else 0
     original_sparsity = 1 - original_density
     
-    # Pruned sparsity
     pruned_density = len(result['pruned_interactions']) / (pruned_users * pruned_products) if (pruned_users * pruned_products) > 0 else 0
     pruned_sparsity = 1 - pruned_density
     
     improvement = original_sparsity - pruned_sparsity
     
-    # Create tabs for different visualizations
     tab1, tab2, tab3, tab4 = st.tabs([
         "📋 Ma trận tương tác đã làm sạch",
         "📉 So sánh độ thưa thớt",
@@ -758,7 +752,6 @@ def build_personalized_candidates(
         products_df
     )
 
-    # Robustly fetch user scores regardless of user_id key type (str/int)
     predictions_by_user = hybrid_predictions.get('predictions', {}) or {}
     user_scores = None
     user_key_str = str(user_id)
@@ -771,11 +764,10 @@ def build_personalized_candidates(
                 break
 
     if not user_scores:
-        # Không có bất kỳ dự đoán Hybrid nào cho user này
         return []
 
     prioritized = []
-    seen_product_ids = set()  # Track để tránh duplicate
+    seen_product_ids = set()  # Theo dõi để tránh trùng lặp
     
     for product_id, base_score in sorted(
         user_scores.items(),
@@ -784,11 +776,9 @@ def build_personalized_candidates(
     ):
         product_id_str = str(product_id)
         
-        # Skip payload product
         if product_id_str == str(payload_product_id):
             continue
         
-        # Skip nếu đã thêm product này rồi (tránh duplicate)
         if product_id_str in seen_product_ids:
             continue
         
@@ -859,9 +849,9 @@ def build_personalized_candidates(
             'product_row': product_row
         })
         
-        seen_product_ids.add(product_id_str)  # Mark as seen
+        seen_product_ids.add(product_id_str)  # Đánh dấu là đã xem
 
-    # Sort by score (desc), then by product_id (asc) for deterministic ordering
+    # Sắp xếp theo điểm số (giảm dần), sau đó theo product_id (tăng dần) để có thứ tự xác định
     prioritized.sort(key=lambda x: (-x['score'], x['product_id']))
     return prioritized[:top_k]
 
@@ -878,50 +868,36 @@ def prepare_outfit_data(
 ) -> Dict:
     """Tính toán các dữ liệu cần thiết cho outfit suggestions và hiển thị các bước."""
     
-    # Complement dictionary
+     # Từ điển bổ trợ Item-Item
     complement = {
-        # Trousers: [Watches, Shirts, Formal Shoes]
-        'Trousers': [['Watches', 'Shirts', 'Formal Shoes']],
-        # Tshirts: [Watches, Jeans, Flip Flops] | [Watches, Jeans, Casual Shoes]
-        'Tshirts': [['Watches', 'Jeans', 'Flip Flops'], ['Watches', 'Jeans', 'Casual Shoes']],
-        # Shirts: [Watches, Jeans, Flip Flops] | [Watches, Jeans, Casual Shoes]
-        'Shirts': [['Watches', 'Jeans', 'Flip Flops'], ['Watches', 'Jeans', 'Casual Shoes']],
+        'Trousers': ['Tshirts', 'Shirts', 'Jackets', 'Sweaters', 'Sweatshirts', 'Formal Shoes', 'Casual Shoes', 'Sports Shoes'],
+        'Tshirts': [['Watches', 'Jeans', 'Casual Shoes'], ['Watches', 'Jeans', 'Flip Flops']],
+        'Shirts': ['Trousers', 'Jeans', 'Shorts', 'Formal Shoes', 'Casual Shoes'],
         'Dresses': [['Watches', 'Casual Shoes'], ['Watches', 'Flats'], ['Watches', 'Flip Flops']],
-        # Tops: [Watches, Skirts, Casual Shoes] | [Watches, Skirts, Flats] | [Watches, Shorts, Flip Flops]
-        'Tops': [['Watches', 'Skirts', 'Casual Shoes'], ['Watches', 'Skirts', 'Flats'], ['Watches', 'Shorts', 'Flip Flops']],
-        # Shorts: [Tshirts, Sweatshirts, Sports Shoes, Casual Shoes, Flip Flops] | [Tops, Sweatshirts, Sports Shoes, Casual Shoes, Flip Flops] | [Watches, Tshirts, Sports Shoes]
-        'Shorts': [['Tshirts', 'Sweatshirts', 'Sports Shoes', 'Casual Shoes', 'Flip Flops'], ['Tops', 'Sweatshirts', 'Sports Shoes', 'Casual Shoes', 'Flip Flops'], ['Watches', 'Tshirts', 'Sports Shoes']],
-        # Skirts: [Tshirts, Tunics, Jackets, Heels, Flats, Casual Shoes] | [Tops, Tunics, Jackets, Heels, Flats, Casual Shoes] | [Watches, Tshirts, Casual Shoes] | [Watches, Tshirts, Flats] | [Watches, Tshirts, Flip Flops]
+        'Tops': ['Trousers', 'Jeans', 'Shorts', 'Skirts', 'Capris', 'Casual Shoes', 'Sports Shoes'],
+        'Shorts': [['Tshirts', 'Sweatshirts', 'Sports Shoes', 'Casual Shoes'], ['Tops', 'Sweatshirts', 'Sports Shoes', 'Casual Shoes'], ['Tshirts', 'Sweatshirts', 'Sports Shoes', 'Flip Flops'], ['Tops', 'Sweatshirts', 'Sports Shoes', 'Flip Flops'], ['Watches', 'Tshirts', 'Sports Shoes']],
         'Skirts': [['Tshirts', 'Tunics', 'Jackets', 'Heels', 'Flats', 'Casual Shoes'], ['Tops', 'Tunics', 'Jackets', 'Heels', 'Flats', 'Casual Shoes'], ['Watches', 'Tshirts', 'Casual Shoes'], ['Watches', 'Tshirts', 'Flats'], ['Watches', 'Tshirts', 'Flip Flops']],
-        # Jeans: [Tshirts, Shirts, Sweaters, Sweatshirts, Jackets, Casual Shoes, Sports Shoes] | [Tops, Shirts, Sweaters, Sweatshirts, Jackets, Casual Shoes, Sports Shoes] | [Watches, Tshirts, Flip Flops] | [Watches, Shirts, Casual Shoes]
         'Jeans': [['Tshirts', 'Shirts', 'Sweaters', 'Sweatshirts', 'Jackets', 'Casual Shoes', 'Sports Shoes'], ['Tops', 'Shirts', 'Sweaters', 'Sweatshirts', 'Jackets', 'Casual Shoes', 'Sports Shoes'], ['Watches', 'Tshirts', 'Flip Flops'], ['Watches', 'Shirts', 'Casual Shoes']],
         'Formal Shoes': ['Watches', 'Shirts', 'Trousers'],
         'Casual Shoes': [['Watches', 'Tshirts', 'Jeans'], ['Watches', 'Shirts', 'Jeans']],
-        # Sports Shoes: [Tshirts, Shorts, Track Pants, Capris] | [Tops, Shorts, Track Pants, Capris] | [Watches, Tshirts, Shorts] | [Watches, Tshirts, Track Pants]
         'Sports Shoes': [['Tshirts', 'Shorts', 'Track Pants', 'Capris'], ['Tops', 'Shorts', 'Track Pants', 'Capris'], ['Watches', 'Tshirts', 'Shorts'], ['Watches', 'Tshirts', 'Track Pants']],
         'Heels': [['Watches', 'Tshirts', 'Skirts'], ['Watches', 'Dresses']],
         'Flats': [['Watches', 'Tshirts', 'Skirts', 'Dresses'], ['Watches', 'Tshirts', 'Shorts', 'Dresses']],
-        # Sandals: [Tshirts, Shorts] | [Tops, Shorts] | [Watches, Tshirts, Jeans] | [Watches, Shirts, Jeans]
         'Sandals': [['Tshirts', 'Shorts'], ['Tops', 'Shorts'], ['Watches', 'Tshirts', 'Jeans'], ['Watches', 'Shirts', 'Jeans']],
         'Flip Flops': [['Watches', 'Tshirts', 'Jeans'], ['Watches', 'Shirts', 'Jeans']],
         'Handbags': [['Tshirts', 'Skirts', 'Casual Shoes'], ['Tshirts', 'Skirts', 'Flats'], ['Tshirts', 'Skirts', 'Flip Flops'], ['Dresses', 'Flip Flops'], ['Dresses', 'Flats']],
-        # Jackets: [Trousers, Jeans, Tshirts, Dresses, Shirts] | [Trousers, Jeans, Tops, Dresses, Shirts] | [Caps, Track Pants, Sports Shoes] | [Caps, Capris, Sports Shoes]
-        'Jackets': [['Trousers', 'Jeans', 'Tshirts', 'Dresses', 'Shirts'], ['Trousers', 'Jeans', 'Tops', 'Dresses', 'Shirts'], ['Caps', 'Track Pants', 'Sports Shoes'], ['Caps', 'Capris', 'Sports Shoes']],
-        # Sweaters: [Trousers, Jeans, Dresses] | [Watches, Jeans, Flip Flops] | [Watches, Jeans, Casual Shoes]
-        'Sweaters': [['Trousers', 'Jeans', 'Dresses'], ['Watches', 'Jeans', 'Flip Flops'], ['Watches', 'Jeans', 'Casual Shoes']],
+        'Jackets': [['Trousers', 'Jeans', 'Tshirts', 'Dresses', 'Shirts'], ['Trousers', 'Jeans', 'Tops', 'Dresses', 'Shirts']],
+        'Sweaters': ['Trousers', 'Jeans', 'Dresses'],
         'Sweatshirts': ['Trousers', 'Jeans', 'Shorts', 'Track Pants'],
         'Backpacks': [['Tshirts', 'Jeans', 'Flip Flops'], ['Shirts', 'Jeans', 'Casual Shoes']],
         'Belts': [['Tshirts', 'Jeans', 'Flip Flops'], ['Shirts', 'Jeans', 'Casual Shoes']],
         'Capris': [['Caps', 'Jackets', 'Sports Shoes'], ['Caps', 'Tshirts', 'Sports Shoes']],
-        'Caps': [['Tshirts', 'Shorts', 'Sports Shoes'], ['Tshirts', 'Track Pants', 'Sports Shoes']],
-        # Track Pants: [Watches, Tshirts, Sports Shoes]
-        'Track Pants': [['Watches', 'Tshirts', 'Sports Shoes']],
-        # Watches: [Tshirts, Jeans, Flip Flops] | [Shirts, Jeans, Casual Shoes]
-        'Watches': [['Tshirts', 'Jeans', 'Flip Flops'], ['Shirts', 'Jeans', 'Casual Shoes']]
+        'Caps': [['Tshirts', 'Shorts', 'Sports Shoes'], ['Tshirts', 'Track Pants', 'Sports Shoes']]
     }
     
     target_gender = str(payload_row.get('gender', '')).strip()
     
+    # Kiểm tra xem gender có phù hợp với target gender không
     def gender_allowed(gender_value: str) -> bool:
         gender_clean = str(gender_value).strip()
         if not target_gender:
@@ -934,6 +910,7 @@ def prepare_outfit_data(
             return True
         return gender_lower == 'unisex'
     
+    # Map articleType với complement dictionary key
     def map_to_complement_key(row) -> Optional[str]:
         article_type = str(row.get('articleType', '')).strip()
         if article_type in complement:
@@ -1035,19 +1012,19 @@ def prepare_outfit_data(
         else:
             payload_complement_key = 'Tshirts'
     
-    # Get compatible item types for payload
-    # Handle both old format (flat list) and new format (list of lists)
+    # Lấy các loại sản phẩm tương thích cho payload
+    # Xử lý cả định dạng cũ (danh sách phẳng) và định dạng mới (danh sách các danh sách)
     complement_value = complement.get(payload_complement_key, [])
     if complement_value and isinstance(complement_value[0], list):
-        # New format: list of lists - flatten and get unique types
+        # Định dạng mới: danh sách các danh sách - làm phẳng và lấy các loại duy nhất
         compatible_types = list(set([item for sublist in complement_value for item in sublist]))
-        complement_rules = complement_value  # Store rules for outfit building
+        complement_rules = complement_value  # Lưu các quy tắc để xây dựng outfit
     else:
-        # Old format: flat list
+        # Định dạng cũ: danh sách phẳng
         compatible_types = complement_value if complement_value else []
-        complement_rules = [compatible_types] if compatible_types else []  # Treat as single rule
+        complement_rules = [compatible_types] if compatible_types else []  # Xem như một quy tắc đơn
     
-    # Filter products by gender
+    # Lọc sản phẩm theo giới tính
     gender_filtered = products_df.copy()
     if 'gender' in gender_filtered.columns and target_gender:
         gender_filtered = gender_filtered[gender_filtered['gender'].apply(gender_allowed)]
@@ -1208,7 +1185,7 @@ def display_outfit_building_steps(
                     if len(non_zero_indices) > 0:
                         st.write("**Active features:**")
                         feature_names = encoding_result.get('feature_names', [])
-                        for idx in non_zero_indices[:10]:  # Hiển thị 10 features đầu
+                        for idx in non_zero_indices[:10]:  # Hiển thị 10 đặc trưng đầu
                             if idx < len(feature_names):
                                 st.write(f"  - `{feature_names[idx]}`: 1")
                         if len(non_zero_indices) > 10:
@@ -1253,7 +1230,7 @@ def display_outfit_building_steps(
         """Helper function để tính điểm sản phẩm."""
         if get_product_score_func:
             return get_product_score_func(pid)
-        # Fallback nếu không có function
+        # Dự phòng nếu không có function
         if pid in score_lookup:
             return score_lookup[pid]
         pid_str = str(pid)
@@ -1345,14 +1322,14 @@ def build_outfit_suggestions(
     if payload_row is None:
         return []
 
-    # Item-Item complement dictionary
+    # Từ điển bổ trợ Item-Item
     complement = {
         'Trousers': ['Tshirts', 'Shirts', 'Jackets', 'Sweaters', 'Sweatshirts', 'Formal Shoes', 'Casual Shoes', 'Sports Shoes'],
-        'Tshirts': ['Watches', 'Jeans', 'Casual Shoes', 'Flip Flops'],
+        'Tshirts': [['Watches', 'Jeans', 'Casual Shoes'], ['Watches', 'Jeans', 'Flip Flops']],
         'Shirts': ['Trousers', 'Jeans', 'Shorts', 'Formal Shoes', 'Casual Shoes'],
         'Dresses': [['Watches', 'Casual Shoes'], ['Watches', 'Flats'], ['Watches', 'Flip Flops']],
         'Tops': ['Trousers', 'Jeans', 'Shorts', 'Skirts', 'Capris', 'Casual Shoes', 'Sports Shoes'],
-        'Shorts': [['Tshirts', 'Sweatshirts', 'Sports Shoes', 'Casual Shoes', 'Flip Flops'], ['Tops', 'Sweatshirts', 'Sports Shoes', 'Casual Shoes', 'Flip Flops'], ['Watches', 'Tshirts', 'Sports Shoes']],
+        'Shorts': [['Tshirts', 'Sweatshirts', 'Sports Shoes', 'Casual Shoes'], ['Tops', 'Sweatshirts', 'Sports Shoes', 'Casual Shoes'], ['Tshirts', 'Sweatshirts', 'Sports Shoes', 'Flip Flops'], ['Tops', 'Sweatshirts', 'Sports Shoes', 'Flip Flops'], ['Watches', 'Tshirts', 'Sports Shoes']],
         'Skirts': [['Tshirts', 'Tunics', 'Jackets', 'Heels', 'Flats', 'Casual Shoes'], ['Tops', 'Tunics', 'Jackets', 'Heels', 'Flats', 'Casual Shoes'], ['Watches', 'Tshirts', 'Casual Shoes'], ['Watches', 'Tshirts', 'Flats'], ['Watches', 'Tshirts', 'Flip Flops']],
         'Jeans': [['Tshirts', 'Shirts', 'Sweaters', 'Sweatshirts', 'Jackets', 'Casual Shoes', 'Sports Shoes'], ['Tops', 'Shirts', 'Sweaters', 'Sweatshirts', 'Jackets', 'Casual Shoes', 'Sports Shoes'], ['Watches', 'Tshirts', 'Flip Flops'], ['Watches', 'Shirts', 'Casual Shoes']],
         'Formal Shoes': ['Watches', 'Shirts', 'Trousers'],
@@ -1374,7 +1351,7 @@ def build_outfit_suggestions(
 
     target_gender = str(payload_row.get('gender', '')).strip()
     
-    # Get allowed genders for user
+    # Lấy các giới tính được phép cho user
     allowed_genders_for_user = get_allowed_genders(user_age, user_gender) if get_allowed_genders else []
     
     def gender_allowed(gender_value: str) -> bool:
@@ -1389,19 +1366,19 @@ def build_outfit_suggestions(
             return True
         return gender_lower == 'unisex'
 
-    # Map articleType directly to complement keys (using exact articleType from CSV)
+    # Ánh xạ articleType trực tiếp tới các khóa bổ trợ (sử dụng articleType chính xác từ CSV)
     def map_to_complement_key(row) -> Optional[str]:
-        """Map product articleType to complement dictionary key (using exact articleType from CSV)."""
+        """Ánh xạ articleType của sản phẩm tới khóa từ điển bổ trợ (sử dụng articleType chính xác từ CSV)."""
         article_type = str(row.get('articleType', '')).strip()
         
-        # Direct mapping: use articleType as-is if it exists in complement dictionary
+        # Ánh xạ trực tiếp: sử dụng articleType như hiện tại nếu nó tồn tại trong từ điển bổ trợ
         if article_type in complement:
             return article_type
         
-        # Normalize and map common variations
+        # Chuẩn hóa và ánh xạ các biến thể phổ biến
         article_lower = article_type.lower()
         
-        # Map variations to standard articleType keys
+        # Ánh xạ các biến thể tới các khóa articleType chuẩn
         if article_lower in ['t-shirt', 't shirt', 'tshirt']:
             return 'Tshirts'
         if article_lower in ['dress']:
@@ -1457,7 +1434,7 @@ def build_outfit_suggestions(
 
     payload_complement_key = map_to_complement_key(payload_row)
     if payload_complement_key is None:
-        # Fallback: try to infer from subCategory
+        # Dự phòng: thử suy luận từ subCategory
         payload_sub = str(payload_row.get('subCategory', '')).strip().lower()
         payload_article = str(payload_row.get('articleType', '')).strip().lower()
         
@@ -1509,23 +1486,23 @@ def build_outfit_suggestions(
         elif payload_sub == 'bags':
             payload_complement_key = 'Handbags'
         else:
-            # Default fallback
+            # Dự phòng mặc định
             payload_complement_key = 'Tshirts'
 
-    # Get compatible item types for payload
-    # Get compatible item types for payload
-    # Handle both old format (flat list) and new format (list of lists)
+    # Lấy các loại sản phẩm tương thích cho payload
+    # Lấy các loại sản phẩm tương thích cho payload
+    # Xử lý cả định dạng cũ (danh sách phẳng) và định dạng mới (danh sách các danh sách)
     complement_value = complement.get(payload_complement_key, [])
     if complement_value and isinstance(complement_value[0], list):
-        # New format: list of lists - flatten and get unique types
+        # Định dạng mới: danh sách các danh sách - làm phẳng và lấy các loại duy nhất
         compatible_types = list(set([item for sublist in complement_value for item in sublist]))
-        complement_rules = complement_value  # Store rules for outfit building
+        complement_rules = complement_value  # Lưu các quy tắc để xây dựng outfit
     else:
-        # Old format: flat list
+        # Định dạng cũ: danh sách phẳng
         compatible_types = complement_value if complement_value else []
-        complement_rules = [compatible_types] if compatible_types else []  # Treat as single rule
+        complement_rules = [compatible_types] if compatible_types else []  # Xem như một quy tắc đơn
 
-    # Filter products by gender compatibility
+    # Lọc sản phẩm theo tương thích giới tính
     gender_filtered = products_df.copy()
     if 'gender' in gender_filtered.columns and target_gender:
         gender_filtered = gender_filtered[gender_filtered['gender'].apply(gender_allowed)]
@@ -1567,7 +1544,7 @@ def build_outfit_suggestions(
         user_scores = {}
 
     def get_product_score(pid: str) -> float:
-        """Robust lookup product score from score_lookup or user_scores."""
+        """Tra cứu điểm sản phẩm mạnh mẽ từ score_lookup hoặc user_scores."""
         if pid in score_lookup:
             return score_lookup[pid]
         pid_str = str(pid)
@@ -1585,31 +1562,31 @@ def build_outfit_suggestions(
         return 0.0
 
     def is_compatible_with_payload(product_row) -> bool:
-        """Check if product is compatible with payload based on complement rules."""
+        """Kiểm tra xem sản phẩm có tương thích với payload dựa trên các quy tắc bổ trợ không."""
         product_complement_key = map_to_complement_key(product_row)
         if product_complement_key is None:
             return False
         
-        # Check if product's complement key is in compatible_types
+        # Kiểm tra xem khóa bổ trợ của sản phẩm có trong compatible_types không
         return product_complement_key in compatible_types
 
     def get_products_by_complement_type(complement_type: str, df: pd.DataFrame) -> pd.DataFrame:
-        """Get products that match a complement type (using exact articleType matching)."""
-        # Direct match: articleType exactly equals complement_type
+        """Lấy các sản phẩm khớp với một loại bổ trợ (sử dụng khớp articleType chính xác)."""
+        # Khớp trực tiếp: articleType chính xác bằng complement_type
         exact_match = df[df['articleType'].astype(str).str.strip() == complement_type]
         
         if not exact_match.empty:
             return exact_match
         
-        # Fallback: case-insensitive match
+        # Dự phòng: khớp không phân biệt chữ hoa/thường
         article_lower = complement_type.lower()
         mask = df['articleType'].astype(str).str.lower().str.strip() == article_lower
         
         return df[mask]
 
-    # Build candidate pools for each compatible type
+    # Xây dựng các nhóm ứng viên cho mỗi loại tương thích
     def build_candidate_pool(complement_type: str, df: pd.DataFrame) -> List[str]:
-        """Build sorted candidate list for a complement type."""
+        """Xây dựng danh sách ứng viên đã sắp xếp cho một loại bổ trợ."""
         type_df = get_products_by_complement_type(complement_type, df)
         if type_df.empty:
             return []
@@ -1619,7 +1596,7 @@ def build_outfit_suggestions(
         ordered = sorted(zip(ids, scores), key=lambda x: (-x[1], x[0]))
         return [pid for pid, _ in ordered]
 
-    # Build candidate pools with different filtering strategies
+    # Xây dựng các nhóm ứng viên với các chiến lược lọc khác nhau
     candidates_gender = {}
     candidates_user_gender = {}
     candidates_unisex = {}
@@ -1631,7 +1608,7 @@ def build_outfit_suggestions(
         candidates_unisex[comp_type] = build_candidate_pool(comp_type, unisex_filtered)
         candidates_any[comp_type] = build_candidate_pool(comp_type, products_df)
 
-    # Also include Shoes and Bag as they're common complements
+    # Cũng bao gồm Shoes và Bag vì chúng là các bổ trợ phổ biến
     if 'Shoes' not in compatible_types:
         compatible_types.append('Shoes')
         candidates_gender['Shoes'] = build_candidate_pool('Shoes', gender_filtered)
@@ -1639,14 +1616,14 @@ def build_outfit_suggestions(
         candidates_unisex['Shoes'] = build_candidate_pool('Shoes', unisex_filtered)
         candidates_any['Shoes'] = build_candidate_pool('Shoes', products_df)
 
-    # Handbags are already included in complement dictionary for Dresses
-    # No need for separate handling
+    # Handbags đã được bao gồm trong từ điển bổ trợ cho Dresses
+    # Không cần xử lý riêng
 
     outfits = []
     category_offsets = defaultdict(int)
 
     def pick_candidate(comp_type: str, used: set) -> Optional[str]:
-        """Pick a candidate product for a complement type."""
+        """Chọn một sản phẩm ứng viên cho một loại bổ trợ."""
         is_payload_unisex = str(target_gender).strip().lower() == 'unisex'
         
         if is_payload_unisex:
@@ -1671,54 +1648,54 @@ def build_outfit_suggestions(
                 pid = pool[idx]
                 if pid in used or pid == str(payload_product_id):
                     continue
-                # Verify compatibility
+                # Xác minh tương thích
                 product_row = get_product_record(pid, products_df)
                 if product_row is not None and is_compatible_with_payload(product_row):
                     category_offsets[offset_key] = idx + 1
                     return pid
         return None
 
-    # Build outfits using complement relationships
+    # Xây dựng outfits sử dụng các mối quan hệ bổ trợ
     for outfit_idx in range(max_outfits):
         used = {str(payload_product_id)}
         ordered_products = [str(payload_product_id)]
         
-        # Select one complement rule for this outfit
+        # Chọn một quy tắc bổ trợ cho outfit này
         if complement_rules:
-            # Choose a rule based on outfit index (round-robin)
+            # Chọn một quy tắc dựa trên chỉ số outfit (round-robin)
             selected_rule = complement_rules[outfit_idx % len(complement_rules)]
             
-            # Try to add items from the selected rule
+            # Thử thêm các items từ quy tắc đã chọn
             for comp_type in selected_rule:
-                if len(ordered_products) >= 5:  # Limit outfit size
+                if len(ordered_products) >= 5:  # Giới hạn kích thước outfit
                     break
                 candidate = pick_candidate(comp_type, used)
                 if candidate:
                     used.add(candidate)
                     ordered_products.append(candidate)
         else:
-            # Fallback to old logic if no rules
-            for comp_type in compatible_types[:4]:  # Limit to top 4 compatible types
-                if len(ordered_products) >= 5:  # Limit outfit size
+            # Dự phòng về logic cũ nếu không có quy tắc
+            for comp_type in compatible_types[:4]:  # Giới hạn 4 loại tương thích hàng đầu
+                if len(ordered_products) >= 5:  # Giới hạn kích thước outfit
                     break
                 candidate = pick_candidate(comp_type, used)
                 if candidate:
                     used.add(candidate)
                     ordered_products.append(candidate)
 
-        # Calculate outfit score based on complement compatibility
+        # Tính điểm outfit dựa trên tương thích bổ trợ
         base_score = sum(get_product_score(pid) for pid in ordered_products)
         
-        # Bonus for complement compatibility
+        # Điểm thưởng cho tương thích bổ trợ
         complement_bonus = 0.0
-        for pid in ordered_products[1:]:  # Skip payload
+        for pid in ordered_products[1:]:  # Bỏ qua payload
             product_row = get_product_record(pid, products_df)
             if product_row is not None and is_compatible_with_payload(product_row):
                 complement_bonus += 0.1
         
         final_score = base_score + complement_bonus
         
-        if len(ordered_products) > 1:  # At least payload + 1 item
+        if len(ordered_products) > 1:  # Ít nhất payload + 1 item
             outfits.append({
                 'products': ordered_products,
                 'score': final_score
@@ -1859,7 +1836,7 @@ def display_product_info(product_info: Dict, score: float = None):
 
 
 def extract_primary_image_url(product_info: Dict) -> Optional[str]:
-    """Return first valid image URL from product record if available."""
+    """Trả về URL hình ảnh hợp lệ đầu tiên từ bản ghi sản phẩm nếu có sẵn."""
     if not product_info:
         return None
 
@@ -2468,11 +2445,11 @@ def main():
             st.write("**Nội dung thực hiện:** Áp dụng kỹ thuật k-Core Pruning để loại bỏ đệ quy các người dùng và sản phẩm có dưới số lượng tương tác tối thiểu (có thể điều chỉnh) nhằm giảm độ thưa thớt của dữ liệu.")
             st.write("**Dữ liệu sử dụng:** `interactions.csv`")
             
-            # Create tabs: Hiện thực (left) and Thuật toán (right)
+            # Tạo các tab: Hiện thực (trái) và Thuật toán (phải)
             tab_implementation, tab_algorithm = st.tabs(["Hiện thực", "Thuật toán"])
             
             with tab_implementation:
-                # Data source selection
+                # Lựa chọn nguồn dữ liệu
                 col_source1, col_source2 = st.columns([2, 1])
                 with col_source1:
                     use_exported = st.checkbox(
@@ -2511,7 +2488,7 @@ def main():
                         st.info("💡 Không thể truy cập thư mục apps/exports. Vui lòng xuất dữ liệu từ MongoDB (Bước 1.1).")
                 
                 if interactions_df is not None:
-                    # Configuration
+                    # Cấu hình
                     col_config1, col_config2 = st.columns(2)
                     with col_config1:
                         min_interactions = st.number_input(
@@ -2523,7 +2500,7 @@ def main():
                         )
                     
                     with col_config2:
-                        st.write("")  # Spacing
+                        st.write("")  # Khoảng trống
                         process_button = st.button(
                             f"🔧 Áp dụng {min_interactions}-Core Pruning",
                             type="primary",
@@ -2551,12 +2528,12 @@ def main():
                                 else:
                                     st.success("✅ **Hoàn thành!** Ma trận tương tác đã được làm sạch.")
                                     
-                                    # Store in session state
+                                    # Lưu vào session state
                                     st.session_state['pruned_interactions'] = result
                                     # Lưu vào artifacts để không bị mất khi chạy bước khác
                                     save_intermediate_artifact('pruned_interactions', result)
                                     
-                                    # Display statistics
+                                    # Hiển thị thống kê
                                     st.markdown("### 📊 Thống kê kết quả Pruning")
                                     
                                     col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
@@ -2574,11 +2551,11 @@ def main():
                                         reduction_pct = ((result['original_interactions'] - len(result['pruned_interactions'])) / result['original_interactions'] * 100) if result['original_interactions'] > 0 else 0
                                         st.metric("Giảm đi", f"{reduction_pct:.2f}%")
                                     
-                                    # Calculate values for tabs
+                                    # Tính toán các giá trị cho các tab
                                     pruned_users = result['original_users'] - result['removed_users']
                                     pruned_products = result['original_products'] - result['removed_products']
                                     
-                                    # Create tabs for different visualizations
+                                    # Tạo các tab cho các hình ảnh hóa khác nhau
                                     tab1, tab2, tab3 = st.tabs([
                                         "📋 Ma trận tương tác đã làm sạch",
                                         "📈 Quá trình Pruning qua các lần lặp",
@@ -2634,7 +2611,7 @@ def main():
                                             st.markdown("### 🔥 Ma trận tương tác (Heatmap)")
                                             st.info("ℹ️ Hiển thị ma trận tương tác dưới dạng heatmap (1 = có tương tác, 0 = không có tương tác)")
                                             
-                                            # Create interaction matrix
+                                            # Tạo ma trận tương tác
                                             interaction_matrix = result['pruned_interactions'].pivot_table(
                                                 index='user_id',
                                                 columns='product_id',
@@ -2679,7 +2656,7 @@ def main():
                     st.info("💡 Vui lòng tải lên file interactions.csv hoặc xuất dữ liệu từ MongoDB (Bước 1.1) để tiếp tục.")
             
             with tab_algorithm:
-                # Get min_interactions value from session_state or use default
+                # Lấy giá trị min_interactions từ session_state hoặc sử dụng mặc định
                 min_interactions_algo = st.session_state.get('pruning_min_interactions', 2)
                 
                 st.markdown(f"""
@@ -2711,11 +2688,11 @@ def main():
             st.write("**Nội dung thực hiện:** Chuyển đổi các đặc trưng phân loại của sản phẩm (masterCategory, subCategory, articleType, baseColour, usage) thành Item Profile Vector $\\mathbf{v}_i$ bằng One-Hot Encoding hoặc Categorical Embedding.")
             st.write("**Dữ liệu sử dụng:** `products.csv`")
             
-            # Create tabs: Hiện thực (left) and Thuật toán (right)
+            # Tạo các tab: Hiện thực (trái) và Thuật toán (phải)
             tab_implementation, tab_algorithm = st.tabs(["Hiện thực", "Thuật toán"])
             
             with tab_implementation:
-                # Data source selection
+                # Lựa chọn nguồn dữ liệu
                 col_source1, col_source2 = st.columns([2, 1])
                 with col_source1:
                     use_exported = st.checkbox(
@@ -2760,7 +2737,7 @@ def main():
                         st.info("💡 Không thể truy cập thư mục apps/exports. Vui lòng xuất dữ liệu từ MongoDB (Bước 1.1).")
                 
                 if products_df is not None:
-                    # Feature selection
+                    # Lựa chọn đặc trưng
                     default_features = ['masterCategory', 'subCategory', 'articleType', 'baseColour', 'usage']
                     available_features = [f for f in default_features if f in products_df.columns]
                     
@@ -2783,7 +2760,7 @@ def main():
                     
                     col_config1, col_config2 = st.columns([1, 1])
                     with col_config1:
-                        st.write("")  # Spacing
+                        st.write("")  # Khoảng trống
                     with col_config2:
                         process_button = st.button(
                             "🔧 Áp dụng Feature Encoding",
@@ -2805,12 +2782,12 @@ def main():
                                     else:
                                         st.success("✅ **Hoàn thành!** Đặc trưng nội dung đã được mã hóa.")
                                         
-                                        # Store in session state
+                                        # Lưu vào session state
                                         st.session_state['feature_encoding'] = result
                                         # Lưu vào artifacts để không bị mất khi chạy bước khác
                                         save_intermediate_artifact('feature_encoding', result)
                                         
-                                        # Display statistics
+                                        # Hiển thị thống kê
                                         st.markdown("### 📊 Thống kê kết quả Feature Encoding")
                                         
                                         col_stat1, col_stat2, col_stat3 = st.columns(3)
@@ -2821,10 +2798,10 @@ def main():
                                             st.metric("Tổng số chiều", result['total_dims'])
                                             st.metric("Kích thước ma trận", f"{len(products_df)} × {result['total_dims']}")
                                         with col_stat3:
-                                            memory_size_mb = (len(products_df) * result['total_dims'] * 4) / (1024 * 1024)  # Assuming float32
+                                            memory_size_mb = (len(products_df) * result['total_dims'] * 4) / (1024 * 1024)  # Giả định float32
                                             st.metric("Kích thước bộ nhớ (ước tính)", f"{memory_size_mb:.2f} MB")
                                         
-                                        # Display feature dimensions
+                                        # Hiển thị kích thước đặc trưng
                                         st.markdown("### 📐 Chi tiết các Features")
                                         feature_dims_df = pd.DataFrame([
                                             {
@@ -2837,17 +2814,17 @@ def main():
                                         ])
                                         st.dataframe(feature_dims_df, use_container_width=True)
                                         
-                                        # Display sample encoded vectors
+                                        # Hiển thị các vector đã mã hóa mẫu
                                         st.markdown("### 🔢 Mẫu Vector đã mã hóa (5 sản phẩm đầu tiên)")
                                         sample_indices = min(5, len(products_df))
                                         sample_matrix = result['encoded_matrix'][:sample_indices, :]
                                         
-                                        # Limit to first 20 features for display
+                                        # Giới hạn 20 đặc trưng đầu tiên để hiển thị
                                         max_features_display = min(20, len(result['feature_names']))
                                         sample_matrix_display = sample_matrix[:, :max_features_display]
                                         feature_names_display = result['feature_names'][:max_features_display]
                                         
-                                        # Create a more readable display
+                                        # Tạo hiển thị dễ đọc hơn
                                         sample_df = pd.DataFrame(
                                             sample_matrix_display,
                                             index=[f"Product {i+1}" for i in range(sample_indices)],
@@ -2858,7 +2835,7 @@ def main():
                                         if len(result['feature_names']) > 20:
                                             st.info(f"ℹ️ Chỉ hiển thị 20 features đầu tiên. Tổng cộng có {len(result['feature_names'])} features.")
                                         
-                                        # Display feature mapping details
+                                        # Hiển thị chi tiết ánh xạ đặc trưng
                                         with st.expander("📋 Chi tiết Feature Mapping", expanded=False):
                                             for feat in selected_features:
                                                 if feat in result['feature_mapping']:
@@ -2872,7 +2849,7 @@ def main():
                                                         values_str += f" ... và {len(mapping['value_to_idx']) - 10} giá trị khác"
                                                     st.write(f"- **Các giá trị:** {values_str}")
                                         
-                                        # Visualize feature distribution
+                                        # Trực quan hóa phân bố đặc trưng
                                         st.markdown("### 📊 Phân bố số lượng giá trị unique theo Feature")
                                         dims_data = {
                                             'Feature': list(result['feature_dims'].keys()),
@@ -2888,11 +2865,11 @@ def main():
                                         )
                                         st.plotly_chart(fig, use_container_width=True)
                                         
-                                        # Display matrix info
+                                        # Hiển thị thông tin ma trận
                                         st.markdown("### 📐 Thông tin Ma trận đặc trưng $P$")
                                         st.latex(f"P \\in \\mathbb{{R}}^{{{len(products_df)} \\times {result['total_dims']}}}")
                                         
-                                        # Sparsity of encoded matrix
+                                        # Độ thưa của ma trận đã mã hóa
                                         total_elements = len(products_df) * result['total_dims']
                                         non_zero_elements = np.count_nonzero(result['encoded_matrix'])
                                         sparsity = 1 - (non_zero_elements / total_elements) if total_elements > 0 else 0
@@ -2965,7 +2942,7 @@ def main():
             st.write("**Nội dung thực hiện:** Vector Hồ sơ Người dùng $\\mathbf{P}_u$ được xây dựng bằng cách tổng hợp có trọng số các Item Profile $\\mathbf{v}_i$ của các sản phẩm mà người dùng đã tương tác tích cực.")
             st.write("**Dữ liệu sử dụng:** Kết quả từ Bước 1.2 (Pruned Interactions) và Bước 1.3 (Feature Encoding)")
 
-            # Create tabs: Hiện thực (left) and Thuật toán (right)
+            # Tạo các tab: Hiện thực (trái) và Thuật toán (phải)
             tab_implementation, tab_algorithm = st.tabs(["Hiện thực", "Thuật toán"])
             
             with tab_implementation:
@@ -3018,7 +2995,7 @@ def main():
                         ])
                         st.dataframe(weights_df, use_container_width=True)
                         
-                        # Button để tính toán
+                        # Nút để tính toán
                         process_button = st.button(
                             "🔧 Xây dựng Weighted User Profiles",
                             type="primary",
@@ -3079,7 +3056,7 @@ def main():
                                                 with st.expander("Xem danh sách products bị skip (10 đầu tiên)", expanded=False):
                                                     st.write(result['skipped_product_ids'])
                                         
-                                        # Create tabs for different visualizations
+                                        # Tạo các tab cho các hình ảnh hóa khác nhau
                                         tab1, tab2, tab3 = st.tabs([
                                             "📋 Mẫu User Profiles",
                                             "📊 Phân bố số lượng Interactions",
@@ -3097,7 +3074,7 @@ def main():
                                                 stats = result['user_stats'][user_id]
                                                 
                                                 with st.expander(f"User {user_id} (Interactions: {stats['interaction_count']}, Total Weight: {stats['total_weight']:.2f})", expanded=False):
-                                                    # Hiển thị một phần vector (20 features đầu)
+                                                    # Hiển thị một phần vector (20 đặc trưng đầu)
                                                     max_features_display = min(20, len(profile))
                                                     profile_display = profile[:max_features_display]
                                                     
@@ -3287,7 +3264,7 @@ def main():
                             st.info(f"📦 Products: {len(product_ids)}")
                             st.info(f"🔢 Total Predictions: {len(user_profiles) * len(product_ids):,}")
                         
-                        # Configuration
+                        # Cấu hình
                         col_config1, col_config2 = st.columns(2)
                         with col_config1:
                             top_k = st.number_input(
@@ -3300,7 +3277,7 @@ def main():
                             )
                         
                         with col_config2:
-                            st.write("")  # Spacing
+                            st.write("")  # Khoảng trống
                             process_button = st.button(
                                 "🔧 Tính Điểm Dự đoán và Xếp hạng",
                                 type="primary",
@@ -3323,11 +3300,11 @@ def main():
                                     else:
                                         st.success(f"✅ **Hoàn thành!** Đã tính điểm dự đoán cho {result['stats']['total_users']} users và {result['stats']['total_products']} products.")
                                         
-                                        # Store in session state & lưu ra artifacts
+                                        # Lưu vào session state & lưu ra artifacts
                                         st.session_state['cbf_predictions'] = result
                                         save_predictions_artifact("cbf", result)
                                         
-                                        # Display statistics
+                                        # Hiển thị thống kê
                                         st.markdown("### 📊 Thống kê kết quả Predictions")
                                         
                                         col_stat1, col_stat2, col_stat3 = st.columns(3)
@@ -3343,7 +3320,7 @@ def main():
                                             st.metric("Mean score", f"{result['stats']['mean_score']:.4f}")
                                             st.metric("Std score", f"{result['stats']['std_score']:.4f}")
                                         
-                                        # Create tabs for different visualizations
+                                        # Tạo các tab cho các hình ảnh hóa khác nhau
                                         tab1, tab2, tab3 = st.tabs([
                                             "📋 Mẫu Rankings (Top-K)",
                                             "📊 Phân bố Điểm số",
@@ -3373,7 +3350,7 @@ def main():
                                         with tab2:
                                             st.markdown("### 📊 Phân bố Điểm số Predictions")
                                             
-                                            # Lấy tất cả scores
+                                            # Lấy tất cả các điểm số
                                             all_scores = []
                                             for user_preds in result['predictions'].values():
                                                 all_scores.extend(user_preds.values())
@@ -3382,7 +3359,7 @@ def main():
                                                 'Score': all_scores
                                             })
                                             
-                                            # Histogram
+                                            # Biểu đồ tần suất
                                             fig = px.histogram(
                                                 scores_df,
                                                 x='Score',
@@ -3392,7 +3369,7 @@ def main():
                                             )
                                             st.plotly_chart(fig, use_container_width=True)
                                             
-                                            # Box plot
+                                            # Biểu đồ hộp
                                             fig_box = go.Figure()
                                             fig_box.add_trace(go.Box(
                                                 y=all_scores,
@@ -3474,7 +3451,7 @@ def main():
                                                 ])
                                                 st.dataframe(top_k_df, use_container_width=True)
                                                 
-                                                # Biểu đồ top-K scores
+                                                # Biểu đồ điểm số top-K
                                                 fig = px.bar(
                                                     top_k_df,
                                                     x='Rank',
@@ -3569,7 +3546,7 @@ def main():
                     if products_df is not None:
                         cbf_predictions = st.session_state['cbf_predictions']
                         
-                        # Configuration
+                        # Cấu hình
                         col_config1, col_config2 = st.columns(2)
                         with col_config1:
                             selected_user_id = st.selectbox(
@@ -3630,7 +3607,7 @@ def main():
                                 
                                 with st.spinner("Đang áp dụng các bộ lọc cá nhân hóa và xếp hạng..."):
                                     try:
-                                        # Lấy danh sách candidate products từ CBF predictions
+                                        # Lấy danh sách sản phẩm ứng viên từ CBF predictions
                                         user_predictions = cbf_predictions['predictions'][selected_user_id]
                                         candidate_products = list(user_predictions.keys())
                                         
@@ -3651,7 +3628,7 @@ def main():
                                         
                                         st.success(f"✅ **Hoàn thành!** Đã lọc danh sách ứng viên.")
                                         
-                                        # Store in session state
+                                        # Lưu vào session state
                                         if 'personalized_filters' not in st.session_state:
                                             st.session_state['personalized_filters'] = {}
                                         st.session_state['personalized_filters'][selected_user_id] = result
@@ -3664,7 +3641,7 @@ def main():
                                         st.session_state['inference_times'].append(inference_time_measured)
                                         st.session_state['inference_time'] = np.mean(st.session_state['inference_times'])
                                         
-                                        # Display statistics
+                                        # Hiển thị thống kê
                                         st.markdown("### 📊 Thống kê quá trình lọc")
                                         
                                         stats = result['stats']
@@ -3803,7 +3780,7 @@ def main():
                         if 'product_id' in interactions_df.columns:
                             interactions_df['product_id'] = interactions_df['product_id'].astype(str)
                     
-                    # Configuration
+                    # Cấu hình
                     col_config1, col_config2 = st.columns(2)
                     with col_config1:
                         k_values_input = st.text_input(
@@ -3877,7 +3854,7 @@ def main():
                                 final_inference_time = inference_time_manual if inference_time_manual > 0 else inference_time_auto
                                 ground_truth_dict = {}
                                 
-                                # Load products để kiểm tra articleType của relevant items
+                                # Tải products để kiểm tra articleType của các items liên quan
                                 products_path = os.path.join(current_dir, 'apps', 'exports', 'products.csv')
                                 products_df_for_gt = None
                                 if os.path.exists(products_path):
@@ -3904,7 +3881,7 @@ def main():
                                             positive_interactions['user_id'] == user_id_str
                                         ]
                                         if not user_interactions.empty:
-                                            # Lấy tất cả relevant items từ interactions gốc
+                                            # Lấy tất cả các items liên quan từ interactions gốc
                                             relevant_items_all = set(user_interactions['product_id'].astype(str).unique())
                                             ground_truth_dict[user_id_str] = relevant_items_all
                                         else:
@@ -4087,7 +4064,7 @@ def main():
                     pruning_result = st.session_state['pruned_interactions']
                     pruned_interactions_df = pruning_result['pruned_interactions']
                     
-                    # Configuration
+                    # Cấu hình
                     col_config1, col_config2 = st.columns(2)
                     with col_config1:
                         embedding_dim = st.number_input(
@@ -4100,7 +4077,7 @@ def main():
                         )
                     
                     with col_config2:
-                        st.write("")  # Spacing
+                        st.write("")  # Khoảng trống
                         process_button = st.button(
                             "🔧 Xây dựng Đồ thị và Khởi tạo Nhúng",
                             type="primary",
@@ -4115,17 +4092,17 @@ def main():
                         else:
                             with st.spinner("Đang xây dựng đồ thị và khởi tạo nhúng..."):
                                 try:
-                                    # Build graph
+                                    # Xây dựng đồ thị
                                     graph_result = build_graph(pruned_interactions_df, embedding_dim)
                                     
-                                    # Store in session state
+                                    # Lưu vào session state
                                     st.session_state['gnn_graph'] = graph_result
                                     # Lưu vào artifacts để không bị mất khi chạy bước khác
                                     save_intermediate_artifact('gnn_graph', graph_result)
                                     
                                     st.success(f"✅ **Hoàn thành!** Đã xây dựng đồ thị với {graph_result['num_users']} users và {graph_result['num_products']} products.")
                                     
-                                    # Display statistics
+                                    # Hiển thị thống kê
                                     st.markdown("### 📊 Thống kê Đồ thị")
                                     
                                     col_stat1, col_stat2, col_stat3 = st.columns(3)
@@ -4139,7 +4116,7 @@ def main():
                                         density = (2 * graph_result['num_edges']) / (graph_result['num_users'] * graph_result['num_products']) if (graph_result['num_users'] * graph_result['num_products']) > 0 else 0
                                         st.metric("Mật độ đồ thị", f"{density:.6f}")
                                     
-                                    # Display sample embeddings
+                                    # Hiển thị các nhúng mẫu
                                     st.markdown("### 🔢 Mẫu Vector Nhúng Ban đầu")
                                     
                                     if 'user_embeddings' in graph_result and 'product_embeddings' in graph_result:
@@ -4212,7 +4189,7 @@ def main():
                 else:
                     graph_result = st.session_state['gnn_graph']
                     
-                    # Configuration
+                    # Cấu hình
                     col_config1, col_config2 = st.columns(2)
                     with col_config1:
                         num_layers = st.number_input(
@@ -4225,7 +4202,7 @@ def main():
                         )
                     
                     with col_config2:
-                        st.write("")  # Spacing
+                        st.write("")  # Khoảng trống
                         process_button = st.button(
                             "🔧 Thực hiện Message Propagation",
                             type="primary",
@@ -4240,17 +4217,17 @@ def main():
                         else:
                             with st.spinner("Đang thực hiện lan truyền thông điệp..."):
                                 try:
-                                    # Perform message propagation
+                                    # Thực hiện lan truyền thông điệp
                                     propagation_result = message_propagation(graph_result, num_layers)
                                     
-                                    # Store in session state
+                                    # Lưu vào session state
                                     st.session_state['gnn_propagation'] = propagation_result
                                     # Lưu vào artifacts để không bị mất khi chạy bước khác
                                     save_intermediate_artifact('gnn_propagation', propagation_result)
                                     
                                     st.success(f"✅ **Hoàn thành!** Đã thực hiện lan truyền qua {num_layers} lớp.")
                                     
-                                    # Display statistics
+                                    # Hiển thị thống kê
                                     st.markdown("### 📊 Thống kê Message Propagation")
                                     
                                     col_stat1, col_stat2, col_stat3 = st.columns(3)
@@ -4266,7 +4243,7 @@ def main():
                                         if 'layer_stats' in propagation_result:
                                             st.metric("Lớp đã xử lý", len(propagation_result['layer_stats']))
                                     
-                                    # Display layer-wise statistics
+                                    # Hiển thị thống kê theo từng lớp
                                     if 'layer_stats' in propagation_result:
                                         st.markdown("### 📈 Thống kê theo từng lớp")
                                         layer_stats_df = pd.DataFrame(propagation_result['layer_stats'])
@@ -4321,7 +4298,7 @@ def main():
                 else:
                     propagation_result = st.session_state['gnn_propagation']
                     
-                    # Configuration
+                    # Cấu hình
                     col_config1, col_config2 = st.columns(2)
                     with col_config1:
                         top_k = st.number_input(
@@ -4334,7 +4311,7 @@ def main():
                         )
                     
                     with col_config2:
-                        st.write("")  # Spacing
+                        st.write("")  # Khoảng trống
                         process_button = st.button(
                             "🔧 Tính Điểm Dự đoán và Xếp hạng",
                             type="primary",
@@ -4349,16 +4326,16 @@ def main():
                         else:
                             with st.spinner("Đang tính điểm dự đoán và xếp hạng..."):
                                 try:
-                                    # Compute predictions
+                                    # Tính toán dự đoán
                                     predictions_result = compute_gnn_predictions(propagation_result, top_k)
                                     
-                                    # Store in session state & lưu ra artifacts
+                                    # Lưu vào session state & lưu ra artifacts
                                     st.session_state['gnn_predictions'] = predictions_result
                                     save_predictions_artifact("gnn", predictions_result)
                                     
                                     st.success(f"✅ **Hoàn thành!** Đã tính điểm dự đoán cho {predictions_result['stats']['total_users']} users.")
                                     
-                                    # Display statistics
+                                    # Hiển thị thống kê
                                     st.markdown("### 📊 Thống kê Predictions")
                                     
                                     col_stat1, col_stat2, col_stat3 = st.columns(3)
@@ -4503,7 +4480,7 @@ def main():
                             
                             with st.spinner(f"Đang huấn luyện mô hình qua {num_epochs} epochs (có thể mất vài phút)..."):
                                 try:
-                                    # Train model
+                                    # Huấn luyện mô hình
                                     training_result = train_gnn_model(
                                         propagation_result,
                                         pruned_interactions_df,
@@ -4557,7 +4534,7 @@ def main():
                                             else:
                                                 st.warning("⚠️ `loss_history` rỗng hoặc không tồn tại – đây cũng có thể là nguyên nhân các số liệu hiển thị là 0.0000.")
 
-                                    # Display statistics
+                                    # Hiển thị thống kê
                                     st.markdown("### 📊 Thống kê Huấn luyện")
                                     
                                     col_stat1, col_stat2, col_stat3 = st.columns(3)
@@ -4583,7 +4560,7 @@ def main():
                                             loss_reduction = training_result['initial_loss'] - training_result['final_loss']
                                             st.metric("Loss Reduction", f"{loss_reduction:.4f}")
                                     
-                                    # Display training history
+                                    # Hiển thị lịch sử huấn luyện
                                     if 'loss_history' in training_result:
                                         st.markdown("### 📈 Lịch sử BPR Loss qua các Epochs")
                                         
@@ -4694,7 +4671,7 @@ def main():
                             if 'product_id' in interactions_df.columns:
                                 interactions_df['product_id'] = interactions_df['product_id'].astype(str)
                         
-                        # Configuration
+                        # Cấu hình
                         col_config1, col_config2 = st.columns(2)
                         with col_config1:
                             k_values_input = st.text_input(
@@ -4749,28 +4726,28 @@ def main():
                             
                             with st.spinner("Đang tính toán các chỉ số đánh giá..."):
                                 try:
-                                    # Prepare predictions format từ GNN Predictions
+                                    # Chuẩn bị định dạng dự đoán từ GNN Predictions
                                     predictions_dict = {}
                                     
                                     if 'rankings' in gnn_predictions:
                                         for user_id, user_ranking in gnn_predictions['rankings'].items():
                                             user_id_str = str(user_id)
-                                            # Handle both tuple and non-tuple formats
+                                            # Xử lý cả định dạng tuple và không phải tuple
                                             if user_ranking and len(user_ranking) > 0:
                                                 if isinstance(user_ranking[0], tuple):
                                                     ranked_products = [(str(pid), score) for pid, score in user_ranking]
                                                 else:
-                                                    # If it's a dict, convert to list of tuples
+                                                    # Nếu là dict, chuyển đổi thành danh sách các tuple
                                                     if isinstance(user_ranking, dict):
                                                         ranked_products = [(str(pid), score) for pid, score in user_ranking.items()]
                                                     else:
                                                         ranked_products = [(str(item), 0.0) for item in user_ranking]
                                                 predictions_dict[user_id_str] = ranked_products
                                     elif 'predictions' in gnn_predictions:
-                                        # Convert predictions dict to rankings format
+                                        # Chuyển đổi dict dự đoán sang định dạng xếp hạng
                                         user_predictions_dict = gnn_predictions['predictions']
                                         if isinstance(user_predictions_dict, dict) and len(user_predictions_dict) > 0:
-                                            # Get top_k from k_values (use max k)
+                                            # Lấy top_k từ k_values (sử dụng k lớn nhất)
                                             max_k = max(k_values) if k_values else 20
                                             
                                             for user_id, user_preds in user_predictions_dict.items():
@@ -4780,7 +4757,7 @@ def main():
                                                         [(str(pid), score) for pid, score in user_preds.items()],
                                                         key=lambda x: x[1],
                                                         reverse=True
-                                                    )[:max_k]  # Limit to max_k
+                                                    )[:max_k]  # Giới hạn đến max_k
                                                     predictions_dict[user_id_str] = ranked_products
                                         else:
                                             st.warning(f"⚠️ 'predictions' key tồn tại nhưng không phải dict hoặc rỗng. Type: {type(user_predictions_dict)}, Length: {len(user_predictions_dict) if isinstance(user_predictions_dict, dict) else 'N/A'}")
@@ -4840,7 +4817,7 @@ def main():
                                         
                                         st.success("✅ **Hoàn thành!** Đã tính toán tất cả các chỉ số đánh giá.")
                                         
-                                        # Store in session state
+                                        # Lưu vào session state
                                         st.session_state['gnn_evaluation_metrics'] = result
                                         # Lưu vào artifacts để không bị mất khi chạy bước khác
                                         save_intermediate_artifact('gnn_evaluation_metrics', result)
@@ -4987,7 +4964,7 @@ def main():
                     
                     cbf_predictions = st.session_state['cbf_predictions']
                     
-                    # Configuration
+                    # Cấu hình
                     col_config1, col_config2 = st.columns(2)
                     with col_config1:
                         alpha = st.slider(
@@ -5027,13 +5004,13 @@ def main():
                                     # Combine scores
                                     hybrid_result = combine_hybrid_scores(cbf_predictions, gnn_predictions, alpha, top_k)
                                     
-                                    # Store in session state & lưu ra artifacts
+                                    # Lưu vào session state & lưu ra artifacts
                                     st.session_state['hybrid_predictions'] = hybrid_result
                                     save_predictions_artifact("hybrid", hybrid_result)
                                     
                                     st.success(f"✅ **Hoàn thành!** Đã hợp nhất điểm số cho {hybrid_result['stats']['total_users']} users.")
                                     
-                                    # Display statistics
+                                    # Hiển thị thống kê
                                     st.markdown("### 📊 Thống kê Hybrid Predictions")
                                     
                                     col_stat1, col_stat2, col_stat3 = st.columns(3)
@@ -5153,7 +5130,7 @@ def main():
                                 predictions_dict = {}
                             
                             if predictions_dict:
-                                # Configuration
+                                # Cấu hình
                                 col_config1, col_config2 = st.columns(2)
                                 with col_config1:
                                     selected_user_id = st.selectbox(
@@ -5235,7 +5212,7 @@ def main():
                                                 
                                                 st.success(f"✅ **Hoàn thành!** Đã lọc danh sách ứng viên với Hybrid scores.")
                                                 
-                                                # Store in session state
+                                                # Lưu vào session state
                                                 if 'hybrid_personalized_filters' not in st.session_state:
                                                     st.session_state['hybrid_personalized_filters'] = {}
                                                 st.session_state['hybrid_personalized_filters'][selected_user_id] = result
@@ -5248,7 +5225,7 @@ def main():
                                                 st.session_state['hybrid_inference_times'].append(inference_time_measured)
                                                 st.session_state['hybrid_inference_time'] = np.mean(st.session_state['hybrid_inference_times'])
                                                 
-                                                # Display statistics
+                                                # Hiển thị thống kê
                                                 st.markdown("### 📊 Thống kê quá trình lọc")
                                                 
                                                 stats = result['stats']
@@ -5409,7 +5386,7 @@ def main():
                         if 'product_id' in interactions_df.columns:
                             interactions_df['product_id'] = interactions_df['product_id'].astype(str)
                     
-                    # Configuration
+                    # Cấu hình
                     col_config1, col_config2 = st.columns(2)
                     with col_config1:
                         k_values_input = st.text_input(
@@ -5549,7 +5526,7 @@ def main():
                                     
                                     st.success("✅ **Hoàn thành!** Đã tính toán tất cả các chỉ số đánh giá.")
                                     
-                                    # Store in session state
+                                    # Lưu vào session state
                                     st.session_state['hybrid_evaluation_metrics'] = result
                                     # Lưu vào artifacts để không bị mất khi chạy bước khác
                                     save_intermediate_artifact('hybrid_evaluation_metrics', result)
