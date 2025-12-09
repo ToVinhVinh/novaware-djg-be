@@ -399,7 +399,10 @@ def build_outfit_suggestions(
     user_gender: Optional[str],
     max_outfits: int = 3
 ) -> List[Dict]:
-    """Create outfits that include payload product and satisfy structural rules."""
+    """
+    Create outfits based on Item-Item complement relationships.
+    Uses complement dictionary to find compatible items instead of usage-based filtering.
+    """
     if (
         products_df is None
         or personalized_items is None
@@ -411,7 +414,29 @@ def build_outfit_suggestions(
     if payload_row is None:
         return []
     
-    target_usage = str(payload_row.get('usage', '')).strip()
+    # Item-Item complement dictionary based on articleType from products.csv
+    complement = {
+        'Trousers': ['Tshirts', 'Shirts', 'Jackets', 'Sweaters', 'Sweatshirts', 'Formal Shoes', 'Casual Shoes', 'Sports Shoes'],
+        'Tshirts': ['Trousers', 'Jeans', 'Shorts', 'Track Pants', 'Jackets', 'Sweatshirts', 'Formal Shoes', 'Casual Shoes', 'Sports Shoes', 'Flip Flops'],
+        'Shirts': ['Trousers', 'Jeans', 'Shorts', 'Formal Shoes', 'Casual Shoes'],
+        'Dresses': ['Jackets', 'Sweaters', 'Heels', 'Flats', 'Casual Shoes', 'Handbags'],
+        'Tops': ['Trousers', 'Jeans', 'Shorts', 'Skirts', 'Capris', 'Casual Shoes', 'Sports Shoes'],
+        'Shorts': ['Tshirts', 'Tops', 'Sweatshirts', 'Sports Shoes', 'Casual Shoes', 'Flip Flops'],
+        'Skirts': ['Tshirts', 'Tops', 'Tunics', 'Jackets', 'Heels', 'Flats', 'Casual Shoes'],
+        'Jeans': ['Tshirts', 'Shirts', 'Tops', 'Sweaters', 'Sweatshirts', 'Jackets', 'Casual Shoes', 'Sports Shoes'],
+        'Formal Shoes': ['Trousers', 'Shirts'],
+        'Casual Shoes': ['Trousers', 'Jeans', 'Tshirts', 'Tops', 'Shorts', 'Skirts', 'Dresses'],
+        'Sports Shoes': ['Tshirts', 'Tops', 'Shorts', 'Track Pants', 'Capris'],
+        'Heels': ['Dresses', 'Skirts', 'Tops'],
+        'Flats': ['Dresses', 'Skirts', 'Tops'],
+        'Sandals': ['Tshirts', 'Tops', 'Shorts'],
+        'Flip Flops': ['Tshirts', 'Tops', 'Shorts'],
+        'Handbags': ['Dresses', 'Tops', 'Skirts'],
+        'Jackets': ['Trousers', 'Jeans', 'Tshirts', 'Tops', 'Dresses', 'Shirts'],
+        'Sweaters': ['Trousers', 'Jeans', 'Dresses'],
+        'Sweatshirts': ['Trousers', 'Jeans', 'Shorts', 'Track Pants']
+    }
+
     target_gender = str(payload_row.get('gender', '')).strip()
     
     allowed_genders_for_user = get_allowed_genders(user_age, user_gender)
@@ -427,46 +452,150 @@ def build_outfit_suggestions(
         if gender_lower == target_lower:
             return True
         return gender_lower == 'unisex'
-    
-    usage_gender_filtered = products_df.copy()
-    if target_usage:
-        usage_gender_filtered = usage_gender_filtered[
-            usage_gender_filtered["usage"].astype(str).str.strip() == target_usage
-        ]
-    if usage_gender_filtered.empty:
-        usage_gender_filtered = products_df.copy()
 
-    # Nếu payload là Unisex → cùng usage + phù hợp với gender của User
-    is_payload_unisex = str(target_gender).strip().lower() == 'unisex'
-    if is_payload_unisex:
-        # Filter theo gender của User (không phải gender của payload)
-        if "gender" in usage_gender_filtered.columns and allowed_genders_for_user:
-            allowed_set = {str(g).strip().lower() for g in allowed_genders_for_user + ["Unisex"]}
-            usage_gender_filtered = usage_gender_filtered[
-                usage_gender_filtered["gender"].astype(str).str.strip().str.lower().isin(allowed_set)
-            ]
-    elif "gender" in usage_gender_filtered.columns and target_gender:
-        # Bình thường: filter theo gender của payload
-        usage_gender_filtered = usage_gender_filtered[
-            usage_gender_filtered["gender"].apply(gender_allowed)
-        ]
-    if usage_gender_filtered.empty:
-        usage_gender_filtered = products_df.copy()
+    # Map articleType directly to complement keys (using exact articleType from CSV)
+    def map_to_complement_key(row) -> Optional[str]:
+        """Map product articleType to complement dictionary key (using exact articleType from CSV)."""
+        article_type = str(row.get('articleType', '')).strip()
+        
+        # Direct mapping: use articleType as-is if it exists in complement dictionary
+        if article_type in complement:
+            return article_type
+        
+        # Normalize and map common variations
+        article_lower = article_type.lower()
+        
+        # Map variations to standard articleType keys
+        if article_lower in ['t-shirt', 't shirt', 'tshirt']:
+            return 'Tshirts'
+        if article_lower in ['dress']:
+            return 'Dresses'
+        if article_lower in ['formal shoe', 'formal']:
+            return 'Formal Shoes'
+        if article_lower in ['casual shoe', 'casual']:
+            return 'Casual Shoes'
+        if article_lower in ['sports shoe', 'sport shoe']:
+            return 'Sports Shoes'
+        if article_lower in ['flip flop', 'flipflop']:
+            return 'Flip Flops'
+        if article_lower in ['sandal']:
+            return 'Sandals'
+        if article_lower in ['heel']:
+            return 'Heels'
+        if article_lower in ['flat']:
+            return 'Flats'
+        if article_lower in ['handbag', 'bag']:
+            return 'Handbags'
+        if article_lower in ['sweater']:
+            return 'Sweaters'
+        if article_lower in ['sweatshirt']:
+            return 'Sweatshirts'
+        if article_lower in ['jacket']:
+            return 'Jackets'
+        if article_lower in ['short']:
+            return 'Shorts'
+        if article_lower in ['skirt']:
+            return 'Skirts'
+        if article_lower in ['jean']:
+            return 'Jeans'
+        if article_lower in ['trouser', 'pant']:
+            return 'Trousers'
+        if article_lower in ['shirt']:
+            return 'Shirts'
+        if article_lower in ['top']:
+            return 'Tops'
+        if article_lower in ['track pant', 'trackpant']:
+            return 'Track Pants'
+        if article_lower in ['capri']:
+            return 'Capris'
+        if article_lower in ['tunic']:
+            return 'Tunics'
+        
+        return None
 
+    payload_complement_key = map_to_complement_key(payload_row)
+    if payload_complement_key is None:
+        # Fallback: try to infer from subCategory
+        payload_sub = str(payload_row.get('subCategory', '')).strip().lower()
+        payload_article = str(payload_row.get('articleType', '')).strip().lower()
+        
+        if payload_sub == 'bottomwear':
+            if 'trouser' in payload_article or 'pant' in payload_article:
+                payload_complement_key = 'Trousers'
+            elif 'jean' in payload_article:
+                payload_complement_key = 'Jeans'
+            elif 'short' in payload_article:
+                payload_complement_key = 'Shorts'
+            elif 'skirt' in payload_article:
+                payload_complement_key = 'Skirts'
+            else:
+                payload_complement_key = 'Trousers'
+        elif payload_sub == 'topwear':
+            if 'tshirt' in payload_article or 't-shirt' in payload_article:
+                payload_complement_key = 'Tshirts'
+            elif 'shirt' in payload_article:
+                payload_complement_key = 'Shirts'
+            elif 'top' in payload_article:
+                payload_complement_key = 'Tops'
+            elif 'sweater' in payload_article:
+                payload_complement_key = 'Sweaters'
+            elif 'sweatshirt' in payload_article:
+                payload_complement_key = 'Sweatshirts'
+            elif 'jacket' in payload_article:
+                payload_complement_key = 'Jackets'
+            else:
+                payload_complement_key = 'Tshirts'
+        elif payload_sub == 'dress':
+            payload_complement_key = 'Dresses'
+        elif payload_sub in ['shoes', 'sandal', 'flip flops']:
+            if 'formal' in payload_article:
+                payload_complement_key = 'Formal Shoes'
+            elif 'casual' in payload_article:
+                payload_complement_key = 'Casual Shoes'
+            elif 'sport' in payload_article:
+                payload_complement_key = 'Sports Shoes'
+            elif 'heel' in payload_article:
+                payload_complement_key = 'Heels'
+            elif 'flat' in payload_article:
+                payload_complement_key = 'Flats'
+            elif 'sandal' in payload_article:
+                payload_complement_key = 'Sandals'
+            elif 'flip' in payload_article:
+                payload_complement_key = 'Flip Flops'
+            else:
+                payload_complement_key = 'Casual Shoes'
+        elif payload_sub == 'bags':
+            payload_complement_key = 'Handbags'
+        else:
+            # Default fallback
+            payload_complement_key = 'Tshirts'
+
+    # Get compatible item types for payload
+    compatible_types = complement.get(payload_complement_key, [])
+
+    # Filter products by gender compatibility
     gender_filtered = products_df.copy()
-    if "gender" in gender_filtered.columns and target_gender:
-        gender_filtered = gender_filtered[gender_filtered["gender"].apply(gender_allowed)]
+    if 'gender' in gender_filtered.columns and target_gender:
+        gender_filtered = gender_filtered[gender_filtered['gender'].apply(gender_allowed)]
     if gender_filtered.empty:
         gender_filtered = products_df.copy()
 
     user_gender_filtered = products_df.copy()
-    if "gender" in user_gender_filtered.columns and allowed_genders_for_user:
+    if 'gender' in user_gender_filtered.columns and allowed_genders_for_user:
         allowed_set = {str(g).strip().lower() for g in allowed_genders_for_user + ["Unisex"]}
         user_gender_filtered = user_gender_filtered[
-            user_gender_filtered["gender"].astype(str).str.strip().str.lower().isin(allowed_set)
+            user_gender_filtered['gender'].astype(str).str.strip().str.lower().isin(allowed_set)
         ]
     if user_gender_filtered.empty:
         user_gender_filtered = products_df.copy()
+
+    unisex_filtered = products_df.copy()
+    if 'gender' in unisex_filtered.columns:
+        unisex_filtered = unisex_filtered[
+            unisex_filtered['gender'].astype(str).str.strip().str.lower() == 'unisex'
+        ]
+    if unisex_filtered.empty:
+        unisex_filtered = products_df.copy()
     
     score_lookup = {
         item['product_id']: item['score']
@@ -498,279 +627,136 @@ def build_outfit_suggestions(
                 return user_scores[pid_int]
         except (ValueError, TypeError):
             pass
-        # Try string matching
         for key, val in user_scores.items():
             if str(key) == pid_str:
                 return val
         return 0.0
-    
-    def sort_candidates(df_subset: pd.DataFrame) -> List[str]:
-        if df_subset is None or df_subset.empty:
+
+    def is_compatible_with_payload(product_row) -> bool:
+        """Check if product is compatible with payload based on complement rules."""
+        product_complement_key = map_to_complement_key(product_row)
+        if product_complement_key is None:
+            return False
+        
+        # Check if product's complement key is in compatible_types
+        return product_complement_key in compatible_types
+
+    def get_products_by_complement_type(complement_type: str, df: pd.DataFrame) -> pd.DataFrame:
+        """Get products that match a complement type (using exact articleType matching)."""
+        # Direct match: articleType exactly equals complement_type
+        exact_match = df[df['articleType'].astype(str).str.strip() == complement_type]
+        
+        if not exact_match.empty:
+            return exact_match
+        
+        # Fallback: case-insensitive match
+        article_lower = complement_type.lower()
+        mask = df['articleType'].astype(str).str.lower().str.strip() == article_lower
+        
+        return df[mask]
+
+    # Build candidate pools for each compatible type
+    def build_candidate_pool(complement_type: str, df: pd.DataFrame) -> List[str]:
+        """Build sorted candidate list for a complement type."""
+        type_df = get_products_by_complement_type(complement_type, df)
+        if type_df.empty:
             return []
-        # ensure index as string ID
-        ids = df_subset.index.astype(str)
+        
+        ids = type_df.index.astype(str)
         scores = [get_product_score(pid) for pid in ids]
-        # Sort by score (desc), then by product_id (asc) for deterministic ordering
         ordered = sorted(zip(ids, scores), key=lambda x: (-x[1], x[0]))
         return [pid for pid, _ in ordered]
-    
-    def subset_by(df: pd.DataFrame, master=None, subcategories=None):
-        if master and 'masterCategory' in df.columns:
-            df = df[df['masterCategory'].astype(str).str.lower() == master.lower()]
-        if subcategories and 'subCategory' in df.columns:
-            sub_values = [s.lower() for s in subcategories]
-            df = df[df['subCategory'].astype(str).str.lower().isin(sub_values)]
-        return df
-    
-    accessory_subs = ['bags', 'belts', 'headwear', 'watches']
-    footwear_subs = ['shoes', 'sandal', 'flip flops']
-    
-    candidates_strict = {
-        "accessory": sort_candidates(
-            subset_by(usage_gender_filtered, master="Accessories", subcategories=accessory_subs)
-        ),
-        "topwear": sort_candidates(
-            subset_by(usage_gender_filtered, master="Apparel", subcategories=["topwear"])
-        ),
-        "bottomwear": sort_candidates(
-            subset_by(usage_gender_filtered, master="Apparel", subcategories=["bottomwear"])
-        ),
-        "dress": sort_candidates(
-            subset_by(usage_gender_filtered, master="Apparel", subcategories=["dress"])
-        ),
-        "innerwear": sort_candidates(
-            subset_by(usage_gender_filtered, master="Apparel", subcategories=["innerwear"])
-        ),
-        "footwear": sort_candidates(
-            subset_by(usage_gender_filtered, master="Footwear", subcategories=footwear_subs)
-        ),
-    }
 
-    candidates_relaxed = {
-        "accessory": sort_candidates(
-            subset_by(gender_filtered, master="Accessories", subcategories=accessory_subs)
-        ),
-        "topwear": sort_candidates(
-            subset_by(gender_filtered, master="Apparel", subcategories=["topwear"])
-        ),
-        "bottomwear": sort_candidates(
-            subset_by(gender_filtered, master="Apparel", subcategories=["bottomwear"])
-        ),
-        "dress": sort_candidates(
-            subset_by(gender_filtered, master="Apparel", subcategories=["dress"])
-        ),
-        "innerwear": sort_candidates(
-            subset_by(gender_filtered, master="Apparel", subcategories=["innerwear"])
-        ),
-        "footwear": sort_candidates(
-            subset_by(gender_filtered, master="Footwear", subcategories=footwear_subs)
-        ),
-    }
+    # Build candidate pools with different filtering strategies
+    candidates_gender = {}
+    candidates_user_gender = {}
+    candidates_unisex = {}
+    candidates_any = {}
 
-    candidates_user_gender = {
-        "accessory": sort_candidates(
-            subset_by(user_gender_filtered, master="Accessories", subcategories=accessory_subs)
-        ),
-        "topwear": sort_candidates(
-            subset_by(user_gender_filtered, master="Apparel", subcategories=["topwear"])
-        ),
-        "bottomwear": sort_candidates(
-            subset_by(user_gender_filtered, master="Apparel", subcategories=["bottomwear"])
-        ),
-        "dress": sort_candidates(
-            subset_by(user_gender_filtered, master="Apparel", subcategories=["dress"])
-        ),
-        "innerwear": sort_candidates(
-            subset_by(user_gender_filtered, master="Apparel", subcategories=["innerwear"])
-        ),
-        "footwear": sort_candidates(
-            subset_by(user_gender_filtered, master="Footwear", subcategories=footwear_subs)
-        ),
-    }
+    for comp_type in compatible_types:
+        candidates_gender[comp_type] = build_candidate_pool(comp_type, gender_filtered)
+        candidates_user_gender[comp_type] = build_candidate_pool(comp_type, user_gender_filtered)
+        candidates_unisex[comp_type] = build_candidate_pool(comp_type, unisex_filtered)
+        candidates_any[comp_type] = build_candidate_pool(comp_type, products_df)
 
-    # Pool ưu tiên Unisex: khi thiếu thành phần, ưu tiên Unisex trước
-    unisex_filtered = products_df.copy()
-    if "gender" in unisex_filtered.columns:
-        unisex_filtered = unisex_filtered[
-            unisex_filtered["gender"].astype(str).str.strip().str.lower() == "unisex"
-        ]
-    if unisex_filtered.empty:
-        unisex_filtered = products_df.copy()
-    
-    candidates_unisex = {
-        "accessory": sort_candidates(
-            subset_by(unisex_filtered, master="Accessories", subcategories=accessory_subs)
-        ),
-        "topwear": sort_candidates(
-            subset_by(unisex_filtered, master="Apparel", subcategories=["topwear"])
-        ),
-        "bottomwear": sort_candidates(
-            subset_by(unisex_filtered, master="Apparel", subcategories=["bottomwear"])
-        ),
-        "dress": sort_candidates(
-            subset_by(unisex_filtered, master="Apparel", subcategories=["dress"])
-        ),
-        "innerwear": sort_candidates(
-            subset_by(unisex_filtered, master="Apparel", subcategories=["innerwear"])
-        ),
-        "footwear": sort_candidates(
-            subset_by(unisex_filtered, master="Footwear", subcategories=footwear_subs)
-        ),
-    }
-    
-    candidates_any = {
-        "accessory": sort_candidates(
-            subset_by(products_df, master="Accessories", subcategories=accessory_subs)
-        ),
-        "topwear": sort_candidates(
-            subset_by(products_df, master="Apparel", subcategories=["topwear"])
-        ),
-        "bottomwear": sort_candidates(
-            subset_by(products_df, master="Apparel", subcategories=["bottomwear"])
-        ),
-        "dress": sort_candidates(
-            subset_by(products_df, master="Apparel", subcategories=["dress"])
-        ),
-        "innerwear": sort_candidates(
-            subset_by(products_df, master="Apparel", subcategories=["innerwear"])
-        ),
-        "footwear": sort_candidates(
-            subset_by(products_df, master="Footwear", subcategories=footwear_subs)
-        ),
-    }
-    
-    def detect_categories(row):
-        cats = set()
-        sub = str(row.get('subCategory', '')).lower()
-        master = str(row.get('masterCategory', '')).lower()
-        if master == 'accessories' or sub in [s.lower() for s in accessory_subs]:
-            cats.add('accessory')
-        if sub == 'topwear':
-            cats.add('topwear')
-        if sub == 'bottomwear':
-            cats.add('bottomwear')
-        if sub == 'dress':
-            cats.add('dress')
-        if sub == 'innerwear':
-            cats.add('innerwear')
-        if master == 'footwear' or sub in [s.lower() for s in footwear_subs]:
-            cats.add('footwear')
-        return cats
-    
-    payload_categories = detect_categories(payload_row)
-    
-    # Kiểm tra payload có phải là Dresses không
-    payload_article_type = str(payload_row.get('articleType', '')).strip().lower()
-    payload_sub_category = str(payload_row.get('subCategory', '')).strip().lower()
-    is_payload_dress = payload_article_type == 'dresses' or payload_sub_category == 'dress'
-    
-    required_categories = ['accessory', 'topwear', 'bottomwear', 'footwear']
-    # Nếu payload là Dresses → không cần topwear và bottomwear (vì dress đã thay thế cả hai)
-    if is_payload_dress:
-        required_categories = ['accessory', 'footwear']
-    
-    optional_categories = []
-    # Thêm dress dựa trên gender của payload product, không phải user gender
-    # Nếu payload product là Women hoặc Girls → được phép có dress
-    # Nếu payload product là Men → không được có dress
-    # Lưu ý: Nếu payload đã là Dresses, thì không thêm dress vào optional (tránh duplicate)
-    if not is_payload_dress and target_gender:
-        target_gender_lower = str(target_gender).strip().lower()
-        if target_gender_lower in ['women', 'girls']:
-            optional_categories.append('dress')
-        # Nếu là Men, Boys, hoặc Unisex → không thêm dress
-    # innerwear removed - không thêm vào outfit suggestions
-    
+    # Also include Shoes and Bag as they're common complements
+    if 'Shoes' not in compatible_types:
+        compatible_types.append('Shoes')
+        candidates_gender['Shoes'] = build_candidate_pool('Shoes', gender_filtered)
+        candidates_user_gender['Shoes'] = build_candidate_pool('Shoes', user_gender_filtered)
+        candidates_unisex['Shoes'] = build_candidate_pool('Shoes', unisex_filtered)
+        candidates_any['Shoes'] = build_candidate_pool('Shoes', products_df)
+
+    # Handbags are already included in complement dictionary for Dresses
+    # No need for separate handling
+
     outfits = []
     category_offsets = defaultdict(int)
-    
-    def pick_candidate(cat, used):
-        """
-        Ưu tiên:
-        1. Strict: cùng usage + cùng gender (hoặc Unisex theo sản phẩm payload)
-        2. Relaxed usage: bỏ điều kiện usage, giữ gender theo sản phẩm payload (hoặc Unisex)
-        3. User-gender: bỏ điều kiện usage + gender payload, chỉ cần phù hợp giới tính user (hoặc Unisex)
-        4. Unisex: ưu tiên Unisex khi thiếu thành phần (giảm điều kiện usage/gender)
-        5. Any: bất kỳ sản phẩm nào trong category (fallback cuối cùng để đảm bảo có thể tạo outfit)
-        """
-        # Loại trừ: Nếu payload là Dresses → không được có Topwear và Bottomwear
-        payload_article_type = str(payload_row.get('articleType', '')).strip().lower()
-        payload_sub_category = str(payload_row.get('subCategory', '')).strip().lower()
-        is_payload_dress = payload_article_type == 'dresses' or payload_sub_category == 'dress'
-        is_payload_top_or_bottom = payload_sub_category in ['topwear', 'bottomwear']
-        
-        # Nếu payload là Dresses, không cho phép topwear và bottomwear
-        if is_payload_dress and cat in ['topwear', 'bottomwear']:
-            return None
-        
-        # Nếu payload là Topwear hoặc Bottomwear, không cho phép dress
-        if is_payload_top_or_bottom and cat == 'dress':
-            return None
-        
+
+    def pick_candidate(comp_type: str, used: set) -> Optional[str]:
+        """Pick a candidate product for a complement type."""
         is_payload_unisex = str(target_gender).strip().lower() == 'unisex'
         
         if is_payload_unisex:
             pools = [
-                ("strict", candidates_strict.get(cat, [])),
+                ('gender', candidates_gender.get(comp_type, [])),
             ]
         else:
-            # Bình thường: sử dụng tất cả các pools
             pools = [
-                ("strict", candidates_strict.get(cat, [])),
-                ("relaxed", candidates_relaxed.get(cat, [])),
-                ("user_gender", candidates_user_gender.get(cat, [])),
-                ("unisex", candidates_unisex.get(cat, [])),
-                ("any", candidates_any.get(cat, [])),
+                ('gender', candidates_gender.get(comp_type, [])),
+                ('user_gender', candidates_user_gender.get(comp_type, [])),
+                ('unisex', candidates_unisex.get(comp_type, [])),
+                ('any', candidates_any.get(comp_type, [])),
             ]
+        
         for pool_key, pool in pools:
             if not pool:
                 continue
-            offset_key = f"{cat}:{pool_key}"
+            offset_key = f"{comp_type}:{pool_key}"
             start = category_offsets[offset_key]
             for shift in range(len(pool)):
                 idx = (start + shift) % len(pool)
                 pid = pool[idx]
                 if pid in used or pid == str(payload_product_id):
                     continue
-                category_offsets[offset_key] = idx + 1
-                return pid
+                # Verify compatibility
+                product_row = get_product_record(pid, products_df)
+                if product_row is not None and is_compatible_with_payload(product_row):
+                    category_offsets[offset_key] = idx + 1
+                    return pid
         return None
-    
+
+    # Build outfits using complement relationships
     for outfit_idx in range(max_outfits):
         used = {str(payload_product_id)}
         ordered_products = [str(payload_product_id)]
-        missing_required = False
         
-        for cat in required_categories:
-            if cat in payload_categories:
-                continue
-            candidate = pick_candidate(cat, used)
-            if candidate:
-                used.add(candidate)
-                ordered_products.append(candidate)
-            else:
-                missing_required = True
+        # Try to add compatible items
+        for comp_type in compatible_types[:4]:  # Limit to top 4 compatible types
+            if len(ordered_products) >= 5:  # Limit outfit size
                 break
-        
-        if missing_required:
-            continue
-        
-        for cat in optional_categories:
-            if cat in payload_categories:
-                continue
-            candidate = pick_candidate(cat, used)
+            candidate = pick_candidate(comp_type, used)
             if candidate:
                 used.add(candidate)
                 ordered_products.append(candidate)
+
+        # Calculate outfit score based on complement compatibility
+        base_score = sum(get_product_score(pid) for pid in ordered_products)
         
-        score = sum(
-            get_product_score(pid)
-            for pid in ordered_products
-        )
-        outfits.append({
-            'products': ordered_products,
-            'score': score
-        })
+        # Bonus for complement compatibility
+        complement_bonus = 0.0
+        for pid in ordered_products[1:]:  # Skip payload
+            product_row = get_product_record(pid, products_df)
+            if product_row and is_compatible_with_payload(product_row):
+                complement_bonus += 0.1
+        
+        final_score = base_score + complement_bonus
+        
+        if len(ordered_products) > 1:  # At least payload + 1 item
+            outfits.append({
+                'products': ordered_products,
+                'score': final_score
+            })
     
     return outfits
 

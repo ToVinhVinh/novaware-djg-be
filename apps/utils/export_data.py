@@ -65,7 +65,7 @@ def export_products(export_dir: Path, mongodb_connected: bool = False) -> Dict:
             fieldnames = ['id', 'gender', 'masterCategory', 'subCategory', 'articleType',
                          'baseColour', 'season', 'year', 'usage', 'productDisplayName', 'images']
 
-            with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+            with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
                 writer.writerows(rows)
@@ -160,7 +160,7 @@ def export_users(export_dir: Path, mongodb_connected: bool = False) -> Dict:
         if rows:
             fieldnames = ['id', 'name', 'email', 'age', 'gender', 'interaction_history']
 
-            with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+            with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
                 writer.writerows(rows)
@@ -192,7 +192,7 @@ def export_interactions(export_dir: Path, mongodb_connected: bool = False) -> Di
             if user.id:
                 valid_user_ids.add(str(user.id))
 
-        print(f"📊 Tìm thấy {len(valid_user_ids)} users hợp lệ")
+        print(f"Tim thay {len(valid_user_ids)} users hop le")
 
         all_interactions = UserInteraction.objects.all().order_by('timestamp')
 
@@ -215,12 +215,12 @@ def export_interactions(export_dir: Path, mongodb_connected: bool = False) -> Di
                 filtered_count += 1
 
         if filtered_count > 0:
-            print(f"⚠️  Đã loại bỏ {filtered_count} interactions không map với users.csv")
+            print(f"Da loai bo {filtered_count} interactions khong map voi users.csv")
 
         if rows:
             fieldnames = ['user_id', 'product_id', 'interaction_type', 'timestamp']
 
-            with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+            with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
                 writer.writerows(rows)

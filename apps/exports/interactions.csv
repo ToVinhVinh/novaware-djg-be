@@ -1,4 +1,4 @@
-user_id,product_id,interaction_type,timestamp
+﻿user_id,product_id,interaction_type,timestamp
 691cd83e5fee2d4ca1ba6a46,10793,view,2025-10-29T19:44:17.071000
 691cd8385fee2d4ca1ba6a3a,10405,purchase,2025-10-29T20:17:18.028000
 691cd83b5fee2d4ca1ba6a3f,10054,purchase,2025-10-29T21:33:34.107000
