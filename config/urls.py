@@ -9,7 +9,6 @@ from rest_framework import routers
 from apps.products.urls import router as products_router
 from apps.orders.urls import router as orders_router
 from apps.users.urls import router as users_router
-from apps.recommendations.urls import router as recommendations_router
 
 class OptionalDefaultRouter(routers.DefaultRouter):
 
@@ -21,7 +20,6 @@ api_router = OptionalDefaultRouter(trailing_slash=False)
 api_router.extend(users_router)
 api_router.extend(products_router)
 api_router.extend(orders_router)
-api_router.extend(recommendations_router)
 
 urlpatterns = [
     path("admin/", admin.site.urls),
