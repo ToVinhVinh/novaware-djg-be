@@ -1171,11 +1171,70 @@ def display_outfit_building_steps(
         # Tính vector thực tế
         encoding_result = apply_feature_encoding(products_df, ['masterCategory', 'subCategory', 'articleType', 'baseColour', 'usage'])
         
-        if encoding_result and 'product_ids' in encoding_result:
+        if encoding_result and 'product_ids' in encoding_result and len(encoding_result['encoded_matrix']) > 0:
+            vector = None
+            payload_idx = None
+            
+            # Thử nhiều cách để tìm payload_product_id
+            product_ids = encoding_result['product_ids']
+            
+            # Thử tìm với string
             try:
-                payload_idx = encoding_result['product_ids'].index(str(payload_product_id))
-                if payload_idx < len(encoding_result['encoded_matrix']):
-                    vector = encoding_result['encoded_matrix'][payload_idx]
+                payload_idx = product_ids.index(str(payload_product_id))
+            except (ValueError, AttributeError):
+                # Thử tìm với int
+                try:
+                    payload_idx = product_ids.index(int(payload_product_id))
+                except (ValueError, TypeError):
+                    # Thử tìm bằng cách so sánh trực tiếp
+                    try:
+                        for idx, pid in enumerate(product_ids):
+                            if str(pid) == str(payload_product_id) or pid == payload_product_id:
+                                payload_idx = idx
+                                break
+                    except:
+                        pass
+            
+            # Nếu vẫn không tìm thấy, thử tìm trong products_df bằng cách tương tự get_product_record
+            if payload_idx is None:
+                try:
+                    product_key = str(payload_product_id)
+                    # Thử tìm bằng index của dataframe
+                    if products_df.index.name is not None or not isinstance(products_df.index, pd.RangeIndex):
+                        if product_key in products_df.index.astype(str):
+                            df_idx = products_df.index.get_loc(product_key)
+                            if isinstance(df_idx, slice):
+                                df_idx = df_idx.start
+                            elif isinstance(df_idx, np.ndarray):
+                                df_idx = df_idx[0] if len(df_idx) > 0 else None
+                            
+                            if df_idx is not None and df_idx < len(product_ids):
+                                payload_idx = df_idx
+                    # Thử tìm bằng cột 'id'
+                    if payload_idx is None and 'id' in products_df.columns:
+                        match_idx = products_df[products_df['id'].astype(str) == product_key].index
+                        if len(match_idx) > 0:
+                            # Tìm vị trí của match_idx trong product_ids
+                            for i, pid in enumerate(product_ids):
+                                if str(pid) == str(match_idx[0]) or pid == match_idx[0]:
+                                    payload_idx = i
+                                    break
+                            # Nếu không tìm thấy, dùng vị trí trong dataframe
+                            if payload_idx is None:
+                                df_pos = products_df.index.get_loc(match_idx[0])
+                                if isinstance(df_pos, (int, np.integer)):
+                                    payload_idx = int(df_pos)
+                                elif isinstance(df_pos, slice):
+                                    payload_idx = df_pos.start
+                                elif isinstance(df_pos, np.ndarray) and len(df_pos) > 0:
+                                    payload_idx = int(df_pos[0])
+                except Exception as e:
+                    pass
+            
+            if payload_idx is not None and payload_idx < len(encoding_result['encoded_matrix']):
+                vector = encoding_result['encoded_matrix'][payload_idx]
+                
+                if vector is not None and len(vector) > 0:
                     st.write(f"- Vector dimension: **{len(vector)}**")
                     st.write(f"- Non-zero elements: **{int(np.sum(vector))}**")
                     st.write(f"- Sparsity: **{1 - np.sum(vector)/len(vector):.2%}**")
@@ -1185,13 +1244,76 @@ def display_outfit_building_steps(
                     if len(non_zero_indices) > 0:
                         st.write("**Active features:**")
                         feature_names = encoding_result.get('feature_names', [])
-                        for idx in non_zero_indices[:10]:  # Hiển thị 10 đặc trưng đầu
+                        for idx in non_zero_indices[:15]:  # Hiển thị 15 đặc trưng đầu
                             if idx < len(feature_names):
-                                st.write(f"  - `{feature_names[idx]}`: 1")
-                        if len(non_zero_indices) > 10:
-                            st.write(f"  - ... và {len(non_zero_indices) - 10} features khác")
-            except (ValueError, IndexError):
-                st.info("Không thể tính vector cho payload product")
+                                st.write(f"  - `{feature_names[idx]}`: **1**")
+                        if len(non_zero_indices) > 15:
+                            st.write(f"  - ... và {len(non_zero_indices) - 15} features khác")
+                    
+                    # Hiển thị vector dạng bảng trực tiếp
+                    st.markdown("**📊 Vector Representation (Bảng đầy đủ):**")
+                    feature_names = encoding_result.get('feature_names', [])
+                    
+                    # Tạo dữ liệu cho bảng - hiển thị tất cả features (kể cả giá trị 0)
+                    table_data = []
+                    for idx in range(len(vector)):
+                        feature_name = feature_names[idx] if idx < len(feature_names) else f"Feature_{idx}"
+                        table_data.append({
+                            'Index': idx,
+                            'Feature Name': feature_name,
+                            'Value': int(vector[idx])
+                        })
+                    
+                    if table_data:
+                        vector_df = pd.DataFrame(table_data)
+                        items_per_page = 50  # Số items hiển thị mỗi trang
+                        
+                        # Phân trang nếu có nhiều items
+                        if len(table_data) > items_per_page:
+                            total_pages = (len(table_data) + items_per_page - 1) // items_per_page
+                            page_num = st.number_input(
+                                f"Trang (1-{total_pages})",
+                                min_value=1,
+                                max_value=total_pages,
+                                value=1,
+                                key=f"vector_page_{payload_product_id}"
+                            )
+                            start_idx = (page_num - 1) * items_per_page
+                            end_idx = start_idx + items_per_page
+                            display_df = vector_df.iloc[start_idx:end_idx]
+                            st.dataframe(
+                                display_df,
+                                use_container_width=True,
+                                hide_index=True
+                            )
+                            st.caption(f"Hiển thị {start_idx + 1}-{min(end_idx, len(table_data))} / {len(table_data)} features")
+                        else:
+                            st.dataframe(
+                                vector_df,
+                                use_container_width=True,
+                                hide_index=True
+                            )
+                        
+                        # Thống kê
+                        st.caption(f"📈 Tổng số features: {len(vector)} | Active features: {len(non_zero_indices)} | Zero features: {len(vector) - len(non_zero_indices)}")
+                    else:
+                        st.info("Không có dữ liệu để hiển thị")
+                else:
+                    st.warning("⚠️ Vector rỗng hoặc không hợp lệ")
+            else:
+                st.warning(f"⚠️ Không tìm thấy payload product ID `{payload_product_id}` trong encoding result")
+                st.write(f"**Debug info:**")
+                st.write(f"- Số lượng products trong encoding: {len(product_ids)}")
+                st.write(f"- Payload ID type: {type(payload_product_id)}")
+                if len(product_ids) > 0:
+                    st.write(f"- Sample product IDs (5 đầu): {product_ids[:5]}")
+        else:
+            if not encoding_result:
+                st.error("❌ Không thể tạo encoding result")
+            elif 'product_ids' not in encoding_result:
+                st.error("❌ Encoding result thiếu 'product_ids'")
+            elif len(encoding_result.get('encoded_matrix', [])) == 0:
+                st.error("❌ Encoded matrix rỗng")
     
     st.divider()
     
@@ -5282,24 +5404,6 @@ def main():
                                                     labels={'Số lượng': 'Số lượng sản phẩm', 'Bước': 'Bước lọc'}
                                                 )
                                                 st.plotly_chart(fig, use_container_width=True)
-                                                
-                                                # Ví dụ tính toán
-                                                st.markdown("### 🧮 Ví dụ tính toán")
-                                                st.markdown(f"""
-                                                **Ví dụ:** User {selected_user_id} với danh sách ứng viên ban đầu:
-                                                
-                                                - **Danh sách ban đầu:** {stats['initial_count']:,} sản phẩm
-                                                - **Sau Lọc Cứng 1 (articleType='{payload_articletype}'):** {stats['after_articletype']:,} sản phẩm (giảm {stats['initial_count'] - stats['after_articletype']:,} sản phẩm)
-                                                - **Sau Lọc Cứng 2 (User age {'< 13' if user_age and user_age < 13 else '≥ 13'}, gender='{user_gender}'):** {stats['after_age_gender']:,} sản phẩm (giảm {stats['after_articletype'] - stats['after_age_gender']:,} sản phẩm)
-                                                - **Sau Xếp hạng Top-{top_k_personalized}:** {stats['final_count']:,} sản phẩm (xếp hạng theo $Score_{{Hybrid}}(u, i)$)
-                                                - **Tổng giảm:** {stats['removed_count']:,} sản phẩm ({stats['reduction_rate']:.2f}%)
-                                                
-                                                **✅ Kết quả đạt được:**
-                                                - ✅ Danh sách ứng viên được lọc chỉ chứa các sản phẩm hợp lệ về articleType, age, và gender
-                                                - ✅ Danh sách được xếp hạng theo điểm $Score_{{Hybrid}}(u, i)$ để tạo ra danh sách Top-K Personalized cuối cùng
-                                                - ✅ Đảm bảo tính hợp lệ cơ bản và độ ưu tiên của các đề xuất
-                                                - ✅ Chất lượng gợi ý cao hơn nhờ kết hợp ưu điểm của cả GNN và CBF
-                                                """)
                                             
                                             except Exception as e:
                                                 st.error(f"❌ Lỗi khi áp dụng personalized filters với Hybrid: {str(e)}")
