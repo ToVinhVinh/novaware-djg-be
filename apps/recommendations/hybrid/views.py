@@ -414,27 +414,31 @@ def build_outfit_suggestions(
     if payload_row is None:
         return []
     
-    # Item-Item complement dictionary based on articleType from products.csv
+    # Item-Item complement dictionary
     complement = {
         'Trousers': ['Tshirts', 'Shirts', 'Jackets', 'Sweaters', 'Sweatshirts', 'Formal Shoes', 'Casual Shoes', 'Sports Shoes'],
-        'Tshirts': ['Trousers', 'Jeans', 'Shorts', 'Track Pants', 'Jackets', 'Sweatshirts', 'Formal Shoes', 'Casual Shoes', 'Sports Shoes', 'Flip Flops'],
+        'Tshirts': ['Watches', 'Jeans', 'Casual Shoes', 'Flip Flops'],
         'Shirts': ['Trousers', 'Jeans', 'Shorts', 'Formal Shoes', 'Casual Shoes'],
-        'Dresses': ['Jackets', 'Sweaters', 'Heels', 'Flats', 'Casual Shoes', 'Handbags'],
+        'Dresses': [['Watches', 'Casual Shoes'], ['Watches', 'Flats'], ['Watches', 'Flip Flops']],
         'Tops': ['Trousers', 'Jeans', 'Shorts', 'Skirts', 'Capris', 'Casual Shoes', 'Sports Shoes'],
-        'Shorts': ['Tshirts', 'Tops', 'Sweatshirts', 'Sports Shoes', 'Casual Shoes', 'Flip Flops'],
-        'Skirts': ['Tshirts', 'Tops', 'Tunics', 'Jackets', 'Heels', 'Flats', 'Casual Shoes'],
-        'Jeans': ['Tshirts', 'Shirts', 'Tops', 'Sweaters', 'Sweatshirts', 'Jackets', 'Casual Shoes', 'Sports Shoes'],
-        'Formal Shoes': ['Trousers', 'Shirts'],
-        'Casual Shoes': ['Trousers', 'Jeans', 'Tshirts', 'Tops', 'Shorts', 'Skirts', 'Dresses'],
-        'Sports Shoes': ['Tshirts', 'Tops', 'Shorts', 'Track Pants', 'Capris'],
-        'Heels': ['Dresses', 'Skirts', 'Tops'],
-        'Flats': ['Dresses', 'Skirts', 'Tops'],
-        'Sandals': ['Tshirts', 'Tops', 'Shorts'],
-        'Flip Flops': ['Tshirts', 'Tops', 'Shorts'],
-        'Handbags': ['Dresses', 'Tops', 'Skirts'],
-        'Jackets': ['Trousers', 'Jeans', 'Tshirts', 'Tops', 'Dresses', 'Shirts'],
+        'Shorts': [['Tshirts', 'Sweatshirts', 'Sports Shoes', 'Casual Shoes', 'Flip Flops'], ['Tops', 'Sweatshirts', 'Sports Shoes', 'Casual Shoes', 'Flip Flops'], ['Watches', 'Tshirts', 'Sports Shoes']],
+        'Skirts': [['Tshirts', 'Tunics', 'Jackets', 'Heels', 'Flats', 'Casual Shoes'], ['Tops', 'Tunics', 'Jackets', 'Heels', 'Flats', 'Casual Shoes'], ['Watches', 'Tshirts', 'Casual Shoes'], ['Watches', 'Tshirts', 'Flats'], ['Watches', 'Tshirts', 'Flip Flops']],
+        'Jeans': [['Tshirts', 'Shirts', 'Sweaters', 'Sweatshirts', 'Jackets', 'Casual Shoes', 'Sports Shoes'], ['Tops', 'Shirts', 'Sweaters', 'Sweatshirts', 'Jackets', 'Casual Shoes', 'Sports Shoes'], ['Watches', 'Tshirts', 'Flip Flops'], ['Watches', 'Shirts', 'Casual Shoes']],
+        'Formal Shoes': ['Watches', 'Shirts', 'Trousers'],
+        'Casual Shoes': [['Watches', 'Tshirts', 'Jeans'], ['Watches', 'Shirts', 'Jeans']],
+        'Sports Shoes': [['Tshirts', 'Shorts', 'Track Pants', 'Capris'], ['Tops', 'Shorts', 'Track Pants', 'Capris'], ['Watches', 'Tshirts', 'Shorts'], ['Watches', 'Tshirts', 'Track Pants']],
+        'Heels': [['Watches', 'Tshirts', 'Skirts'], ['Watches', 'Dresses']],
+        'Flats': [['Watches', 'Tshirts', 'Skirts', 'Dresses'], ['Watches', 'Tshirts', 'Shorts', 'Dresses']],
+        'Sandals': [['Tshirts', 'Shorts'], ['Tops', 'Shorts'], ['Watches', 'Tshirts', 'Jeans'], ['Watches', 'Shirts', 'Jeans']],
+        'Flip Flops': [['Watches', 'Tshirts', 'Jeans'], ['Watches', 'Shirts', 'Jeans']],
+        'Handbags': [['Tshirts', 'Skirts', 'Casual Shoes'], ['Tshirts', 'Skirts', 'Flats'], ['Tshirts', 'Skirts', 'Flip Flops'], ['Dresses', 'Flip Flops'], ['Dresses', 'Flats']],
+        'Jackets': [['Trousers', 'Jeans', 'Tshirts', 'Dresses', 'Shirts'], ['Trousers', 'Jeans', 'Tops', 'Dresses', 'Shirts']],
         'Sweaters': ['Trousers', 'Jeans', 'Dresses'],
-        'Sweatshirts': ['Trousers', 'Jeans', 'Shorts', 'Track Pants']
+        'Sweatshirts': ['Trousers', 'Jeans', 'Shorts', 'Track Pants'],
+        'Backpacks': [['Tshirts', 'Jeans', 'Flip Flops'], ['Shirts', 'Jeans', 'Casual Shoes']],
+        'Belts': [['Tshirts', 'Jeans', 'Flip Flops'], ['Shirts', 'Jeans', 'Casual Shoes']],
+        'Capris': [['Caps', 'Jackets', 'Sports Shoes'], ['Caps', 'Tshirts', 'Sports Shoes']],
+        'Caps': [['Tshirts', 'Shorts', 'Sports Shoes'], ['Tshirts', 'Track Pants', 'Sports Shoes']]
     }
 
     target_gender = str(payload_row.get('gender', '')).strip()
@@ -510,6 +514,12 @@ def build_outfit_suggestions(
             return 'Capris'
         if article_lower in ['tunic']:
             return 'Tunics'
+        if article_lower in ['backpack']:
+            return 'Backpacks'
+        if article_lower in ['belt']:
+            return 'Belts'
+        if article_lower in ['cap', 'hat']:
+            return 'Caps'
         
         return None
 
@@ -565,13 +575,32 @@ def build_outfit_suggestions(
             else:
                 payload_complement_key = 'Casual Shoes'
         elif payload_sub == 'bags':
-            payload_complement_key = 'Handbags'
+            if 'backpack' in payload_article:
+                payload_complement_key = 'Backpacks'
+            else:
+                payload_complement_key = 'Handbags'
+        elif payload_sub in ['accessories', 'wallets', 'belts']:
+            if 'belt' in payload_article:
+                payload_complement_key = 'Belts'
+            elif 'cap' in payload_article or 'hat' in payload_article:
+                payload_complement_key = 'Caps'
+            else:
+                payload_complement_key = 'Tshirts'
         else:
             # Default fallback
             payload_complement_key = 'Tshirts'
 
     # Get compatible item types for payload
-    compatible_types = complement.get(payload_complement_key, [])
+    # Handle both old format (flat list) and new format (list of lists)
+    complement_value = complement.get(payload_complement_key, [])
+    if complement_value and isinstance(complement_value[0], list):
+        # New format: list of lists - flatten and get unique types
+        compatible_types = list(set([item for sublist in complement_value for item in sublist]))
+        complement_rules = complement_value  # Store rules for outfit building
+    else:
+        # Old format: flat list
+        compatible_types = complement_value if complement_value else []
+        complement_rules = [compatible_types] if compatible_types else []  # Treat as single rule
 
     # Filter products by gender compatibility
     gender_filtered = products_df.copy()
