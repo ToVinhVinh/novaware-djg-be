@@ -1253,7 +1253,7 @@ def display_outfit_building_steps(
                             st.write(f"  - ... và {len(non_zero_indices) - 15} features khác")
                     
                     # Hiển thị vector dạng bảng trực tiếp
-                    st.markdown("**📊 Vector Representation (Bảng đầy đủ):**")
+                    st.markdown("**📊 Vector Representation:**")
                     feature_names = encoding_result.get('feature_names', [])
                     
                     # Tạo dữ liệu cho bảng - hiển thị tất cả features (kể cả giá trị 0)
@@ -3185,10 +3185,11 @@ def main():
                                                     st.write(result['skipped_product_ids'])
                                         
                                         # Tạo các tab cho các hình ảnh hóa khác nhau
-                                        tab1, tab2, tab3 = st.tabs([
+                                        tab1, tab2, tab3, tab4 = st.tabs([
                                             "📋 Mẫu User Profiles",
                                             "📊 Phân bố số lượng Interactions",
-                                            "📈 Phân bố Trọng số"
+                                            "📈 Phân bố Trọng số",
+                                            "🎓 Train Set (Interactions đã dùng)"
                                         ])
                                         
                                         with tab1:
@@ -3298,6 +3299,87 @@ def main():
                                                 st.metric("Min", f"{min(avg_weights):.2f}")
                                                 st.metric("Max", f"{max(avg_weights):.2f}")
                                                 st.metric("Mean", f"{np.mean(avg_weights):.2f}")
+                                        
+                                        with tab4:
+                                            st.markdown("### 🎓 Train Set - Interactions đã dùng để xây dựng User Profiles")
+                                            st.info("💡 **Train Set** bao gồm tất cả các interactions (purchase, like, cart, view) mà user đã thực hiện. Các interactions này được sử dụng để xây dựng vector hồ sơ người dùng $\\mathbf{P}_u$.")
+                                            
+                                            # Lấy dữ liệu interactions từ pruning result
+                                            train_set_df = pruned_interactions_df.copy()
+                                            
+                                            # Hiển thị thống kê train set
+                                            col_train1, col_train2, col_train3 = st.columns(3)
+                                            with col_train1:
+                                                st.metric("Tổng số interactions", len(train_set_df))
+                                                st.metric("Số users", train_set_df['user_id'].nunique())
+                                            with col_train2:
+                                                st.metric("Số products", train_set_df['product_id'].nunique())
+                                                if 'interaction_type' in train_set_df.columns:
+                                                    st.metric("Số loại tương tác", train_set_df['interaction_type'].nunique())
+                                            with col_train3:
+                                                if 'interaction_type' in train_set_df.columns:
+                                                    interaction_counts = train_set_df['interaction_type'].value_counts()
+                                                    st.markdown("**Phân bố theo loại:**")
+                                                    for itype, count in interaction_counts.items():
+                                                        st.write(f"- {itype}: {count} ({count/len(train_set_df)*100:.1f}%)")
+                                            
+                                            # Hiển thị mẫu train set
+                                            st.markdown("#### 📋 Mẫu Train Set (10 interactions đầu tiên)")
+                                            sample_train = train_set_df.head(10)
+                                            display_cols = ['user_id', 'product_id']
+                                            if 'interaction_type' in sample_train.columns:
+                                                display_cols.append('interaction_type')
+                                            if 'timestamp' in sample_train.columns:
+                                                display_cols.append('timestamp')
+                                            
+                                            st.dataframe(sample_train[display_cols], use_container_width=True)
+                                            
+                                            # Hiển thị train set cho một user cụ thể
+                                            st.markdown("#### 🔍 Train Set cho một User cụ thể")
+                                            sample_user_ids = list(result['user_profiles'].keys())[:10]
+                                            selected_train_user = st.selectbox(
+                                                "Chọn User để xem train set",
+                                                sample_user_ids,
+                                                key="train_set_user_selector"
+                                            )
+                                            
+                                            if selected_train_user:
+                                                user_train_interactions = train_set_df[
+                                                    train_set_df['user_id'].astype(str) == str(selected_train_user)
+                                                ]
+                                                
+                                                if not user_train_interactions.empty:
+                                                    col_user_train1, col_user_train2 = st.columns(2)
+                                                    with col_user_train1:
+                                                        st.metric("Số interactions", len(user_train_interactions))
+                                                        if 'interaction_type' in user_train_interactions.columns:
+                                                            type_counts = user_train_interactions['interaction_type'].value_counts()
+                                                            st.markdown("**Theo loại:**")
+                                                            for itype, count in type_counts.items():
+                                                                weight = INTERACTION_WEIGHTS.get(itype, 1.0)
+                                                                st.write(f"- {itype}: {count} (weight={weight})")
+                                                    with col_user_train2:
+                                                        st.metric("Số products", user_train_interactions['product_id'].nunique())
+                                                        stats = result['user_stats'].get(str(selected_train_user), {})
+                                                        st.metric("Total Weight", f"{stats.get('total_weight', 0):.2f}")
+                                                    
+                                                    # Hiển thị danh sách interactions
+                                                    st.markdown(f"**Danh sách interactions của User {selected_train_user}:**")
+                                                    display_user_cols = ['product_id']
+                                                    if 'interaction_type' in user_train_interactions.columns:
+                                                        display_user_cols.append('interaction_type')
+                                                    if 'timestamp' in user_train_interactions.columns:
+                                                        display_user_cols.append('timestamp')
+                                                    
+                                                    user_train_display = user_train_interactions[display_user_cols].copy()
+                                                    if 'interaction_type' in user_train_display.columns:
+                                                        user_train_display['weight'] = user_train_display['interaction_type'].map(
+                                                            lambda x: INTERACTION_WEIGHTS.get(x, 1.0)
+                                                        )
+                                                    
+                                                    st.dataframe(user_train_display, use_container_width=True)
+                                                else:
+                                                    st.warning(f"Không tìm thấy interactions cho user {selected_train_user}")
                             
                                 except Exception as e:
                                     st.error(f"❌ Lỗi khi xây dựng user profiles: {str(e)}")
@@ -3449,10 +3531,11 @@ def main():
                                             st.metric("Std score", f"{result['stats']['std_score']:.4f}")
                                         
                                         # Tạo các tab cho các hình ảnh hóa khác nhau
-                                        tab1, tab2, tab3 = st.tabs([
+                                        tab1, tab2, tab3, tab4 = st.tabs([
                                             "📋 Mẫu Rankings (Top-K)",
                                             "📊 Phân bố Điểm số",
-                                            "🔍 Chi tiết Predictions"
+                                            "🔍 Chi tiết Predictions",
+                                            "🧪 Test Set (Sản phẩm được dự đoán)"
                                         ])
                                         
                                         with tab1:
@@ -3588,6 +3671,103 @@ def main():
                                                     labels={'Rank': 'Xếp hạng', 'Score': 'Điểm số (Cosine Similarity)'}
                                                 )
                                                 st.plotly_chart(fig, use_container_width=True)
+                                        
+                                        with tab4:
+                                            st.markdown("### 🧪 Test Set - Sản phẩm được dự đoán (chưa tương tác)")
+                                            st.info("💡 **Test Set** bao gồm tất cả các sản phẩm chưa được user tương tác. Các sản phẩm này được biến đổi thành vector $\\mathbf{v}_i$ và tính độ tương đồng với vector hồ sơ người dùng $\\mathbf{P}_u$ để dự đoán điểm tương tác.")
+                                            
+                                            # Lấy train set từ pruning result để xác định test set
+                                            train_interactions_df = pd.DataFrame()
+                                            if 'pruned_interactions' in st.session_state:
+                                                pruning_result = st.session_state['pruned_interactions']
+                                                train_interactions_df = pruning_result.get('pruned_interactions', pd.DataFrame())
+                                                
+                                                # Tính test set: tất cả products - products đã tương tác
+                                                all_products_set = set(product_ids)
+                                                
+                                                # Hiển thị thống kê test set
+                                                col_test1, col_test2, col_test3 = st.columns(3)
+                                                with col_test1:
+                                                    st.metric("Tổng số products", len(all_products_set))
+                                                    if not train_interactions_df.empty:
+                                                        interacted_products = set(train_interactions_df['product_id'].astype(str).unique())
+                                                        st.metric("Products đã tương tác (Train)", len(interacted_products))
+                                                with col_test2:
+                                                    if not train_interactions_df.empty:
+                                                        interacted_products = set(train_interactions_df['product_id'].astype(str).unique())
+                                                        test_products = all_products_set - interacted_products
+                                                        st.metric("Products chưa tương tác (Test)", len(test_products))
+                                                        st.metric("Tỷ lệ Test/Tổng", f"{len(test_products)/len(all_products_set)*100:.1f}%")
+                                                with col_test3:
+                                                    st.metric("Số users", len(user_profiles))
+                                                    st.metric("Tổng predictions", result['stats']['total_predictions'])
+                                                
+                                                # Hiển thị mẫu test set (products)
+                                                st.markdown("#### 📋 Mẫu Test Set - Products (10 đầu tiên)")
+                                                if not train_interactions_df.empty:
+                                                    interacted_products = set(train_interactions_df['product_id'].astype(str).unique())
+                                                    test_products_list = list(all_products_set - interacted_products)[:10]
+                                                else:
+                                                    test_products_list = list(all_products_set)[:10]
+                                                
+                                                test_sample_df = pd.DataFrame({
+                                                    'Product ID': test_products_list,
+                                                    'Status': 'Chưa tương tác (Test Set)'
+                                                })
+                                                st.dataframe(test_sample_df, use_container_width=True)
+                                                
+                                                # Hiển thị test set cho một user cụ thể
+                                                st.markdown("#### 🔍 Test Set cho một User cụ thể")
+                                                sample_test_users = list(result['predictions'].keys())[:10]
+                                                selected_test_user = st.selectbox(
+                                                    "Chọn User để xem test set",
+                                                    sample_test_users,
+                                                    key="test_set_user_selector"
+                                                )
+                                                
+                                                if selected_test_user:
+                                                    # Lấy products đã tương tác của user này (train set)
+                                                    user_train_products = set()
+                                                    if not train_interactions_df.empty:
+                                                        user_train_interactions = train_interactions_df[
+                                                            train_interactions_df['user_id'].astype(str) == str(selected_test_user)
+                                                        ]
+                                                        user_train_products = set(user_train_interactions['product_id'].astype(str).unique())
+                                                    
+                                                    # Test set = tất cả products - products đã tương tác
+                                                    user_test_products = all_products_set - user_train_products
+                                                    
+                                                    col_user_test1, col_user_test2 = st.columns(2)
+                                                    with col_user_test1:
+                                                        st.metric("Train Set (đã tương tác)", len(user_train_products))
+                                                        if user_train_products:
+                                                            st.markdown("**Mẫu products đã tương tác (5 đầu):**")
+                                                            sample_train_products = list(user_train_products)[:5]
+                                                            for pid in sample_train_products:
+                                                                st.write(f"- {pid}")
+                                                    with col_user_test2:
+                                                        st.metric("Test Set (chưa tương tác)", len(user_test_products))
+                                                        st.metric("Tỷ lệ Test/Tổng", f"{len(user_test_products)/len(all_products_set)*100:.1f}%")
+                                                    
+                                                    # Hiển thị top predictions từ test set
+                                                    if selected_test_user in result['rankings']:
+                                                        user_ranking = result['rankings'][selected_test_user]
+                                                        st.markdown(f"**Top-{min(10, len(user_ranking))} Predictions từ Test Set:**")
+                                                        
+                                                        test_ranking_df = pd.DataFrame([
+                                                            {
+                                                                'Rank': rank + 1,
+                                                                'Product ID': product_id,
+                                                                'Score': f"{score:.4f}",
+                                                                'In Test Set': '✅' if product_id in user_test_products else '❌'
+                                                            }
+                                                            for rank, (product_id, score) in enumerate(user_ranking[:10])
+                                                        ])
+                                                        st.dataframe(test_ranking_df, use_container_width=True)
+                                                        
+                                                        # Thống kê về test set trong predictions
+                                                        test_in_topk = sum(1 for pid, _ in user_ranking[:top_k] if pid in user_test_products)
+                                                        st.info(f"📊 Trong Top-{top_k} predictions, có {test_in_topk} sản phẩm từ Test Set ({test_in_topk/top_k*100:.1f}%)")
                                     
                                 except Exception as e:
                                     st.error(f"❌ Lỗi khi tính điểm dự đoán: {str(e)}")
@@ -4049,6 +4229,49 @@ def main():
                                 
                                 # Display results
                                 st.markdown("### 📊 Kết quả Evaluation Metrics")
+                                
+                                # Hiển thị thông tin Train/Test Split
+                                st.markdown("### 🎓 Train/Test Set Split")
+                                col_split1, col_split2, col_split3 = st.columns(3)
+                                
+                                # Tính train set và test set
+                                if interactions_df is not None and 'user_id' in interactions_df.columns and 'product_id' in interactions_df.columns:
+                                    positive_interactions = interactions_df[
+                                        interactions_df['interaction_type'].isin(['purchase', 'like', 'cart'])
+                                    ] if 'interaction_type' in interactions_df.columns else interactions_df
+                                    
+                                    total_interactions = len(positive_interactions)
+                                    total_users = positive_interactions['user_id'].nunique()
+                                    total_products = positive_interactions['product_id'].nunique()
+                                    
+                                    # Train set: interactions đã dùng để xây dựng user profiles
+                                    train_interactions_count = 0
+                                    if 'pruned_interactions' in st.session_state:
+                                        train_interactions_count = len(st.session_state['pruned_interactions'].get('pruned_interactions', pd.DataFrame()))
+                                    
+                                    # Test set: các products được dự đoán (ground truth)
+                                    test_products_count = len(ground_truth_dict)
+                                    total_test_items = sum(len(items) for items in ground_truth_dict.values())
+                                    
+                                    with col_split1:
+                                        st.markdown("#### 🎓 Train Set")
+                                        st.metric("Interactions", f"{train_interactions_count:,}")
+                                        st.metric("Users", total_users)
+                                        st.caption("Dùng để xây dựng User Profiles")
+                                    
+                                    with col_split2:
+                                        st.markdown("#### 🧪 Test Set")
+                                        st.metric("Users có ground truth", test_products_count)
+                                        st.metric("Tổng relevant items", f"{total_test_items:,}")
+                                        st.caption("Dùng để đánh giá predictions")
+                                    
+                                    with col_split3:
+                                        st.markdown("#### 📊 Tổng quan")
+                                        st.metric("Tổng interactions", f"{total_interactions:,}")
+                                        st.metric("Tổng products", total_products)
+                                        if train_interactions_count > 0:
+                                            test_ratio = (total_test_items / train_interactions_count * 100) if train_interactions_count > 0 else 0
+                                            st.metric("Test/Train ratio", f"{test_ratio:.1f}%")
                                 
                                 # Create metrics table
                                 metrics_data = []
