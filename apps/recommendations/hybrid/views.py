@@ -775,7 +775,7 @@ def build_outfit_suggestions(
         complement_bonus = 0.0
         for pid in ordered_products[1:]:  # Skip payload
             product_row = get_product_record(pid, products_df)
-            if product_row and is_compatible_with_payload(product_row):
+            if product_row is not None and is_compatible_with_payload(product_row):
                 complement_bonus += 0.1
         
         final_score = base_score + complement_bonus
