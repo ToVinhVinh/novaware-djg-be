@@ -519,6 +519,10 @@ def build_outfit_suggestions(
             return 'Belts'
         if article_lower in ['cap', 'hat']:
             return 'Caps'
+        if article_lower in ['watch', 'watches']:
+            return 'Watches'
+        if article_lower in ['shoe', 'shoes']:
+            return 'Casual Shoes'
         
         return None
 
@@ -583,6 +587,8 @@ def build_outfit_suggestions(
                 payload_complement_key = 'Belts'
             elif 'cap' in payload_article or 'hat' in payload_article:
                 payload_complement_key = 'Caps'
+            elif 'watch' in payload_article:
+                payload_complement_key = 'Watches'
             else:
                 payload_complement_key = 'Tshirts'
         else:
