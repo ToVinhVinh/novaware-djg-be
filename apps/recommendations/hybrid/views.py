@@ -415,25 +415,25 @@ def build_outfit_suggestions(
     
     # Item-Item complement dictionary
     complement = {
-        'Trousers': ['Tshirts', 'Shirts', 'Jackets', 'Sweaters', 'Sweatshirts', 'Formal Shoes', 'Casual Shoes', 'Sports Shoes'],
+        'Trousers': [['Tshirts', 'Shirts', 'Jackets', 'Sweaters', 'Sweatshirts', 'Formal Shoes'], ['Tshirts', 'Shirts', 'Jackets', 'Sweaters', 'Sweatshirts', 'Casual Shoes'], ['Tshirts', 'Shirts', 'Jackets', 'Sweaters', 'Sweatshirts', 'Sports Shoes']],
         'Tshirts': [['Watches', 'Jeans', 'Casual Shoes'], ['Watches', 'Jeans', 'Flip Flops']],
-        'Shirts': ['Trousers', 'Jeans', 'Shorts', 'Formal Shoes', 'Casual Shoes'],
+        'Shirts': [['Trousers', 'Formal Shoes', 'Watches'], ['Jeans', 'Formal Shoes', 'Watches'], ['Shorts', 'Formal Shoes', 'Watches'], ['Trousers', 'Casual Shoes', 'Watches'], ['Jeans', 'Casual Shoes', 'Watches'], ['Shorts', 'Casual Shoes', 'Watches'], ['Trousers', 'Formal Shoes', 'Belts'], ['Jeans', 'Formal Shoes', 'Belts'], ['Shorts', 'Formal Shoes', 'Belts'], ['Trousers', 'Casual Shoes', 'Belts'], ['Jeans', 'Casual Shoes', 'Belts'], ['Shorts', 'Casual Shoes', 'Belts'], ['Trousers', 'Formal Shoes', 'Watches', 'Belts'], ['Jeans', 'Formal Shoes', 'Watches', 'Belts'], ['Trousers', 'Casual Shoes', 'Watches', 'Belts'], ['Jeans', 'Casual Shoes', 'Watches', 'Belts']],
         'Dresses': [['Watches', 'Casual Shoes'], ['Watches', 'Flats'], ['Watches', 'Flip Flops']],
-        'Tops': ['Trousers', 'Jeans', 'Shorts', 'Skirts', 'Capris', 'Casual Shoes', 'Sports Shoes'],
-        'Shorts': [['Tshirts', 'Sweatshirts', 'Sports Shoes', 'Casual Shoes'], ['Tops', 'Sweatshirts', 'Sports Shoes', 'Casual Shoes'], ['Tshirts', 'Sweatshirts', 'Sports Shoes', 'Flip Flops'], ['Tops', 'Sweatshirts', 'Sports Shoes', 'Flip Flops'], ['Watches', 'Tshirts', 'Sports Shoes']],
-        'Skirts': [['Tshirts', 'Tunics', 'Jackets', 'Heels', 'Flats', 'Casual Shoes'], ['Tops', 'Tunics', 'Jackets', 'Heels', 'Flats', 'Casual Shoes'], ['Watches', 'Tshirts', 'Casual Shoes'], ['Watches', 'Tshirts', 'Flats'], ['Watches', 'Tshirts', 'Flip Flops']],
-        'Jeans': [['Tshirts', 'Shirts', 'Sweaters', 'Sweatshirts', 'Jackets', 'Casual Shoes', 'Sports Shoes'], ['Tops', 'Shirts', 'Sweaters', 'Sweatshirts', 'Jackets', 'Casual Shoes', 'Sports Shoes'], ['Watches', 'Tshirts', 'Flip Flops'], ['Watches', 'Shirts', 'Casual Shoes']],
+        'Tops': [['Trousers', 'Casual Shoes'], ['Jeans', 'Casual Shoes'], ['Shorts', 'Casual Shoes'], ['Skirts', 'Casual Shoes'], ['Capris', 'Casual Shoes'], ['Trousers', 'Sports Shoes'], ['Jeans', 'Sports Shoes'], ['Shorts', 'Sports Shoes'], ['Skirts', 'Sports Shoes'], ['Capris', 'Sports Shoes']],
+        'Shorts': [['Tshirts', 'Sweatshirts', 'Sports Shoes'], ['Tops', 'Sweatshirts', 'Sports Shoes'], ['Tshirts', 'Sweatshirts', 'Casual Shoes'], ['Tops', 'Sweatshirts', 'Casual Shoes'], ['Tshirts', 'Sweatshirts', 'Flip Flops'], ['Tops', 'Sweatshirts', 'Flip Flops'], ['Watches', 'Tshirts', 'Sports Shoes']],
+        'Skirts': [['Tshirts', 'Tunics', 'Jackets', 'Heels'], ['Tops', 'Tunics', 'Jackets', 'Heels'], ['Tshirts', 'Tunics', 'Jackets', 'Flats'], ['Tops', 'Tunics', 'Jackets', 'Flats'], ['Tshirts', 'Tunics', 'Jackets', 'Casual Shoes'], ['Tops', 'Tunics', 'Jackets', 'Casual Shoes'], ['Watches', 'Tshirts', 'Casual Shoes'], ['Watches', 'Tshirts', 'Flats'], ['Watches', 'Tshirts', 'Flip Flops']],
+        'Jeans': [['Tshirts', 'Shirts', 'Sweaters', 'Sweatshirts', 'Jackets', 'Casual Shoes'], ['Tops', 'Shirts', 'Sweaters', 'Sweatshirts', 'Jackets', 'Casual Shoes'], ['Tshirts', 'Shirts', 'Sweaters', 'Sweatshirts', 'Jackets', 'Sports Shoes'], ['Tops', 'Shirts', 'Sweaters', 'Sweatshirts', 'Jackets', 'Sports Shoes'], ['Watches', 'Tshirts', 'Flip Flops'], ['Watches', 'Shirts', 'Casual Shoes']],
         'Formal Shoes': ['Watches', 'Shirts', 'Trousers'],
         'Casual Shoes': [['Watches', 'Tshirts', 'Jeans'], ['Watches', 'Shirts', 'Jeans']],
-        'Sports Shoes': [['Tshirts', 'Shorts', 'Track Pants', 'Capris'], ['Tops', 'Shorts', 'Track Pants', 'Capris'], ['Watches', 'Tshirts', 'Shorts'], ['Watches', 'Tshirts', 'Track Pants']],
+        'Sports Shoes': [['Tshirts', 'Shorts'], ['Tops', 'Shorts'], ['Tshirts', 'Track Pants'], ['Tops', 'Track Pants'], ['Tshirts', 'Capris'], ['Tops', 'Capris'], ['Watches', 'Tshirts', 'Shorts'], ['Watches', 'Tshirts', 'Track Pants']],
         'Heels': [['Watches', 'Tshirts', 'Skirts'], ['Watches', 'Dresses']],
         'Flats': [['Watches', 'Tshirts', 'Skirts', 'Dresses'], ['Watches', 'Tshirts', 'Shorts', 'Dresses']],
         'Sandals': [['Tshirts', 'Shorts'], ['Tops', 'Shorts'], ['Watches', 'Tshirts', 'Jeans'], ['Watches', 'Shirts', 'Jeans']],
         'Flip Flops': [['Watches', 'Tshirts', 'Jeans'], ['Watches', 'Shirts', 'Jeans']],
         'Handbags': [['Tshirts', 'Skirts', 'Casual Shoes'], ['Tshirts', 'Skirts', 'Flats'], ['Tshirts', 'Skirts', 'Flip Flops'], ['Dresses', 'Flip Flops'], ['Dresses', 'Flats']],
-        'Jackets': [['Trousers', 'Jeans', 'Tshirts', 'Dresses', 'Shirts'], ['Trousers', 'Jeans', 'Tops', 'Dresses', 'Shirts']],
-        'Sweaters': ['Trousers', 'Jeans', 'Dresses'],
-        'Sweatshirts': ['Trousers', 'Jeans', 'Shorts', 'Track Pants'],
+        'Jackets': [['Trousers', 'Tshirts', 'Dresses', 'Shirts'], ['Jeans', 'Tshirts', 'Dresses', 'Shirts'], ['Trousers', 'Tops', 'Dresses', 'Shirts'], ['Jeans', 'Tops', 'Dresses', 'Shirts']],
+        'Sweaters': [['Trousers', 'Dresses'], ['Jeans', 'Dresses']],
+        'Sweatshirts': [['Trousers'], ['Jeans'], ['Shorts'], ['Track Pants']],
         'Backpacks': [['Tshirts', 'Jeans', 'Flip Flops'], ['Shirts', 'Jeans', 'Casual Shoes']],
         'Belts': [['Tshirts', 'Jeans', 'Flip Flops'], ['Shirts', 'Jeans', 'Casual Shoes']],
         'Capris': [['Caps', 'Jackets', 'Sports Shoes'], ['Caps', 'Tshirts', 'Sports Shoes']],
@@ -676,10 +676,20 @@ def build_outfit_suggestions(
         return product_complement_key in compatible_types
 
     def get_products_by_complement_type(complement_type: str, df: pd.DataFrame) -> pd.DataFrame:
-        """Get products that match a complement type (using exact articleType matching)."""
-        # Direct match: articleType exactly equals complement_type
-        exact_match = df[df['articleType'].astype(str).str.strip() == complement_type]
+        """Get products that match a complement type (using map_to_complement_key logic)."""
+        # Use the same mapping logic to find products
+        matching_products = []
         
+        for idx, row in df.iterrows():
+            product_complement_key = map_to_complement_key(row)
+            if product_complement_key == complement_type:
+                matching_products.append(idx)
+        
+        if matching_products:
+            return df.loc[matching_products]
+        
+        # Fallback: try direct match
+        exact_match = df[df['articleType'].astype(str).str.strip() == complement_type]
         if not exact_match.empty:
             return exact_match
         
