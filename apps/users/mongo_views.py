@@ -14,6 +14,7 @@ from .mongo_models import OutfitHistory, PasswordResetAudit, User, UserInteracti
 from .mongo_serializers import (
     GenderSummarySerializer,
     OutfitHistorySerializer,
+    OutfitSerializer,
     PasswordChangeSerializer,
     PurchaseHistorySummarySerializer,
     StylePreferenceSummarySerializer,
@@ -592,6 +593,72 @@ class UserViewSet(viewsets.ViewSet):
                 "total_interactions": len(user.interaction_history),
             },
             status_code=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["post"], permission_classes=[permissions.AllowAny], authentication_classes=[])
+    def outfits(self, request, pk=None):
+        """
+        Save an outfit to user's outfit history.
+        Expected payload: {
+            "name": "Outfit 1",
+            "products": [
+                {
+                    "product_id": "10005",
+                    "name": "Product Name",
+                    "category": "Tops",
+                    "price": 401.74,
+                    "sale": 8.51,
+                    "images": ["https://..."]
+                }
+            ],
+            "totalPrice": 99.47,
+            "compatibilityScore": 0.6333,
+            "gender": "male"
+        }
+        """
+        try:
+            user = User.objects.get(id=ObjectId(pk))
+        except (User.DoesNotExist, Exception):
+            return api_error(
+                "User does not exist.",
+                data=None,
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Validate the payload
+        serializer = OutfitSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        # Get validated data
+        outfit_data = serializer.validated_data
+
+        # Add timestamp to the outfit
+        from datetime import datetime
+        outfit_entry = {
+            "name": outfit_data["name"],
+            "products": outfit_data["products"],
+            "totalPrice": outfit_data["totalPrice"],
+            "compatibilityScore": outfit_data["compatibilityScore"],
+            "gender": outfit_data["gender"],
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+        # Initialize outfit_history if it doesn't exist
+        if not user.outfit_history:
+            user.outfit_history = []
+
+        # Add the outfit to user's outfit_history
+        user.outfit_history.append(outfit_entry)
+        user.save()
+
+        return api_success(
+            "Outfit saved successfully",
+            {
+                "outfit": outfit_entry,
+                "user_id": str(user.id),
+                "total_outfits": len(user.outfit_history),
+            },
+            status_code=status.HTTP_201_CREATED,
         )
 
 class UserInteractionViewSet(viewsets.ViewSet):

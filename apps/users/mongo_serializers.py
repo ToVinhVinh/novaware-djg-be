@@ -254,3 +254,18 @@ class UserForTestingSerializer(serializers.Serializer):
     def get_id(self, obj):
         return str(obj.id)
 
+class OutfitProductSerializer(serializers.Serializer):
+    product_id = serializers.CharField()
+    name = serializers.CharField()
+    category = serializers.CharField()
+    price = serializers.FloatField()
+    sale = serializers.FloatField()
+    images = serializers.ListField(child=serializers.CharField())
+
+class OutfitSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    products = OutfitProductSerializer(many=True)
+    totalPrice = serializers.FloatField()
+    compatibilityScore = serializers.FloatField()
+    gender = serializers.CharField()
+
