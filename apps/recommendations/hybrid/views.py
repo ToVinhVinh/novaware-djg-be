@@ -22,7 +22,7 @@ from apps.utils.cbf_utils import get_allowed_genders
 from apps.utils.user_profile import INTERACTION_WEIGHTS
 
 from .serializers import HybridRecommendationSerializer
-from .complement_dict import COMPLEMENT
+from apps.recommendations.common.complement_dict import COMPLEMENT
 
 logger = logging.getLogger(__name__)
 

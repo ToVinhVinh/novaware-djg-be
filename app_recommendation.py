@@ -15,7 +15,7 @@ from collections import defaultdict
 
 # Import shared complement dictionary
 try:
-    from apps.recommendations.hybrid.complement_dict import COMPLEMENT
+    from apps.recommendations.common.complement_dict import COMPLEMENT
 except ImportError:
     # Fallback if import fails
     COMPLEMENT = {}
