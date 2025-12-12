@@ -214,7 +214,7 @@ def train_gnn(evaluate=True, force_retrain=False):
         evaluate_and_record(
             evaluator=evaluator,
             model=gnn_model,
-            model_name="GNN (GraphSAGE)",
+            model_name="GNN (GCN)",
             users_df=preprocessor.users_df,
             base_dir=base_dir,
             k_values=[10, 20]
@@ -329,7 +329,7 @@ def train_and_evaluate(force_retrain=False):
 
     results = []
     for model, name in [(cb_model, "Content-Based Filtering"),
-                        (gnn_model, "GNN (GraphSAGE)"),
+                        (gnn_model, "GNN (GCN)"),
                         (hybrid_model, "Hybrid (GNN + Content-Based)")]:
         result = evaluate_and_record(
             evaluator=evaluator,

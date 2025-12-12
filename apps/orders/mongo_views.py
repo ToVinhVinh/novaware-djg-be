@@ -87,7 +87,7 @@ class OrderViewSet(viewsets.ViewSet):
         order = request_serializer.create(validated_data)
         response_serializer = OrderSerializer(order)
         return api_success(
-            "Order created successfully",
+            "Order created successfully!",
             {
                 "order": response_serializer.data,
             },

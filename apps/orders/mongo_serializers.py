@@ -6,7 +6,7 @@ from rest_framework import serializers
 from .mongo_models import Order, OrderItem, ShippingAddress
 
 class OrderItemSerializer(serializers.Serializer):
-    product_id = serializers.CharField()
+    product_id = serializers.IntegerField()
     name = serializers.CharField()
     qty = serializers.IntegerField()
     size_selected = serializers.CharField()
@@ -16,7 +16,7 @@ class OrderItemSerializer(serializers.Serializer):
 
     def to_representation(self, instance):
         return {
-            "product_id": str(instance.product_id),
+            "product_id": instance.product_id,
             "name": instance.name,
             "qty": instance.qty,
             "size_selected": instance.size_selected,
@@ -26,8 +26,28 @@ class OrderItemSerializer(serializers.Serializer):
         }
 
     def to_internal_value(self, data):
-        validated = super().to_internal_value(data)
-        validated["product_id"] = ObjectId(validated["product_id"])
+        # Convert camelCase to snake_case
+        converted_data = {}
+        field_mapping = {
+            "product": "product_id",
+            "productId": "product_id",
+            "sizeSelected": "size_selected",
+            "colorSelected": "color_selected",
+            "priceSale": "price_sale",
+        }
+        
+        for key, value in data.items():
+            # Convert camelCase keys to snake_case
+            if key in field_mapping:
+                converted_data[field_mapping[key]] = value
+            else:
+                # Already in snake_case or other fields
+                converted_data[key] = value
+        
+        validated = super().to_internal_value(converted_data)
+        # Convert product_id to integer (products use integer IDs, not ObjectIds)
+        if "product_id" in validated:
+            validated["product_id"] = int(validated["product_id"])
         validated["price_sale"] = validated["price_sale"]
         return validated
 
@@ -50,7 +70,20 @@ class ShippingAddressSerializer(serializers.Serializer):
         }
 
     def to_internal_value(self, data):
-        return super().to_internal_value(data)
+        # Convert camelCase to snake_case
+        converted_data = {}
+        field_mapping = {
+            "postalCode": "postal_code",
+            "recipientPhoneNumber": "recipient_phone_number",
+        }
+        
+        for key, value in data.items():
+            if key in field_mapping:
+                converted_data[field_mapping[key]] = value
+            else:
+                converted_data[key] = value
+        
+        return super().to_internal_value(converted_data)
 
 class OrderSerializer(serializers.Serializer):
     id = serializers.SerializerMethodField()
@@ -66,11 +99,37 @@ class OrderSerializer(serializers.Serializer):
     delivered_at = serializers.DateTimeField(read_only=True, allow_null=True)
     is_cancelled = serializers.BooleanField(read_only=True)
     is_processing = serializers.BooleanField(read_only=True)
-    is_outfit_purchase = serializers.BooleanField()
+    is_outfit_purchase = serializers.BooleanField(required=False, default=False)
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
     items = OrderItemSerializer(many=True)
     shipping_address = ShippingAddressSerializer()
+
+    def to_internal_value(self, data):
+        # Convert camelCase to snake_case
+        converted_data = {}
+        field_mapping = {
+            "orderItems": "items",
+            "paymentMethod": "payment_method",
+            "paymentResult": "payment_result",
+            "itemsPrice": "items_price",  # Will be ignored if not in model
+            "taxPrice": "tax_price",
+            "shippingPrice": "shipping_price",
+            "totalPrice": "total_price",
+            "isOutfitPurchase": "is_outfit_purchase",
+            "shippingAddress": "shipping_address",
+        }
+        
+        for key, value in data.items():
+            if key in field_mapping:
+                converted_data[field_mapping[key]] = value
+            else:
+                converted_data[key] = value
+        
+        # Remove items_price if present (not in model)
+        converted_data.pop("items_price", None)
+        
+        return super().to_internal_value(converted_data)
 
     def get_id(self, obj):
         return str(obj.id)
@@ -107,7 +166,7 @@ class OrderSerializer(serializers.Serializer):
 
         order_items = []
         for item_data in items_data:
-            item_data["product_id"] = ObjectId(item_data["product_id"])
+            # product_id is already converted to integer in OrderItemSerializer.to_internal_value
             order_items.append(OrderItem(**item_data))
 
         shipping_address = ShippingAddress(**shipping_data) if shipping_data else None
@@ -133,7 +192,7 @@ class OrderSerializer(serializers.Serializer):
         if items_data is not None:
             order_items = []
             for item_data in items_data:
-                item_data["product_id"] = ObjectId(item_data["product_id"])
+                # product_id is already converted to integer in OrderItemSerializer.to_internal_value
                 order_items.append(OrderItem(**item_data))
             instance.items = order_items
 

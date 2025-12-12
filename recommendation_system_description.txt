@@ -1,0 +1,16 @@
+Trong lĩnh vực thương mại điện tử, Hệ thống gợi ý (Recommendation System) giữ vị trí then chốt để kiến tạo trải nghiệm riêng biệt cho từng khách hàng. Nhiệm vụ cốt lõi của hệ thống này là phân tích dữ liệu lịch sử hành vi và thuộc tính hàng hóa, từ đó đưa ra các dự báo và đề xuất mua sắm tối ưu nhất.
+
+Trong hệ thống này, chúng ta triển khai mô hình lai ghép (Hybrid Model), kết hợp hai phương pháp bổ trợ cho nhau:
+
+Graph Neural Network (GNN) - Sử dụng Graph Convolutional Network (GCN) để học mối quan hệ giữa Users và Products thông qua đồ thị lưỡng phân (Bipartite Graph). Mô hình sử dụng Message Passing với phép gộp tổng (aggregation), chuẩn hóa bậc nút (degree normalization), và kích hoạt LeakyReLU. GNN được huấn luyện bằng BPR Loss (Bayesian Personalized Ranking) với regularization để tối ưu hóa embeddings của users và products qua nhiều lớp lan truyền thông điệp.
+
+Content-Based Filtering - Dựa trên độ tương đồng nội dung giữa các sản phẩm sử dụng Sentence-BERT để tạo embeddings ngữ nghĩa từ đặc trưng sản phẩm, kết hợp với FAISS (Facebook AI Similarity Search) để tìm kiếm nhanh các sản phẩm tương đồng dựa trên Cosine Similarity.
+
+Ưu điểm của Hybrid Model
+
+Khắc phục Cold Start Problem: Content-Based giúp gợi ý cho sản phẩm mới dựa trên đặc điểm nội dung thông qua embedding từ Sentence-BERT, không cần dữ liệu tương tác lịch sử.
+
+Khai thác Collaborative Signals: GNN học patterns từ hành vi tập thể của users thông qua lan truyền thông điệp trên đồ thị tương tác, nắm bắt được các mối quan hệ phức tạp giữa users và products mà phương pháp truyền thống khó phát hiện.
+
+Cân bằng linh hoạt: Tham số alpha cho phép điều chỉnh trọng số giữa hai phương pháp theo nhu cầu thực tế, với công thức kết hợp tuyến tính: Score_Hybrid(u, i) = α * Score_GNN(u, i) + (1 - α) * Score_CBF(u, i).
+

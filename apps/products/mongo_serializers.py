@@ -553,9 +553,9 @@ class ProductSerializer(serializers.Serializer):
         if not variants_payload:
             try:
                 if isinstance(product_id, int):
-                    variant_documents = list(ProductVariant.objects(product_id=product_id))
+                    variant_documents = list(ProductVariant.objects(product_id=product_id).order_by("_id"))
                 else:
-                    variant_documents = list(ProductVariant.objects(product_id=instance.id))
+                    variant_documents = list(ProductVariant.objects(product_id=instance.id).order_by("_id"))
                 for variant in variant_documents:
                     color_value = getattr(variant, "color", None)
                     size_value = getattr(variant, "size", None)

@@ -1,0 +1,38 @@
+4.2.	Kiến trúc hệ thống
+
+4.2.1.	Kiến trúc tổng quan
+
+Hệ thống được chia thành 3 tầng chính:
+
+1. Tầng Frontend (Trên cùng)
+
+•	Công nghệ: Frontend Application (có thể là React + TypeScript hoặc ứng dụng web khác).
+
+•	Chức năng:
+
+o	UI (User Interface): Nơi người dùng tương tác (xem sản phẩm, click, mua hàng...).
+
+o	API_Client: Thành phần chịu trách nhiệm gửi các HTTP request (GET/POST) xuống Backend thông qua REST API endpoints.
+
+o	Streamlit App (app_recommendation.py): Ứng dụng demo và testing cho hệ thống recommendation, cho phép tương tác trực tiếp với các mô hình ML.
+
+2. Tầng Backend (Ở giữa) - "Bộ não" của hệ thống
+
+•	Công nghệ: Django REST Framework.
+
+•	Chức năng:
+
+o	REST API Endpoints: Cổng đón nhận yêu cầu từ Frontend thông qua các ViewSets và APIViews (mongo_views.py, hybrid/views.py). Hệ thống sử dụng Django REST Framework Router để quản lý các endpoints tại /api/v1/.
+
+o	Engine (Recommendation Engine - BaseRecommendationEngine): Đây là trung tâm xử lý logic recommendation. Engine đóng vai trò điều phối: vừa lấy dữ liệu người dùng từ MongoDB, vừa gọi Models để lấy dự đoán. Engine được triển khai trong common/base_engine.py với các phương thức train() và recommend().
+
+o	Services (RecommendationService): Lớp xử lý business logic, xây dựng context và điều phối các recommender (mongo_services.py).
+
+o	Models (ML Models - Màu xanh lá): Nơi chứa thuật toán Machine Learning thực tế để tính toán độ phù hợp. Các models bao gồm GNN (Graph Convolutional Network), Content-Based Filtering (Sentence-BERT + FAISS), và Hybrid Model. Models được triển khai trong apps/utils/ (gnn_utils.py, cbf_utils.py, hybrid_utils.py).
+
+3. Tầng Storage (Dưới cùng) - Lưu trữ
+
+•	DB (MongoDB): Chứa dữ liệu có cấu trúc như thông tin người dùng (User), danh mục sản phẩm (Product), lịch sử giao dịch (Order), và các logs recommendation (RecommendationRequest, RecommendationResult). Engine sẽ truy vấn vào đây thông qua mongoengine để lấy ngữ cảnh. MongoDB được cấu hình trong config/mongodb.py và các models được định nghĩa trong mongo_models.py của từng app.
+
+•	Files (.pkl Model Files): Chứa các file mô hình đã được huấn luyện (serialized). Models được lưu trong thư mục artifacts/{model_name}/artifacts.pkl (theo ArtifactStorage trong common/storage.py). Models sẽ load các file này lên để thực hiện dự đoán (inference). Ngoài ra, các file CSV dữ liệu training (users.csv, products.csv, interactions.csv) được lưu trong apps/exports/ để phục vụ quá trình training và evaluation.
+

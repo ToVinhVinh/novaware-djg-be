@@ -660,33 +660,63 @@ class ProductViewSet(viewsets.ViewSet):
             sub_category = request.query_params.get("subCategory")
             if sub_category:
                 queryset = queryset.filter(subCategory__iexact=sub_category)
-            
-            # Price filters
-            min_price = request.query_params.get("min_price")
-            if min_price:
+            min_price = request.query_params.get("priceMin") or request.query_params.get("min_price")
+            max_price = request.query_params.get("priceMax") or request.query_params.get("max_price")
+            if min_price or max_price:
                 try:
-                    min_price_float = float(min_price)
-                    queryset = queryset.filter(price__gte=min_price_float)
-                except ValueError:
-                    pass
-            
-            max_price = request.query_params.get("max_price")
-            if max_price:
-                try:
-                    max_price_float = float(max_price)
-                    queryset = queryset.filter(price__lte=max_price_float)
-                except ValueError:
+                    min_price_float = float(min_price) if min_price else None
+                    max_price_float = float(max_price) if max_price else None
+                    # Get first variant (by _id order) for each product
+                    product_first_prices = {}
+                    
+                    # Get first variant for each product (ordered by product_id and _id to ensure consistent order)
+                    all_variants = ProductVariant.objects.only("product_id", "price").order_by("product_id", "_id")
+                    
+                    for variant in all_variants:
+                        product_id = variant.product_id
+                        # Only keep the first variant for each product
+                        if product_id not in product_first_prices:
+                            product_first_prices[product_id] = float(variant.price)
+                    
+                    # Get sale percentage for each product
+                    product_sales = {}
+                    product_ids_list = list(product_first_prices.keys())
+                    if product_ids_list:
+                        products = Product.objects(id__in=product_ids_list).only("id", "sale")
+                        for product in products:
+                            sale_percent = float(product.sale) if product.sale else 0.0
+                            product_sales[product.id] = sale_percent
+                    
+                    # Calculate final price after sale: exactPrice = price - price * sale/100
+                    matching_product_ids = []
+                    for product_id, first_variant_price in product_first_prices.items():
+                        sale_percent = product_sales.get(product_id, 0.0)
+                        # Calculate price after sale: exactPrice = price - price * sale/100
+                        exact_price = first_variant_price - (first_variant_price * sale_percent / 100)
+                        
+                        if min_price_float is not None and exact_price < min_price_float:
+                            continue
+                        if max_price_float is not None and exact_price > max_price_float:
+                            continue
+                        matching_product_ids.append(product_id)
+                    
+                    if matching_product_ids:
+                        queryset = queryset.filter(id__in=matching_product_ids)
+                    else:
+                        queryset = queryset.filter(id__in=[])
+                except (ValueError, Exception) as e:
+                    logger.warning(f"Error filtering by price: {str(e)}")
                     pass
             
             # Sorting
             sort_by = request.query_params.get("sort_by") or request.query_params.get("ordering")
-            if sort_by:
+            
+            # Check if we need to sort by price (which requires computing final price after sale)
+            needs_price_sort = sort_by in ["priceAsc", "priceDesc", "price_low_to_high", "price_high_to_low"]
+            
+            if sort_by and not needs_price_sort:
                 if sort_by == "default":
                     queryset = queryset.order_by("id")
-                elif sort_by == "price_low_to_high":
-                    queryset = queryset.order_by("price")
-                elif sort_by == "price_high_to_low":
-                    queryset = queryset.order_by("-price")
                 elif sort_by == "rating":
                     queryset = queryset.order_by("-rating", "-num_reviews")
                 elif sort_by == "name_asc":
@@ -698,11 +728,71 @@ class ProductViewSet(viewsets.ViewSet):
                         queryset = queryset.order_by(f"-{sort_by[1:]}")
                     else:
                         queryset = queryset.order_by(sort_by)
-            else:
+            elif not sort_by:
                 queryset = queryset.order_by("productDisplayName")
             
             # Pagination
             page, page_size = get_pagination_params(request)
+            
+            # If sorting by price, we need to compute final price after sale and sort in Python
+            if needs_price_sort:
+                # Get all products (before pagination)
+                all_products = list(queryset)
+                
+                # Get first variant price for each product
+                product_ids = [p.id for p in all_products]
+                product_first_prices = {}
+                if product_ids:
+                    all_variants = ProductVariant.objects(product_id__in=product_ids).only("product_id", "price").order_by("product_id", "_id")
+                    for variant in all_variants:
+                        product_id = variant.product_id
+                        if product_id not in product_first_prices:
+                            product_first_prices[product_id] = float(variant.price)
+                
+                # Get sale percentage for each product
+                product_sales = {}
+                if product_ids:
+                    products_with_sale = Product.objects(id__in=product_ids).only("id", "sale")
+                    for product in products_with_sale:
+                        sale_percent = float(product.sale) if product.sale else 0.0
+                        product_sales[product.id] = sale_percent
+                
+                # Calculate final price after sale for each product
+                products_with_final_price = []
+                for product in all_products:
+                    first_variant_price = product_first_prices.get(product.id, float('inf'))
+                    sale_percent = product_sales.get(product.id, 0.0)
+                    # Calculate price after sale: exactPrice = price - price * sale/100
+                    exact_price = first_variant_price - (first_variant_price * sale_percent / 100)
+                    products_with_final_price.append((product, exact_price))
+                
+                # Sort by final price
+                reverse_order = sort_by in ["priceDesc", "price_high_to_low"]
+                products_with_final_price.sort(key=lambda x: x[1], reverse=reverse_order)
+                
+                # Extract sorted products
+                sorted_products = [p[0] for p in products_with_final_price]
+                total_count = len(sorted_products)
+                total_pages = math.ceil(total_count / page_size) if page_size > 0 else 1
+                current_page = page
+                
+                # Manual pagination
+                start_index = (page - 1) * page_size
+                end_index = start_index + page_size
+                paginated_products = sorted_products[start_index:end_index]
+                
+                serializer = ProductSerializer(paginated_products, many=True)
+                return api_success(
+                    "Products filtered successfully",
+                    {
+                        "products": serializer.data,
+                        "page": current_page,
+                        "pages": total_pages,
+                        "perPage": page_size,
+                        "count": total_count,
+                    },
+                )
+            
             total_count = queryset.count()
             
             start_index = (page - 1) * page_size
@@ -919,19 +1009,55 @@ class ProductViewSet(viewsets.ViewSet):
             except ValueError:
                 pass
 
-        min_price = request.query_params.get("minPrice")
-        max_price = request.query_params.get("maxPrice")
-        if min_price:
+        # Support both priceMin/priceMax and minPrice/maxPrice parameter names
+        min_price = request.query_params.get("priceMin") or request.query_params.get("minPrice")
+        max_price = request.query_params.get("priceMax") or request.query_params.get("maxPrice")
+        
+        # Filter by the minimum price (first variant price) of each product after applying sale
+        if min_price or max_price:
             try:
-                min_price_float = float(min_price)
-                queryset = queryset.filter(price__gte=min_price_float)
-            except ValueError:
-                pass
-        if max_price:
-            try:
-                max_price_float = float(max_price)
-                queryset = queryset.filter(price__lte=max_price_float)
-            except ValueError:
+                min_price_float = float(min_price) if min_price else None
+                max_price_float = float(max_price) if max_price else None
+                
+                # Get first variant (by _id order) for each product
+                product_first_prices = {}
+                
+                # Get first variant for each product (ordered by product_id and _id to ensure consistent order)
+                all_variants = ProductVariant.objects.only("product_id", "price").order_by("product_id", "_id")
+                
+                for variant in all_variants:
+                    product_id = variant.product_id
+                    # Only keep the first variant for each product
+                    if product_id not in product_first_prices:
+                        product_first_prices[product_id] = float(variant.price)
+                
+                # Get sale percentage for each product
+                product_sales = {}
+                product_ids_list = list(product_first_prices.keys())
+                if product_ids_list:
+                    products = Product.objects(id__in=product_ids_list).only("id", "sale")
+                    for product in products:
+                        sale_percent = float(product.sale) if product.sale else 0.0
+                        product_sales[product.id] = sale_percent
+                
+                matching_product_ids = []
+                for product_id, first_variant_price in product_first_prices.items():
+                    sale_percent = product_sales.get(product_id, 0.0)
+                    # Calculate price after sale: exactPrice = price - price * sale/100
+                    exact_price = first_variant_price - (first_variant_price * sale_percent / 100)
+                    
+                    if min_price_float is not None and exact_price < min_price_float:
+                        continue
+                    if max_price_float is not None and exact_price > max_price_float:
+                        continue
+                    matching_product_ids.append(product_id)
+                
+                if matching_product_ids:
+                    queryset = queryset.filter(id__in=matching_product_ids)
+                else:
+                    queryset = queryset.filter(id__in=[])
+            except (ValueError, Exception) as e:
+                logger.warning(f"Error filtering by price: {str(e)}")
                 pass
 
         search = request.query_params.get("search")
@@ -969,13 +1095,13 @@ class ProductViewSet(viewsets.ViewSet):
                 )
 
         sort_by = request.query_params.get("sort_by") or request.query_params.get("ordering")
-        if sort_by:
+        
+        # Check if we need to sort by price (which requires computing final price after sale)
+        needs_price_sort = sort_by in ["priceAsc", "priceDesc", "price_low_to_high", "price_high_to_low"]
+        
+        if sort_by and not needs_price_sort:
             if sort_by == "default":
                 queryset = queryset.order_by("id")
-            elif sort_by == "price_low_to_high":
-                queryset = queryset.order_by("price")
-            elif sort_by == "price_high_to_low":
-                queryset = queryset.order_by("-price")
             elif sort_by == "rating":
                 queryset = queryset.order_by("-rating", "-num_reviews")
             elif sort_by == "newest":
@@ -986,10 +1112,69 @@ class ProductViewSet(viewsets.ViewSet):
                 queryset = queryset.order_by(f"-{sort_by[1:]}")
             else:
                 queryset = queryset.order_by(sort_by)
-        else:
+        elif not sort_by:
             queryset = queryset.order_by("id")
 
         page, page_size = get_pagination_params(request)
+
+        # If sorting by price, we need to compute final price after sale and sort in Python
+        if needs_price_sort:
+            # Get all products (before pagination)
+            all_products = list(queryset)
+            
+            # Get first variant price for each product
+            product_ids = [p.id for p in all_products]
+            product_first_prices = {}
+            if product_ids:
+                all_variants = ProductVariant.objects(product_id__in=product_ids).only("product_id", "price").order_by("product_id", "_id")
+                for variant in all_variants:
+                    product_id = variant.product_id
+                    if product_id not in product_first_prices:
+                        product_first_prices[product_id] = float(variant.price)
+            
+            # Get sale percentage for each product
+            product_sales = {}
+            if product_ids:
+                products_with_sale = Product.objects(id__in=product_ids).only("id", "sale")
+                for product in products_with_sale:
+                    sale_percent = float(product.sale) if product.sale else 0.0
+                    product_sales[product.id] = sale_percent
+            
+            # Calculate final price after sale for each product
+            products_with_final_price = []
+            for product in all_products:
+                first_variant_price = product_first_prices.get(product.id, float('inf'))
+                sale_percent = product_sales.get(product.id, 0.0)
+                # Calculate price after sale: exactPrice = price - price * sale/100
+                exact_price = first_variant_price - (first_variant_price * sale_percent / 100)
+                products_with_final_price.append((product, exact_price))
+            
+            # Sort by final price
+            reverse_order = sort_by in ["priceDesc", "price_high_to_low"]
+            products_with_final_price.sort(key=lambda x: x[1], reverse=reverse_order)
+            
+            # Extract sorted products
+            sorted_products = [p[0] for p in products_with_final_price]
+            total_count = len(sorted_products)
+            total_pages = math.ceil(total_count / page_size) if page_size > 0 else 1
+            current_page = page
+            
+            # Manual pagination
+            start_idx = (page - 1) * page_size
+            end_idx = start_idx + page_size
+            paginated_products = sorted_products[start_idx:end_idx]
+            
+            serializer = ProductSerializer(paginated_products, many=True)
+            return api_success(
+                "Products filtered successfully",
+                {
+                    "products": serializer.data,
+                    "page": current_page,
+                    "pages": total_pages,
+                    "perPage": page_size,
+                    "count": total_count,
+                },
+            )
 
         option = request.query_params.get("option")
         if option == "all":

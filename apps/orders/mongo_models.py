@@ -19,7 +19,7 @@ class ShippingAddress(me.EmbeddedDocument):
 
 class OrderItem(me.EmbeddedDocument):
 
-    product_id = fields.ObjectIdField(required=True)
+    product_id = fields.IntField(required=True)
     name = fields.StringField(required=True, max_length=255)
     qty = fields.IntField(required=True, min_value=1)
     size_selected = fields.StringField(required=True, max_length=50)

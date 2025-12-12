@@ -1,0 +1,27 @@
+Hướng dẫn chạy Project
+
+A) Chạy Server (API cho Frontend)
+1) Kiểm tra Python: dùng Python 3.11.9 (khuyến nghị, tránh 3.12 vì lỗi).
+2) Mở terminal và cd vào thư mục dự án `Novaware-Django`.
+3) Tạo môi trường ảo: `python -m venv venv` (hoặc tên khác).
+4) Kích hoạt môi trường ảo:
+   - PowerShell (Windows): `.\venv\Scripts\Activate.ps1`
+   - macOS/Linux: `source venv/bin/activate`
+   - Khi kích hoạt thành công sẽ thấy `(venv)` ở đầu dòng lệnh.
+5) Cài đặt thư viện: `pip install -r requirements.txt`
+6) Chạy server (Django):
+- Chạy: `python manage.py runserver`
+- Mặc định chạy trên port: `http://localhost:8000/`
+
+B) Chạy ứng dụng Streamlit / app_recommendation
+1) Kiểm tra Python: dùng Python 3.11.9 (khuyến nghị, tránh 3.12 vì lỗi).
+2) Mở terminal và cd vào thư mục dự án `Novaware-Django`.
+3) Tạo môi trường ảo: `python -m venv venv` (hoặc tên khác).
+4) Kích hoạt môi trường ảo:
+   - PowerShell (Windows): `.\venv\Scripts\Activate.ps1`
+   - macOS/Linux: `source venv/bin/activate`
+   - Khi kích hoạt thành công sẽ thấy `(venv)` ở đầu dòng lệnh.
+5) Cài đặt thư viện: `pip install -r requirements.txt`
+6) Chạy Streamlit App: 
+- Chạy: `python app_recommendation.py`
+- Mặc định chạy trên port: http://localhost:8501/

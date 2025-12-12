@@ -235,9 +235,9 @@ def build_english_reason_from_context(product, context, model_name: str = "") ->
     if model_name == "cbf":
         parts.append("Content similarity based on product features (Sentence-BERT + FAISS)")
     elif model_name == "gnn":
-        parts.append("GNN (LightGCN) recommendation based on user interaction graph")
+        parts.append("GNN (GCN) recommendation based on user interaction graph")
     elif model_name == "hybrid":
-        parts.append("Hybrid approach combining GNN (LightGCN) and Content-based Filtering (Sentence-BERT + FAISS)")
+        parts.append("Hybrid approach combining GNN (GCN) and Content-based Filtering (Sentence-BERT + FAISS)")
 
     if not parts:
         parts.append("Recommended based on your preferences and interaction history")
