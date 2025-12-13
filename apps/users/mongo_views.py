@@ -595,11 +595,12 @@ class UserViewSet(viewsets.ViewSet):
             status_code=status.HTTP_200_OK,
         )
 
-    @action(detail=True, methods=["post"], permission_classes=[permissions.AllowAny], authentication_classes=[])
+    @action(detail=True, methods=["get", "post"], permission_classes=[permissions.AllowAny], authentication_classes=[])
     def outfits(self, request, pk=None):
         """
-        Save an outfit to user's outfit history.
-        Expected payload: {
+        GET: Retrieve all outfits saved by the user.
+        POST: Save an outfit to user's outfit history.
+        Expected payload for POST: {
             "name": "Outfit 1",
             "products": [
                 {
@@ -625,6 +626,27 @@ class UserViewSet(viewsets.ViewSet):
                 status_code=status.HTTP_404_NOT_FOUND,
             )
 
+        if request.method == "GET":
+            # Get all outfits from user's outfit_history
+            outfits = user.outfit_history or []
+            
+            # Sort by timestamp (newest first) if timestamp exists
+            sorted_outfits = sorted(
+                outfits,
+                key=lambda x: x.get("timestamp", ""),
+                reverse=True
+            ) if outfits else []
+
+            return api_success(
+                "Outfits retrieved successfully",
+                {
+                    "outfits": sorted_outfits,
+                    "user_id": str(user.id),
+                    "total_outfits": len(sorted_outfits),
+                },
+            )
+
+        # POST: Save new outfit
         # Validate the payload
         serializer = OutfitSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
