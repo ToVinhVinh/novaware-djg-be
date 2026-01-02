@@ -630,6 +630,17 @@ class UserViewSet(viewsets.ViewSet):
             # Get all outfits from user's outfit_history
             outfits = user.outfit_history or []
             
+            # Ensure all outfits have _id (add if missing for backward compatibility)
+            import uuid
+            needs_save = False
+            for outfit in outfits:
+                if "_id" not in outfit:
+                    outfit["_id"] = str(uuid.uuid4())
+                    needs_save = True
+            
+            if needs_save:
+                user.save()
+            
             # Sort by timestamp (newest first) if timestamp exists
             sorted_outfits = sorted(
                 outfits,
@@ -654,9 +665,11 @@ class UserViewSet(viewsets.ViewSet):
         # Get validated data
         outfit_data = serializer.validated_data
 
-        # Add timestamp to the outfit
+        # Add timestamp and unique ID to the outfit
         from datetime import datetime
+        import uuid
         outfit_entry = {
+            "_id": str(uuid.uuid4()),
             "name": outfit_data["name"],
             "products": outfit_data["products"],
             "totalPrice": outfit_data["totalPrice"],
@@ -683,11 +696,15 @@ class UserViewSet(viewsets.ViewSet):
             status_code=status.HTTP_201_CREATED,
         )
 
-    @action(detail=True, methods=["delete"], url_path="outfits/(?P<outfit_name>[^/.]+)", permission_classes=[permissions.AllowAny], authentication_classes=[])
-    def delete_outfit(self, request, pk=None, outfit_name=None):
+    @action(detail=True, methods=["delete"], url_path="outfits/(?P<outfit_identifier>[^/.]+)", permission_classes=[permissions.AllowAny], authentication_classes=[])
+    def delete_outfit(self, request, pk=None, outfit_identifier=None):
         """
-        DELETE: Remove a specific outfit from user's outfit history by name.
-        URL: /api/v1/users/{user_id}/outfits/{outfit_name}
+        DELETE: Remove a specific outfit from user's outfit history by ID or name.
+        URL: /api/v1/users/{user_id}/outfits/{outfit_id_or_name}
+        
+        Supports deletion by:
+        - Outfit _id (recommended): DELETE /api/v1/users/{user_id}/outfits/{outfit_id}
+        - Outfit name (legacy): DELETE /api/v1/users/{user_id}/outfits/{outfit_name}
         """
         try:
             user = User.objects.get(id=ObjectId(pk))
@@ -698,53 +715,67 @@ class UserViewSet(viewsets.ViewSet):
                 status_code=status.HTTP_404_NOT_FOUND,
             )
 
-        if not outfit_name:
+        if not outfit_identifier:
             return api_error(
-                "Outfit name is required.",
+                "Outfit ID or name is required.",
                 data=None,
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
 
-        # URL decode the outfit name
+        # URL decode the identifier
         from urllib.parse import unquote
-        decoded_outfit_name = unquote(outfit_name)
+        decoded_identifier = unquote(outfit_identifier)
 
         # Initialize outfit_history if it doesn't exist
         if not user.outfit_history:
             user.outfit_history = []
 
-        # Find and remove the outfit with matching name
+        # Find and remove the outfit
         initial_count = len(user.outfit_history)
+        deleted_outfit = None
         
-        # Try exact match first
-        user.outfit_history = [
-            outfit for outfit in user.outfit_history
-            if outfit.get("name") != decoded_outfit_name
-        ]
+        # Try to find by _id first (recommended approach)
+        new_history = []
+        for outfit in user.outfit_history:
+            if outfit.get("_id") == decoded_identifier:
+                deleted_outfit = outfit
+            else:
+                new_history.append(outfit)
         
-        # If no exact match, try case-insensitive and trimmed match
-        if len(user.outfit_history) == initial_count:
-            user.outfit_history = [
-                outfit for outfit in user.outfit_history
-                if outfit.get("name", "").strip().lower() != decoded_outfit_name.strip().lower()
-            ]
+        # If not found by ID, try by name (legacy support)
+        if len(new_history) == initial_count:
+            new_history = []
+            for outfit in user.outfit_history:
+                outfit_name = outfit.get("name", "")
+                # Try exact match or case-insensitive match
+                if outfit_name == decoded_identifier or outfit_name.strip().lower() == decoded_identifier.strip().lower():
+                    deleted_outfit = outfit
+                else:
+                    new_history.append(outfit)
         
         # Check if any outfit was removed
-        if len(user.outfit_history) == initial_count:
-            # Return available outfit names for debugging
-            available_names = [outfit.get("name", "N/A") for outfit in user.outfit_history]
+        if len(new_history) == initial_count:
+            # Return available outfits for debugging
+            available_outfits = [
+                {"_id": outfit.get("_id", "N/A"), "name": outfit.get("name", "N/A")}
+                for outfit in user.outfit_history
+            ]
             return api_error(
-                f"Outfit '{decoded_outfit_name}' not found. Available outfits: {available_names}",
-                data={"available_outfits": available_names},
+                f"Outfit '{decoded_identifier}' not found.",
+                data={"available_outfits": available_outfits},
                 status_code=status.HTTP_404_NOT_FOUND,
             )
 
+        user.outfit_history = new_history
         user.save()
 
         return api_success(
-            f"Outfit '{decoded_outfit_name}' deleted successfully",
+            "Outfit deleted successfully",
             {
-                "deleted_outfit_name": decoded_outfit_name,
+                "deleted_outfit": {
+                    "_id": deleted_outfit.get("_id") if deleted_outfit else None,
+                    "name": deleted_outfit.get("name") if deleted_outfit else None,
+                },
                 "user_id": str(user.id),
                 "total_outfits": len(user.outfit_history),
             },
