@@ -705,31 +705,46 @@ class UserViewSet(viewsets.ViewSet):
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
 
+        # URL decode the outfit name
+        from urllib.parse import unquote
+        decoded_outfit_name = unquote(outfit_name)
+
         # Initialize outfit_history if it doesn't exist
         if not user.outfit_history:
             user.outfit_history = []
 
         # Find and remove the outfit with matching name
         initial_count = len(user.outfit_history)
+        
+        # Try exact match first
         user.outfit_history = [
             outfit for outfit in user.outfit_history
-            if outfit.get("name") != outfit_name
+            if outfit.get("name") != decoded_outfit_name
         ]
+        
+        # If no exact match, try case-insensitive and trimmed match
+        if len(user.outfit_history) == initial_count:
+            user.outfit_history = [
+                outfit for outfit in user.outfit_history
+                if outfit.get("name", "").strip().lower() != decoded_outfit_name.strip().lower()
+            ]
         
         # Check if any outfit was removed
         if len(user.outfit_history) == initial_count:
+            # Return available outfit names for debugging
+            available_names = [outfit.get("name", "N/A") for outfit in user.outfit_history]
             return api_error(
-                f"Outfit '{outfit_name}' not found.",
-                data=None,
+                f"Outfit '{decoded_outfit_name}' not found. Available outfits: {available_names}",
+                data={"available_outfits": available_names},
                 status_code=status.HTTP_404_NOT_FOUND,
             )
 
         user.save()
 
         return api_success(
-            f"Outfit '{outfit_name}' deleted successfully",
+            f"Outfit '{decoded_outfit_name}' deleted successfully",
             {
-                "deleted_outfit_name": outfit_name,
+                "deleted_outfit_name": decoded_outfit_name,
                 "user_id": str(user.id),
                 "total_outfits": len(user.outfit_history),
             },

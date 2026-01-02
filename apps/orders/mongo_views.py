@@ -131,7 +131,7 @@ class OrderViewSet(viewsets.ViewSet):
             data=None,
         )
 
-    @action(detail=True, methods=["post"])
+    @action(detail=True, methods=["post", "put"])
     def mark_paid(self, request, pk=None):
         try:
             order = Order.objects.get(id=ObjectId(pk))
@@ -151,7 +151,7 @@ class OrderViewSet(viewsets.ViewSet):
             },
         )
 
-    @action(detail=True, methods=["post"], permission_classes=[permissions.AllowAny], authentication_classes=[])
+    @action(detail=True, methods=["post", "put"], permission_classes=[permissions.AllowAny], authentication_classes=[])
     def mark_delivered(self, request, pk=None):
         try:
             order = Order.objects.get(id=ObjectId(pk))
@@ -173,7 +173,7 @@ class OrderViewSet(viewsets.ViewSet):
             },
         )
 
-    @action(detail=True, methods=["post"])
+    @action(detail=True, methods=["post", "put"])
     def cancel(self, request, pk=None):
         try:
             order = Order.objects.get(id=ObjectId(pk))
