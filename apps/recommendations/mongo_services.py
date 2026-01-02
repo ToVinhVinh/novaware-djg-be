@@ -7,7 +7,6 @@ from typing import Iterable
 import numpy as np
 import tensorflow as tf
 from bson import ObjectId
-from celery import shared_task
 
 from apps.products.mongo_models import Product
 from apps.users.mongo_models import User
@@ -63,7 +62,7 @@ class RecommendationService:
 
     @classmethod
     def enqueue_recommendation(cls, request_obj: RecommendationRequest) -> None:
-        run_recommendation_task.delay(str(request_obj.id))
+        run_recommendation_task(str(request_obj.id))
 
     @classmethod
     def build_context(cls, request_obj: RecommendationRequest) -> RecommendationContext:
@@ -109,7 +108,8 @@ class RecommendationService:
 
         return selected_products
 
-@shared_task
+
+
 def run_recommendation_task(request_id: str) -> None:
     try:
         request_obj = RecommendationRequest.objects.get(id=ObjectId(request_id))

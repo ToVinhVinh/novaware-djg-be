@@ -3,7 +3,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from celery import shared_task
+
+
 
 from apps.recommendations.common import BaseRecommendationEngine
 from apps.recommendations.common.context import RecommendationContext
@@ -40,7 +41,8 @@ class HybridRecommendationEngine(BaseRecommendationEngine):
 engine = HybridRecommendationEngine()
 
 
-@shared_task
+
+
 def train_hybrid_model(force_retrain: bool = False) -> dict[str, Any]:
     return engine.train(force_retrain=force_retrain)
 

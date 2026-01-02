@@ -6,7 +6,7 @@ from typing import Iterable
 
 import numpy as np
 import tensorflow as tf
-from celery import shared_task
+
 from django.contrib.auth import get_user_model
 from django.db import transaction
 
@@ -60,7 +60,7 @@ class RecommendationService:
 
     @classmethod
     def enqueue_recommendation(cls, request_obj: RecommendationRequest) -> None:
-        run_recommendation_task.delay(request_obj.id)
+        run_recommendation_task(request_obj.id)
 
     @classmethod
     def build_context(cls, request_obj: RecommendationRequest) -> RecommendationContext:
@@ -84,7 +84,8 @@ class RecommendationService:
         selected_ids = [product_ids[i] for i in indices if i < len(product_ids)]
         return Product.objects.filter(id__in=selected_ids)
 
-@shared_task
+
+
 def run_recommendation_task(request_id: int) -> None:
     try:
         request_obj = RecommendationRequest.objects.get(pk=request_id)
