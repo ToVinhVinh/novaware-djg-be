@@ -41,7 +41,7 @@ class User(me.Document):
     reset_password_expire = fields.DateTimeField(null=True, db_field="resetPasswordExpire")
     unhashed_reset_password_token = fields.StringField(null=True, db_field="unhashedResetPasswordToken")
 
-    favorites = fields.ListField(fields.ObjectIdField(), default=list, db_field="favorites")
+    favorites = fields.ListField(fields.IntField(), default=list, db_field="favorites")
 
     preferences = fields.DictField(default=dict, db_field="preferences")
 

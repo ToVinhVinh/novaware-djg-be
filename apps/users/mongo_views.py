@@ -164,7 +164,13 @@ class UserViewSet(viewsets.ViewSet):
                 },
             )
 
-        product_id = request.data.get("product") or request.query_params.get("product")
+
+        product_id = (
+            request.data.get("product") 
+            or request.data.get("productId") 
+            or request.query_params.get("product")
+            or request.query_params.get("productId")
+        )
         if not product_id:
             return api_error(
                 "Product ID is required.",
@@ -173,19 +179,22 @@ class UserViewSet(viewsets.ViewSet):
             )
 
         try:
-            product = Product.objects.get(id=ObjectId(product_id))
-        except (Product.DoesNotExist, Exception):
+            # Convert to int if it's a string
+            product_id_int = int(product_id)
+            product = Product.objects.get(id=product_id_int)
+        except (Product.DoesNotExist, ValueError, Exception) as e:
             return api_error(
-                "Product does not exist.",
+                f"Product does not exist. Error: {str(e)}",
                 data=None,
                 status_code=status.HTTP_404_NOT_FOUND,
             )
 
-        product_id_obj = product.id
+        # Use integer id for favorites (matching Product's primary key)
+        product_int_id = product.id
 
         if request.method == "POST":
-            if product_id_obj not in user.favorites:
-                user.favorites.append(product_id_obj)
+            if product_int_id not in user.favorites:
+                user.favorites.append(product_int_id)
                 user.save()
             return api_success(
                 "Product added to favorites.",
@@ -196,8 +205,8 @@ class UserViewSet(viewsets.ViewSet):
                 status_code=status.HTTP_201_CREATED,
             )
         else:
-            if product_id_obj in user.favorites:
-                user.favorites.remove(product_id_obj)
+            if product_int_id in user.favorites:
+                user.favorites.remove(product_int_id)
                 user.save()
             return api_success(
                 "Product removed from favorites.",
