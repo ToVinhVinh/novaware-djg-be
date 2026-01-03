@@ -294,8 +294,6 @@ def build_personalized_candidates(
                 break
     
     if not user_scores:
-        # Fallback for new users or missing predictions:
-        # Select candidates based on content similarity (Same ArticleType, Compatible Gender)
         try:
             # Create mask for same articleType
             mask = (products_df['articleType'] == payload_article)
@@ -309,12 +307,7 @@ def build_personalized_candidates(
             
             # Filter candidates DataFrame
             candidates_df = products_df[mask]
-            
-            # Sort Strategy for Fallback:
-            # 1. Matches Usage (if payload has usage)
-            # 2. Newest (Year desc)
-            # 3. Highest Rating (if available)
-            
+        
             sort_cols = []
             ascending_orders = []
             
@@ -329,12 +322,9 @@ def build_personalized_candidates(
             if sort_cols:
                 candidates_df = candidates_df.sort_values(by=sort_cols, ascending=ascending_orders)
             
-            # Take top candidates (enough to filter downstream)
             fallback_limit = top_k * 5
             candidates = candidates_df.head(fallback_limit)
             
-            # Assign default neutral score for fallback items
-            # Use index as product_id
             user_scores = {str(idx): 0.1 for idx in candidates.index}
             
         except Exception as e:
