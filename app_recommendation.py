@@ -848,10 +848,8 @@ def build_personalized_candidates(
             'reasons': reasons,
             'product_row': product_row
         })
-        
-        seen_product_ids.add(product_id_str)  # Đánh dấu là đã xem
+        seen_product_ids.add(product_id_str)
 
-    # Sắp xếp theo điểm số (giảm dần), sau đó theo product_id (tăng dần) để có thứ tự xác định
     prioritized.sort(key=lambda x: (-x['score'], x['product_id']))
     return prioritized[:top_k]
 
@@ -868,197 +866,232 @@ def prepare_outfit_data(
 ) -> Dict:
     """Tính toán các dữ liệu cần thiết cho outfit suggestions và hiển thị các bước."""
     
+    # Item-Item complement dictionary
     complement = {
-    # ===== TOPS =====
-    'Tshirts': [
-        # Men combinations (4 items)
-        ['Watches', 'Jeans', 'Casual Shoes'],
-        ['Watches', 'Jeans', 'Sports Shoes'],
-        ['Watches', 'Trousers', 'Casual Shoes'],
-        ['Watches', 'Trousers', 'Formal Shoes'],
-        ['Watches', 'Shorts', 'Sports Shoes'],
-        ['Watches', 'Shorts', 'Casual Shoes'],
-        # Women combinations (4 items)
-        ['Watches', 'Skirts', 'Flats'],
-        ['Watches', 'Skirts', 'Heels'],
-        ['Watches', 'Jeans', 'Flats'],
-        ['Handbags', 'Skirts', 'Casual Shoes'],
-    ],
-    
-    'Shirts': [
-        # Men formal (4 items)
-        ['Watches', 'Trousers', 'Formal Shoes'],
-        ['Belts', 'Trousers', 'Formal Shoes'],
-        ['Watches', 'Jeans', 'Casual Shoes'],
-        ['Belts', 'Jeans', 'Casual Shoes'],
-        # Men casual (4 items)
-        ['Watches', 'Shorts', 'Casual Shoes'],
-        ['Watches', 'Trousers', 'Casual Shoes'],
-    ],
-    
-    'Tops': [
-        # Women combinations (4 items)
-        ['Watches', 'Jeans', 'Casual Shoes'],
-        ['Watches', 'Trousers', 'Casual Shoes'],
-        ['Watches', 'Skirts', 'Flats'],
-        ['Watches', 'Skirts', 'Heels'],
-        ['Handbags', 'Shorts', 'Casual Shoes'],
-        ['Watches', 'Capris', 'Sports Shoes'],
-    ],
-    
-    'Sweaters': [
-        ['Watches', 'Jeans', 'Casual Shoes'],
-        ['Watches', 'Trousers', 'Formal Shoes'],
-        ['Watches', 'Skirts', 'Flats'],  # Women
-    ],
-    
-    'Sweatshirts': [
-        ['Watches', 'Jeans', 'Sports Shoes'],
-        ['Caps', 'Shorts', 'Sports Shoes'],
-        ['Watches', 'Track Pants', 'Sports Shoes'],
-        ['Backpacks', 'Trousers', 'Casual Shoes'],
-    ],
-    
-    'Jackets': [
-        ['Watches', 'Jeans', 'Casual Shoes'],
-        ['Watches', 'Trousers', 'Formal Shoes'],
-        ['Watches', 'Skirts', 'Heels'],  # Women
-    ],
-    
-    # ===== DRESSES (Women only - 3 items vì không có Bottoms) =====
-    'Dresses': [
-        ['Watches', 'Heels'],
-        ['Watches', 'Flats'],
-        ['Handbags', 'Heels'],
-        ['Handbags', 'Flats'],
-        ['Watches', 'Casual Shoes'],
-    ],
-    
-    # ===== BOTTOMS =====
-    'Jeans': [
-        ['Tshirts', 'Watches', 'Casual Shoes'],
-        ['Shirts', 'Watches', 'Casual Shoes'],
-        ['Tops', 'Watches', 'Casual Shoes'],  # Women
-        ['Tshirts', 'Watches', 'Sports Shoes'],
-        ['Sweaters', 'Watches', 'Casual Shoes'],
-    ],
-    
-    'Trousers': [
-        ['Shirts', 'Watches', 'Formal Shoes'],
-        ['Shirts', 'Belts', 'Formal Shoes'],
-        ['Tshirts', 'Watches', 'Casual Shoes'],
-        ['Sweaters', 'Watches', 'Formal Shoes'],
-        ['Tops', 'Watches', 'Casual Shoes'],  # Women
-    ],
-    
-    'Shorts': [
-        ['Tshirts', 'Watches', 'Sports Shoes'],
-        ['Tshirts', 'Watches', 'Casual Shoes'],
-        ['Tops', 'Watches', 'Sports Shoes'],  # Women
-        ['Sweatshirts', 'Caps', 'Sports Shoes'],
-    ],
-    
-    'Skirts': [
-        # Women only (4 items)
-        ['Tshirts', 'Watches', 'Flats'],
-        ['Tshirts', 'Watches', 'Heels'],
-        ['Tops', 'Watches', 'Flats'],
-        ['Tops', 'Handbags', 'Heels'],
-        ['Tshirts', 'Handbags', 'Casual Shoes'],
-    ],
-    
-    'Capris': [
-        # Women only (4 items)
-        ['Tops', 'Watches', 'Sports Shoes'],
-        ['Tshirts', 'Caps', 'Sports Shoes'],
-    ],
-    
-    'Track Pants': [
-        ['Tshirts', 'Watches', 'Sports Shoes'],
-        ['Sweatshirts', 'Watches', 'Sports Shoes'],
-        ['Tops', 'Watches', 'Sports Shoes'],  # Women
-    ],
-    
-    # ===== SHOES =====
-    'Casual Shoes': [
-        ['Tshirts', 'Watches', 'Jeans'],
-        ['Shirts', 'Watches', 'Trousers'],
-        ['Tops', 'Watches', 'Skirts'],  # Women
-    ],
-    
-    'Formal Shoes': [
-        ['Shirts', 'Watches', 'Trousers'],
-        ['Shirts', 'Belts', 'Trousers'],
-    ],
-    
-    'Sports Shoes': [
-        ['Tshirts', 'Watches', 'Shorts'],
-        ['Tshirts', 'Watches', 'Track Pants'],
-        ['Sweatshirts', 'Caps', 'Shorts'],
-        ['Tops', 'Watches', 'Capris'],  # Women
-    ],
-    
-    'Heels': [
-        # Women only (3-4 items)
-        ['Dresses', 'Watches'],
-        ['Tshirts', 'Watches', 'Skirts'],
-        ['Tops', 'Handbags', 'Skirts'],
-    ],
-    
-    'Flats': [
-        # Women only (3-4 items)
-        ['Dresses', 'Watches'],
-        ['Tshirts', 'Watches', 'Skirts'],
-        ['Tops', 'Watches', 'Jeans'],
-        ['Dresses', 'Handbags'],
-    ],
-    
-    'Flip Flops': [
-        ['Tshirts', 'Watches', 'Jeans'],
-        ['Tshirts', 'Watches', 'Shorts'],
-        ['Dresses', 'Handbags'],  # Women
-    ],
-    
-    'Sandals': [
-        ['Tshirts', 'Watches', 'Shorts'],
-        ['Tshirts', 'Watches', 'Jeans'],
-        ['Tops', 'Watches', 'Skirts'],  # Women
-    ],
-    
-    # ===== ACCESSORIES =====
-    'Watches': [
-        ['Tshirts', 'Jeans', 'Casual Shoes'],
-        ['Shirts', 'Trousers', 'Formal Shoes'],
-        ['Tops', 'Skirts', 'Flats'],  # Women
-        ['Dresses', 'Heels'],  # Women
-    ],
-    
-    'Handbags': [
-        # Women only (3-4 items)
-        ['Dresses', 'Heels'],
-        ['Dresses', 'Flats'],
-        ['Tshirts', 'Skirts', 'Casual Shoes'],
-        ['Tops', 'Skirts', 'Heels'],
-    ],
-    
-    'Belts': [
-        ['Shirts', 'Trousers', 'Formal Shoes'],
-        ['Shirts', 'Jeans', 'Casual Shoes'],
-        ['Tshirts', 'Jeans', 'Casual Shoes'],
-    ],
-    
-    'Caps': [
-        ['Tshirts', 'Shorts', 'Sports Shoes'],
-        ['Sweatshirts', 'Track Pants', 'Sports Shoes'],
-        ['Tshirts', 'Capris', 'Sports Shoes'],  # Women
-    ],
-    
-    'Backpacks': [
-        ['Tshirts', 'Jeans', 'Casual Shoes'],
-        ['Sweatshirts', 'Trousers', 'Sports Shoes'],
-        ['Shirts', 'Jeans', 'Casual Shoes'],
-    ],
-}
+        # ===== TOPS =====
+        'Tshirts': [
+            # Men combinations (4 items)
+            ['Watches', 'Jeans', 'Casual Shoes'],
+            ['Watches', 'Jeans', 'Sports Shoes'],
+            ['Watches', 'Trousers', 'Casual Shoes'],
+            ['Watches', 'Trousers', 'Formal Shoes'],
+            ['Watches', 'Shorts', 'Sports Shoes'],
+            ['Watches', 'Shorts', 'Casual Shoes'],
+            # Women combinations (4 items)
+            ['Watches', 'Skirts', 'Flats'],
+            ['Watches', 'Skirts', 'Heels'],
+            ['Watches', 'Jeans', 'Flats'],
+            ['Handbags', 'Skirts', 'Casual Shoes'],
+        ],
+        
+        'Shirts': [
+            # Men formal (4 items)
+            ['Watches', 'Trousers', 'Formal Shoes'],
+            ['Belts', 'Trousers', 'Formal Shoes'],
+            ['Watches', 'Jeans', 'Casual Shoes'],
+            ['Belts', 'Jeans', 'Casual Shoes'],
+            # Men casual (4 items)
+            ['Watches', 'Shorts', 'Casual Shoes'],
+            ['Watches', 'Trousers', 'Casual Shoes'],
+        ],
+        
+        'Tops': [
+            # Women combinations (4 items)
+            ['Watches', 'Jeans', 'Casual Shoes'],
+            ['Watches', 'Trousers', 'Casual Shoes'],
+            ['Watches', 'Skirts', 'Flats'],
+            ['Watches', 'Skirts', 'Heels'],
+            ['Handbags', 'Shorts', 'Casual Shoes'],
+            ['Watches', 'Capris', 'Sports Shoes'],
+        ],
+        
+        'Sweaters': [
+            ['Watches', 'Jeans', 'Casual Shoes'],
+            ['Watches', 'Trousers', 'Formal Shoes'],
+            ['Watches', 'Skirts', 'Flats'],  # Women
+        ],
+        
+        'Sweatshirts': [
+            ['Watches', 'Jeans', 'Sports Shoes'],
+            ['Caps', 'Shorts', 'Sports Shoes'],
+            ['Watches', 'Track Pants', 'Sports Shoes'],
+            ['Backpacks', 'Trousers', 'Casual Shoes'],
+        ],
+        
+        'Jackets': [
+            ['Watches', 'Jeans', 'Casual Shoes'],
+            ['Watches', 'Trousers', 'Formal Shoes'],
+            ['Watches', 'Skirts', 'Heels'],  # Women
+        ],
+        
+        # ===== DRESSES (Women only - 3 items vì không có Bottoms) =====
+        'Dresses': [
+            ['Watches', 'Heels'],
+            ['Watches', 'Flats'],
+            ['Handbags', 'Heels'],
+            ['Handbags', 'Flats'],
+            ['Watches', 'Casual Shoes'],
+        ],
+        
+        # ===== BOTTOMS =====
+        'Jeans': [
+            ['Tshirts', 'Watches', 'Casual Shoes'],
+            ['Shirts', 'Watches', 'Casual Shoes'],
+            ['Tops', 'Watches', 'Casual Shoes'],  # Women
+            ['Tshirts', 'Watches', 'Sports Shoes'],
+            ['Sweaters', 'Watches', 'Casual Shoes'],
+        ],
+        
+        'Trousers': [
+            ['Shirts', 'Watches', 'Formal Shoes'],
+            ['Shirts', 'Belts', 'Formal Shoes'],
+            ['Tshirts', 'Watches', 'Casual Shoes'],
+            ['Sweaters', 'Watches', 'Formal Shoes'],
+            ['Tops', 'Watches', 'Casual Shoes'],  # Women
+        ],
+        
+        'Shorts': [
+            ['Tshirts', 'Watches', 'Sports Shoes'],
+            ['Tshirts', 'Watches', 'Casual Shoes'],
+            ['Tops', 'Watches', 'Sports Shoes'],  # Women
+            ['Sweatshirts', 'Caps', 'Sports Shoes'],
+        ],
+        
+        'Skirts': [
+            # Women only (4 items)
+            ['Tshirts', 'Watches', 'Flats'],
+            ['Tshirts', 'Watches', 'Heels'],
+            ['Tops', 'Watches', 'Flats'],
+            ['Tops', 'Handbags', 'Heels'],
+            ['Tshirts', 'Handbags', 'Casual Shoes'],
+        ],
+        
+        'Capris': [
+            # Women only (4 items)
+            ['Tops', 'Watches', 'Sports Shoes'],
+            ['Tshirts', 'Caps', 'Sports Shoes'],
+        ],
+        
+        'Track Pants': [
+            ['Tshirts', 'Watches', 'Sports Shoes'],
+            ['Sweatshirts', 'Watches', 'Sports Shoes'],
+            ['Tops', 'Watches', 'Sports Shoes'],  # Women
+        ],
+        
+        # ===== SHOES =====
+        'Casual Shoes': [
+            ['Tshirts', 'Watches', 'Jeans'],
+            ['Shirts', 'Watches', 'Trousers'],
+            ['Tops', 'Watches', 'Skirts'],  # Women
+        ],
+        
+        'Formal Shoes': [
+            ['Shirts', 'Watches', 'Trousers'],
+            ['Shirts', 'Belts', 'Trousers'],
+        ],
+        
+        'Sports Shoes': [
+            ['Tshirts', 'Watches', 'Shorts'],
+            ['Tshirts', 'Watches', 'Track Pants'],
+            ['Sweatshirts', 'Caps', 'Shorts'],
+            ['Tops', 'Watches', 'Capris'],  # Women
+        ],
+        
+        'Heels': [
+            # Women only (3-4 items)
+            ['Dresses', 'Watches'],
+            ['Tshirts', 'Watches', 'Skirts'],
+            ['Tops', 'Handbags', 'Skirts'],
+        ],
+        
+        'Flats': [
+            # Women only (3-4 items)
+            ['Dresses', 'Watches'],
+            ['Tshirts', 'Watches', 'Skirts'],
+            ['Tops', 'Watches', 'Jeans'],
+            ['Dresses', 'Handbags'],
+        ],
+        
+        'Flip Flops': [
+            ['Tshirts', 'Watches', 'Jeans'],
+            ['Tshirts', 'Watches', 'Shorts'],
+            ['Dresses', 'Handbags'],  # Women
+        ],
+        
+        'Sandals': [
+            ['Tshirts', 'Watches', 'Shorts'],
+            ['Tshirts', 'Watches', 'Jeans'],
+            ['Tops', 'Watches', 'Skirts'],  # Women
+        ],
+        
+        # ===== ACCESSORIES =====
+        'Watches': [
+            ['Tshirts', 'Jeans', 'Casual Shoes'],
+            ['Shirts', 'Trousers', 'Formal Shoes'],
+            ['Tops', 'Skirts', 'Flats'],  # Women
+            ['Dresses', 'Heels'],  # Women
+        ],
+        
+        'Handbags': [
+            # Women only (3-4 items)
+            ['Dresses', 'Heels'],
+            ['Dresses', 'Flats'],
+            ['Tshirts', 'Skirts', 'Casual Shoes'],
+            ['Tops', 'Skirts', 'Heels'],
+        ],
+        
+        'Belts': [
+            ['Shirts', 'Trousers', 'Formal Shoes'],
+            ['Shirts', 'Jeans', 'Casual Shoes'],
+            ['Tshirts', 'Jeans', 'Casual Shoes'],
+        ],
+        
+        'Caps': [
+            ['Tshirts', 'Shorts', 'Sports Shoes'],
+            ['Sweatshirts', 'Track Pants', 'Sports Shoes'],
+            ['Tshirts', 'Capris', 'Sports Shoes'],  # Women
+        ],
+        
+        'Backpacks': [
+            ['Tshirts', 'Jeans', 'Casual Shoes'],
+            ['Sweatshirts', 'Trousers', 'Sports Shoes'],
+            ['Shirts', 'Jeans', 'Casual Shoes'],
+        ],
+        
+        # ===== ADDITIONAL MIXED RULES (Fallbacks for Kids/Simple outfits) =====
+        'Skirts': [
+            ['Tshirts', 'Watches', 'Flats'],
+            ['Tshirts', 'Watches', 'Heels'],
+            ['Tops', 'Watches', 'Flats'],
+            ['Tops', 'Handbags', 'Heels'],
+            ['Tshirts', 'Handbags', 'Casual Shoes'],
+            # New flexible rules
+            ['Tops', 'Casual Shoes'],
+            ['Tshirts', 'Sports Shoes'],
+            ['Tops', 'Sandals'],
+        ],
+        
+        'Jeans': [
+            ['Tshirts', 'Watches', 'Casual Shoes'],
+            ['Shirts', 'Watches', 'Casual Shoes'],
+            ['Tops', 'Watches', 'Casual Shoes'],
+            ['Tshirts', 'Watches', 'Sports Shoes'],
+            ['Sweaters', 'Watches', 'Casual Shoes'],
+            # New flexible rules
+            ['Tops', 'Sports Shoes'],
+            ['Tshirts', 'Sandals'],
+        ],
+        
+        'Shorts': [
+            ['Tshirts', 'Watches', 'Sports Shoes'],
+            ['Tshirts', 'Watches', 'Casual Shoes'],
+            ['Tops', 'Watches', 'Sports Shoes'],
+            ['Sweatshirts', 'Caps', 'Sports Shoes'],
+            # New flexible rules
+            ['Tops', 'Casual Shoes'],
+            ['Tops', 'Sandals'],
+        ],
+    }
     
     target_gender = str(payload_row.get('gender', '')).strip()
     
@@ -1611,197 +1644,232 @@ def build_outfit_suggestions(
     if payload_row is None:
         return []
 
+    # Item-Item complement dictionary
     complement = {
-    # ===== TOPS =====
-    'Tshirts': [
-        # Men combinations (4 items)
-        ['Watches', 'Jeans', 'Casual Shoes'],
-        ['Watches', 'Jeans', 'Sports Shoes'],
-        ['Watches', 'Trousers', 'Casual Shoes'],
-        ['Watches', 'Trousers', 'Formal Shoes'],
-        ['Watches', 'Shorts', 'Sports Shoes'],
-        ['Watches', 'Shorts', 'Casual Shoes'],
-        # Women combinations (4 items)
-        ['Watches', 'Skirts', 'Flats'],
-        ['Watches', 'Skirts', 'Heels'],
-        ['Watches', 'Jeans', 'Flats'],
-        ['Handbags', 'Skirts', 'Casual Shoes'],
-    ],
-    
-    'Shirts': [
-        # Men formal (4 items)
-        ['Watches', 'Trousers', 'Formal Shoes'],
-        ['Belts', 'Trousers', 'Formal Shoes'],
-        ['Watches', 'Jeans', 'Casual Shoes'],
-        ['Belts', 'Jeans', 'Casual Shoes'],
-        # Men casual (4 items)
-        ['Watches', 'Shorts', 'Casual Shoes'],
-        ['Watches', 'Trousers', 'Casual Shoes'],
-    ],
-    
-    'Tops': [
-        # Women combinations (4 items)
-        ['Watches', 'Jeans', 'Casual Shoes'],
-        ['Watches', 'Trousers', 'Casual Shoes'],
-        ['Watches', 'Skirts', 'Flats'],
-        ['Watches', 'Skirts', 'Heels'],
-        ['Handbags', 'Shorts', 'Casual Shoes'],
-        ['Watches', 'Capris', 'Sports Shoes'],
-    ],
-    
-    'Sweaters': [
-        ['Watches', 'Jeans', 'Casual Shoes'],
-        ['Watches', 'Trousers', 'Formal Shoes'],
-        ['Watches', 'Skirts', 'Flats'],  # Women
-    ],
-    
-    'Sweatshirts': [
-        ['Watches', 'Jeans', 'Sports Shoes'],
-        ['Caps', 'Shorts', 'Sports Shoes'],
-        ['Watches', 'Track Pants', 'Sports Shoes'],
-        ['Backpacks', 'Trousers', 'Casual Shoes'],
-    ],
-    
-    'Jackets': [
-        ['Watches', 'Jeans', 'Casual Shoes'],
-        ['Watches', 'Trousers', 'Formal Shoes'],
-        ['Watches', 'Skirts', 'Heels'],  # Women
-    ],
-    
-    # ===== DRESSES (Women only - 3 items vì không có Bottoms) =====
-    'Dresses': [
-        ['Watches', 'Heels'],
-        ['Watches', 'Flats'],
-        ['Handbags', 'Heels'],
-        ['Handbags', 'Flats'],
-        ['Watches', 'Casual Shoes'],
-    ],
-    
-    # ===== BOTTOMS =====
-    'Jeans': [
-        ['Tshirts', 'Watches', 'Casual Shoes'],
-        ['Shirts', 'Watches', 'Casual Shoes'],
-        ['Tops', 'Watches', 'Casual Shoes'],  # Women
-        ['Tshirts', 'Watches', 'Sports Shoes'],
-        ['Sweaters', 'Watches', 'Casual Shoes'],
-    ],
-    
-    'Trousers': [
-        ['Shirts', 'Watches', 'Formal Shoes'],
-        ['Shirts', 'Belts', 'Formal Shoes'],
-        ['Tshirts', 'Watches', 'Casual Shoes'],
-        ['Sweaters', 'Watches', 'Formal Shoes'],
-        ['Tops', 'Watches', 'Casual Shoes'],  # Women
-    ],
-    
-    'Shorts': [
-        ['Tshirts', 'Watches', 'Sports Shoes'],
-        ['Tshirts', 'Watches', 'Casual Shoes'],
-        ['Tops', 'Watches', 'Sports Shoes'],  # Women
-        ['Sweatshirts', 'Caps', 'Sports Shoes'],
-    ],
-    
-    'Skirts': [
-        # Women only (4 items)
-        ['Tshirts', 'Watches', 'Flats'],
-        ['Tshirts', 'Watches', 'Heels'],
-        ['Tops', 'Watches', 'Flats'],
-        ['Tops', 'Handbags', 'Heels'],
-        ['Tshirts', 'Handbags', 'Casual Shoes'],
-    ],
-    
-    'Capris': [
-        # Women only (4 items)
-        ['Tops', 'Watches', 'Sports Shoes'],
-        ['Tshirts', 'Caps', 'Sports Shoes'],
-    ],
-    
-    'Track Pants': [
-        ['Tshirts', 'Watches', 'Sports Shoes'],
-        ['Sweatshirts', 'Watches', 'Sports Shoes'],
-        ['Tops', 'Watches', 'Sports Shoes'],  # Women
-    ],
-    
-    # ===== SHOES =====
-    'Casual Shoes': [
-        ['Tshirts', 'Watches', 'Jeans'],
-        ['Shirts', 'Watches', 'Trousers'],
-        ['Tops', 'Watches', 'Skirts'],  # Women
-    ],
-    
-    'Formal Shoes': [
-        ['Shirts', 'Watches', 'Trousers'],
-        ['Shirts', 'Belts', 'Trousers'],
-    ],
-    
-    'Sports Shoes': [
-        ['Tshirts', 'Watches', 'Shorts'],
-        ['Tshirts', 'Watches', 'Track Pants'],
-        ['Sweatshirts', 'Caps', 'Shorts'],
-        ['Tops', 'Watches', 'Capris'],  # Women
-    ],
-    
-    'Heels': [
-        # Women only (3-4 items)
-        ['Dresses', 'Watches'],
-        ['Tshirts', 'Watches', 'Skirts'],
-        ['Tops', 'Handbags', 'Skirts'],
-    ],
-    
-    'Flats': [
-        # Women only (3-4 items)
-        ['Dresses', 'Watches'],
-        ['Tshirts', 'Watches', 'Skirts'],
-        ['Tops', 'Watches', 'Jeans'],
-        ['Dresses', 'Handbags'],
-    ],
-    
-    'Flip Flops': [
-        ['Tshirts', 'Watches', 'Jeans'],
-        ['Tshirts', 'Watches', 'Shorts'],
-        ['Dresses', 'Handbags'],  # Women
-    ],
-    
-    'Sandals': [
-        ['Tshirts', 'Watches', 'Shorts'],
-        ['Tshirts', 'Watches', 'Jeans'],
-        ['Tops', 'Watches', 'Skirts'],  # Women
-    ],
-    
-    # ===== ACCESSORIES =====
-    'Watches': [
-        ['Tshirts', 'Jeans', 'Casual Shoes'],
-        ['Shirts', 'Trousers', 'Formal Shoes'],
-        ['Tops', 'Skirts', 'Flats'],  # Women
-        ['Dresses', 'Heels'],  # Women
-    ],
-    
-    'Handbags': [
-        # Women only (3-4 items)
-        ['Dresses', 'Heels'],
-        ['Dresses', 'Flats'],
-        ['Tshirts', 'Skirts', 'Casual Shoes'],
-        ['Tops', 'Skirts', 'Heels'],
-    ],
-    
-    'Belts': [
-        ['Shirts', 'Trousers', 'Formal Shoes'],
-        ['Shirts', 'Jeans', 'Casual Shoes'],
-        ['Tshirts', 'Jeans', 'Casual Shoes'],
-    ],
-    
-    'Caps': [
-        ['Tshirts', 'Shorts', 'Sports Shoes'],
-        ['Sweatshirts', 'Track Pants', 'Sports Shoes'],
-        ['Tshirts', 'Capris', 'Sports Shoes'],  # Women
-    ],
-    
-    'Backpacks': [
-        ['Tshirts', 'Jeans', 'Casual Shoes'],
-        ['Sweatshirts', 'Trousers', 'Sports Shoes'],
-        ['Shirts', 'Jeans', 'Casual Shoes'],
-    ],
-}
+        # ===== TOPS =====
+        'Tshirts': [
+            # Men combinations (4 items)
+            ['Watches', 'Jeans', 'Casual Shoes'],
+            ['Watches', 'Jeans', 'Sports Shoes'],
+            ['Watches', 'Trousers', 'Casual Shoes'],
+            ['Watches', 'Trousers', 'Formal Shoes'],
+            ['Watches', 'Shorts', 'Sports Shoes'],
+            ['Watches', 'Shorts', 'Casual Shoes'],
+            # Women combinations (4 items)
+            ['Watches', 'Skirts', 'Flats'],
+            ['Watches', 'Skirts', 'Heels'],
+            ['Watches', 'Jeans', 'Flats'],
+            ['Handbags', 'Skirts', 'Casual Shoes'],
+        ],
+        
+        'Shirts': [
+            # Men formal (4 items)
+            ['Watches', 'Trousers', 'Formal Shoes'],
+            ['Belts', 'Trousers', 'Formal Shoes'],
+            ['Watches', 'Jeans', 'Casual Shoes'],
+            ['Belts', 'Jeans', 'Casual Shoes'],
+            # Men casual (4 items)
+            ['Watches', 'Shorts', 'Casual Shoes'],
+            ['Watches', 'Trousers', 'Casual Shoes'],
+        ],
+        
+        'Tops': [
+            # Women combinations (4 items)
+            ['Watches', 'Jeans', 'Casual Shoes'],
+            ['Watches', 'Trousers', 'Casual Shoes'],
+            ['Watches', 'Skirts', 'Flats'],
+            ['Watches', 'Skirts', 'Heels'],
+            ['Handbags', 'Shorts', 'Casual Shoes'],
+            ['Watches', 'Capris', 'Sports Shoes'],
+        ],
+        
+        'Sweaters': [
+            ['Watches', 'Jeans', 'Casual Shoes'],
+            ['Watches', 'Trousers', 'Formal Shoes'],
+            ['Watches', 'Skirts', 'Flats'],  # Women
+        ],
+        
+        'Sweatshirts': [
+            ['Watches', 'Jeans', 'Sports Shoes'],
+            ['Caps', 'Shorts', 'Sports Shoes'],
+            ['Watches', 'Track Pants', 'Sports Shoes'],
+            ['Backpacks', 'Trousers', 'Casual Shoes'],
+        ],
+        
+        'Jackets': [
+            ['Watches', 'Jeans', 'Casual Shoes'],
+            ['Watches', 'Trousers', 'Formal Shoes'],
+            ['Watches', 'Skirts', 'Heels'],  # Women
+        ],
+        
+        # ===== DRESSES (Women only - 3 items vì không có Bottoms) =====
+        'Dresses': [
+            ['Watches', 'Heels'],
+            ['Watches', 'Flats'],
+            ['Handbags', 'Heels'],
+            ['Handbags', 'Flats'],
+            ['Watches', 'Casual Shoes'],
+        ],
+        
+        # ===== BOTTOMS =====
+        'Jeans': [
+            ['Tshirts', 'Watches', 'Casual Shoes'],
+            ['Shirts', 'Watches', 'Casual Shoes'],
+            ['Tops', 'Watches', 'Casual Shoes'],  # Women
+            ['Tshirts', 'Watches', 'Sports Shoes'],
+            ['Sweaters', 'Watches', 'Casual Shoes'],
+        ],
+        
+        'Trousers': [
+            ['Shirts', 'Watches', 'Formal Shoes'],
+            ['Shirts', 'Belts', 'Formal Shoes'],
+            ['Tshirts', 'Watches', 'Casual Shoes'],
+            ['Sweaters', 'Watches', 'Formal Shoes'],
+            ['Tops', 'Watches', 'Casual Shoes'],  # Women
+        ],
+        
+        'Shorts': [
+            ['Tshirts', 'Watches', 'Sports Shoes'],
+            ['Tshirts', 'Watches', 'Casual Shoes'],
+            ['Tops', 'Watches', 'Sports Shoes'],  # Women
+            ['Sweatshirts', 'Caps', 'Sports Shoes'],
+        ],
+        
+        'Skirts': [
+            # Women only (4 items)
+            ['Tshirts', 'Watches', 'Flats'],
+            ['Tshirts', 'Watches', 'Heels'],
+            ['Tops', 'Watches', 'Flats'],
+            ['Tops', 'Handbags', 'Heels'],
+            ['Tshirts', 'Handbags', 'Casual Shoes'],
+        ],
+        
+        'Capris': [
+            # Women only (4 items)
+            ['Tops', 'Watches', 'Sports Shoes'],
+            ['Tshirts', 'Caps', 'Sports Shoes'],
+        ],
+        
+        'Track Pants': [
+            ['Tshirts', 'Watches', 'Sports Shoes'],
+            ['Sweatshirts', 'Watches', 'Sports Shoes'],
+            ['Tops', 'Watches', 'Sports Shoes'],  # Women
+        ],
+        
+        # ===== SHOES =====
+        'Casual Shoes': [
+            ['Tshirts', 'Watches', 'Jeans'],
+            ['Shirts', 'Watches', 'Trousers'],
+            ['Tops', 'Watches', 'Skirts'],  # Women
+        ],
+        
+        'Formal Shoes': [
+            ['Shirts', 'Watches', 'Trousers'],
+            ['Shirts', 'Belts', 'Trousers'],
+        ],
+        
+        'Sports Shoes': [
+            ['Tshirts', 'Watches', 'Shorts'],
+            ['Tshirts', 'Watches', 'Track Pants'],
+            ['Sweatshirts', 'Caps', 'Shorts'],
+            ['Tops', 'Watches', 'Capris'],  # Women
+        ],
+        
+        'Heels': [
+            # Women only (3-4 items)
+            ['Dresses', 'Watches'],
+            ['Tshirts', 'Watches', 'Skirts'],
+            ['Tops', 'Handbags', 'Skirts'],
+        ],
+        
+        'Flats': [
+            # Women only (3-4 items)
+            ['Dresses', 'Watches'],
+            ['Tshirts', 'Watches', 'Skirts'],
+            ['Tops', 'Watches', 'Jeans'],
+            ['Dresses', 'Handbags'],
+        ],
+        
+        'Flip Flops': [
+            ['Tshirts', 'Watches', 'Jeans'],
+            ['Tshirts', 'Watches', 'Shorts'],
+            ['Dresses', 'Handbags'],  # Women
+        ],
+        
+        'Sandals': [
+            ['Tshirts', 'Watches', 'Shorts'],
+            ['Tshirts', 'Watches', 'Jeans'],
+            ['Tops', 'Watches', 'Skirts'],  # Women
+        ],
+        
+        # ===== ACCESSORIES =====
+        'Watches': [
+            ['Tshirts', 'Jeans', 'Casual Shoes'],
+            ['Shirts', 'Trousers', 'Formal Shoes'],
+            ['Tops', 'Skirts', 'Flats'],  # Women
+            ['Dresses', 'Heels'],  # Women
+        ],
+        
+        'Handbags': [
+            # Women only (3-4 items)
+            ['Dresses', 'Heels'],
+            ['Dresses', 'Flats'],
+            ['Tshirts', 'Skirts', 'Casual Shoes'],
+            ['Tops', 'Skirts', 'Heels'],
+        ],
+        
+        'Belts': [
+            ['Shirts', 'Trousers', 'Formal Shoes'],
+            ['Shirts', 'Jeans', 'Casual Shoes'],
+            ['Tshirts', 'Jeans', 'Casual Shoes'],
+        ],
+        
+        'Caps': [
+            ['Tshirts', 'Shorts', 'Sports Shoes'],
+            ['Sweatshirts', 'Track Pants', 'Sports Shoes'],
+            ['Tshirts', 'Capris', 'Sports Shoes'],  # Women
+        ],
+        
+        'Backpacks': [
+            ['Tshirts', 'Jeans', 'Casual Shoes'],
+            ['Sweatshirts', 'Trousers', 'Sports Shoes'],
+            ['Shirts', 'Jeans', 'Casual Shoes'],
+        ],
+        
+        # ===== ADDITIONAL MIXED RULES (Fallbacks for Kids/Simple outfits) =====
+        'Skirts': [
+            ['Tshirts', 'Watches', 'Flats'],
+            ['Tshirts', 'Watches', 'Heels'],
+            ['Tops', 'Watches', 'Flats'],
+            ['Tops', 'Handbags', 'Heels'],
+            ['Tshirts', 'Handbags', 'Casual Shoes'],
+            # New flexible rules
+            ['Tops', 'Casual Shoes'],
+            ['Tshirts', 'Sports Shoes'],
+            ['Tops', 'Sandals'],
+        ],
+        
+        'Jeans': [
+            ['Tshirts', 'Watches', 'Casual Shoes'],
+            ['Shirts', 'Watches', 'Casual Shoes'],
+            ['Tops', 'Watches', 'Casual Shoes'],
+            ['Tshirts', 'Watches', 'Sports Shoes'],
+            ['Sweaters', 'Watches', 'Casual Shoes'],
+            # New flexible rules
+            ['Tops', 'Sports Shoes'],
+            ['Tshirts', 'Sandals'],
+        ],
+        
+        'Shorts': [
+            ['Tshirts', 'Watches', 'Sports Shoes'],
+            ['Tshirts', 'Watches', 'Casual Shoes'],
+            ['Tops', 'Watches', 'Sports Shoes'],
+            ['Sweatshirts', 'Caps', 'Sports Shoes'],
+            # New flexible rules
+            ['Tops', 'Casual Shoes'],
+            ['Tops', 'Sandals'],
+        ],
+    }
 
     target_gender = str(payload_row.get('gender', '')).strip()
     

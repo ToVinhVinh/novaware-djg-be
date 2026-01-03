@@ -618,7 +618,6 @@ def build_outfit_suggestions(
         ],
         
         'Handbags': [
-            # Women only (3-4 items)
             ['Dresses', 'Heels'],
             ['Dresses', 'Flats'],
             ['Tshirts', 'Skirts', 'Casual Shoes'],
@@ -641,6 +640,52 @@ def build_outfit_suggestions(
             ['Tshirts', 'Jeans', 'Casual Shoes'],
             ['Sweatshirts', 'Trousers', 'Sports Shoes'],
             ['Shirts', 'Jeans', 'Casual Shoes'],
+        ],
+        
+        'Skirts': [
+            ['Tshirts', 'Watches', 'Flats'],
+            ['Tshirts', 'Watches', 'Heels'],
+            ['Tops', 'Watches', 'Flats'],
+            ['Tops', 'Handbags', 'Heels'],
+            ['Tshirts', 'Handbags', 'Casual Shoes'],
+            ['Tops', 'Casual Shoes', 'Watches'],
+            ['Tshirts', 'Casual Shoes', 'Caps'],
+            ['Shirts', 'Casual Shoes', 'Belts'],
+            ['Tshirts', 'Sports Shoes', 'Backpacks'],
+            ['Tops', 'Sandals', 'Handbags'],
+            ['Tshirts', 'Sandals', 'Watches'],
+            ['Tops', 'Casual Shoes'],
+            ['Tshirts', 'Casual Shoes'],
+        ],
+        
+        'Jeans': [
+            ['Tshirts', 'Watches', 'Casual Shoes'],
+            ['Shirts', 'Watches', 'Casual Shoes'],
+            ['Tops', 'Watches', 'Casual Shoes'],
+            ['Tshirts', 'Watches', 'Sports Shoes'],
+            ['Sweaters', 'Watches', 'Casual Shoes'],
+            # New flexible rules (aiming for 4 items)
+            ['Tops', 'Sports Shoes', 'Caps'],
+            ['Tshirts', 'Sports Shoes', 'Watches'],
+            ['Tshirts', 'Casual Shoes', 'Belts'],
+            ['Tops', 'Sandals', 'Handbags'],
+            ['Tshirts', 'Sandals', 'Watches'],
+        ],
+        
+        'Shorts': [
+            ['Tshirts', 'Watches', 'Sports Shoes'],
+            ['Tshirts', 'Watches', 'Casual Shoes'],
+            ['Tops', 'Watches', 'Sports Shoes'],
+            ['Sweatshirts', 'Caps', 'Sports Shoes'],
+            # New flexible rules
+            ['Tops', 'Casual Shoes', 'Watches'],
+            ['Tshirts', 'Casual Shoes', 'Caps'],
+            ['Tops', 'Sandals', 'Watches'],
+            ['Tshirts', 'Sandals', 'Caps'],
+            ['Tshirts', 'Sports Shoes', 'Backpacks'],
+            # Fallbacks
+            ['Tops', 'Casual Shoes'],
+            ['Tshirts', 'Sandals'],
         ],
     }
 
@@ -967,8 +1012,9 @@ def build_outfit_suggestions(
         
         # Try multiple rules until we find a complete outfit
         if complement_rules:
-            # Minimum items required (payload + at least 2 complementary items)
-            min_items = 3
+            # Minimum items required (payload + at least 3 complementary items = 4 total)
+            min_items = 4 
+            best_partial_products = [str(payload_product_id)]
             
             # Try each rule in order, starting from outfit_idx
             for rule_offset in range(len(complement_rules)):
@@ -992,12 +1038,17 @@ def build_outfit_suggestions(
                 if len(temp_products) >= min_items:
                     used = temp_used
                     ordered_products = temp_products
+                    best_partial_products = temp_products
                     break
+                
+                # Keep track of the best partial outfit found so far
+                if len(temp_products) > len(best_partial_products):
+                    best_partial_products = temp_products
             
-            # If still not enough items after trying all rules, use what we got
-            if len(ordered_products) < min_items and len(temp_products) > len(ordered_products):
-                used = temp_used
-                ordered_products = temp_products
+            # If still not enough items after trying all rules, use the best partial one
+            if len(ordered_products) < min_items:
+                ordered_products = best_partial_products
+                used = set(ordered_products)
         
         # Calculate outfit score based on complement compatibility
         base_score = sum(get_product_score(pid) for pid in ordered_products)
