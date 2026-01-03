@@ -8,8 +8,9 @@ A) Chạy Server (API cho Frontend)
    - PowerShell (Windows): `.\venv\Scripts\Activate.ps1`
    - macOS/Linux: `source venv/bin/activate`
    - Khi kích hoạt thành công sẽ thấy `(venv)` ở đầu dòng lệnh.
-5) Cài đặt thư viện: `pip install -r requirements.txt`
-6) Chạy server (Django):
+5) Nâng cấp pip: `python -m pip install --upgrade pip`
+6) Cài đặt thư viện: `pip install -r requirements.txt`
+7) Chạy server (Django):
 - Chạy: `python manage.py runserver`
 - Mặc định chạy trên port: `http://localhost:8000/`
 
@@ -21,7 +22,8 @@ B) Chạy ứng dụng Streamlit / app_recommendation
    - PowerShell (Windows): `.\venv\Scripts\Activate.ps1`
    - macOS/Linux: `source venv/bin/activate`
    - Khi kích hoạt thành công sẽ thấy `(venv)` ở đầu dòng lệnh.
-5) Cài đặt thư viện: `pip install -r requirements.txt`
-6) Chạy Streamlit App: 
+5) Nâng cấp pip: `python -m pip install --upgrade pip`
+6) Cài đặt thư viện: `pip install -r requirements.txt`
+7) Chạy Streamlit App: 
 - Chạy: `python app_recommendation.py`
 - Mặc định chạy trên port: http://localhost:8501/
