@@ -4,10 +4,10 @@ import sys
 
 url = "http://localhost:8000/api/v1/hybrid/recommend/"
 payload = {
-    "user_id": "6958625487f191d6db8fa4c7",
-    "current_product_id": "10002",
-    "top_k_personal": 10,
-    "top_k_outfit": 1
+    "user_id": "690bf40623150d4eec246874",
+    "current_product_id": 10604,
+    "top_k_personal": 5,
+    "top_k_outfit": 10
 }
 
 try:
@@ -34,8 +34,9 @@ try:
                 prod_details = p.get('product', {})
                 name = prod_details.get('productDisplayName', 'N/A')
                 article = prod_details.get('articleType', 'N/A')
+                gender = prod_details.get('gender', 'N/A')
                 pid = p.get('product_id')
-                print(f"  - [{pid}] {article}: {name}")
+                print(f"  - [{pid}] {article} ({gender}): {name}")
 
 except urllib.error.HTTPError as e:
     print(f"HTTP Error: {e.code} - {e.reason}")

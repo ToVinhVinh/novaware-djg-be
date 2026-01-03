@@ -696,10 +696,17 @@ def build_outfit_suggestions(
 
     def gender_allowed(gender_value: str) -> bool:
         gender_clean = str(gender_value).strip()
-        if not target_gender:
-            return True
         if not gender_clean:
             return False
+            
+        # If payload is Unisex, allow based on user's allowed genders (e.g. Men+Unisex or Women+Unisex)
+        if str(target_gender).strip().lower() == 'unisex':
+            return gender_clean in allowed_genders_for_user
+            
+        # Standard logic for gendered payload
+        if not target_gender:
+            return True
+            
         gender_lower = gender_clean.lower()
         target_lower = target_gender.lower()
         if gender_lower == target_lower:
